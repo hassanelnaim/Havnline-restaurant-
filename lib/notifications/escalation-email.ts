@@ -48,7 +48,7 @@ export async function sendEscalationEmail(businessId: string, callId: string): P
 
   try {
     await resend.emails.send({
-      from: "HavnLine Notifications <onboarding@resend.dev>",
+      from: "HavnLine Notifications <notifications@havnline.com>",
       to: recipients,
       subject: `${business.name}: a call needs your attention`,
       html: `
