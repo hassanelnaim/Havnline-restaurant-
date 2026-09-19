@@ -13,6 +13,16 @@ import { CalendarClock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
+// Real business-local date string (YYYY-MM-DD), not the server's UTC
+// date — the same pattern used in lib/ai/context.ts and systemPrompt.ts.
+// Comparing raw toDateString()/getTime() against a fixed 30-day window
+// (the old approach) is what made "today" drift by hours depending on
+// the server's clock; this compares actual calendar days in the
+// business's own timezone instead.
+function toBizDateString(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
 export default async function OverviewPage() {
   const [business, ai, calls, appointments, customers] = await Promise.all([
     getBusiness(), getAiReceptionist(), getCalls(), getAppointments(), getCustomers(),
@@ -20,13 +30,11 @@ export default async function OverviewPage() {
 
   const timezone = business.timezone || "America/New_York";
 
-  const today = new Date().toDateString();
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const callsToday = calls.filter((c) => new Date(c.started_at).toDateString() === today).length;
-  const appointmentsToday = appointments.filter((a) => a.date === todayISO && a.status !== "cancelled").length;
+  const todayInBizTz = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
-  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const escalationsLast30 = calls.filter((c) => c.outcome === "escalated" && new Date(c.started_at).getTime() >= thirtyDaysAgo).length;
+  const callsToday = calls.filter((c) => toBizDateString(c.started_at, timezone) === todayInBizTz).length;
+  const appointmentsToday = appointments.filter((a) => a.date === todayInBizTz && a.status !== "cancelled").length;
+  const escalationsToday = calls.filter((c) => c.outcome === "escalated" && toBizDateString(c.started_at, timezone) === todayInBizTz).length;
 
   const recentCalls = calls.slice(0, 5);
 
@@ -36,7 +44,7 @@ export default async function OverviewPage() {
   // the real Appointments page uses: date must be today or later, and
   // not cancelled, sorted so the soonest one shows first.
   const upcomingAppointments = appointments
-    .filter((a) => a.date >= todayISO && a.status !== "cancelled")
+    .filter((a) => a.date >= todayInBizTz && a.status !== "cancelled")
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
     .slice(0, 5);
 
@@ -68,10 +76,10 @@ export default async function OverviewPage() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-danger-soft text-danger"><AlertTriangle className="h-4 w-4" /></div>
           </div>
           <div className="mt-2 flex items-center gap-1.5 font-display text-[28px] font-semibold text-ink">
-            {escalationsLast30}
+            {escalationsToday}
             <ArrowUpRight className="h-4 w-4 text-text-faint opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
-          <div className="mt-1 text-[11.5px] text-text-faint">Last 30 days — click to view</div>
+          <div className="mt-1 text-[11.5px] text-text-faint">Today — click to view</div>
         </Link>
 
         <NewCustomersCard customers={customers} />

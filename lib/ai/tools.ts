@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCalendarProviderForBusiness } from "@/lib/integrations/calendar";
 import { smsClient } from "@/lib/integrations/sms";
+import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import type { BusinessContext } from "./context";
 
 export interface ToolContext {
@@ -162,6 +163,13 @@ async function reschedule_appointment(
 async function escalate_to_human(input: { reason: string; summary: string }, ctx: ToolContext): Promise<ToolResult> {
   const admin = createAdminClient();
   await admin.from("calls").update({ outcome: "escalated", escalation_reason: input.reason }).eq("id", ctx.callId);
+
+  // Fire-and-forget — a slow or failed email should never delay or
+  // break the actual call/response to the customer. sendEscalationEmail
+  // itself checks the business's notification_preferences.escalations
+  // flag and no-ops if it's off or Resend isn't configured.
+  sendEscalationEmail(ctx.businessId, ctx.callId).catch((err) => console.error("Escalation email failed:", err));
+
   return { logged: true, message: "This has been logged for the business to follow up on." };
 }
 
