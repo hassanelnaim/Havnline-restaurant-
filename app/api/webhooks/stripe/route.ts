@@ -53,6 +53,15 @@ export async function POST(request: NextRequest) {
           .from("businesses")
           .update({
             subscription_status: subscription.status,
+            // Real, not decorative: this is what lets the UI say
+            // "Canceling — access ends [date]" instead of looking
+            // identical to a business that never canceled. Stripe sets
+            // cancel_at_period_end to true the moment someone cancels
+            // through the portal, while status stays "active" until
+            // the period actually ends — so without this field, a
+            // canceled-but-still-active business is indistinguishable
+            // from one that's never canceled at all.
+            cancel_at_period_end: subscription.cancel_at_period_end,
             current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           })
           .eq("id", businessId);
@@ -64,7 +73,7 @@ export async function POST(request: NextRequest) {
       const subscription = event.data.object as Stripe.Subscription;
       const businessId = subscription.metadata?.business_id;
       if (businessId) {
-        await admin.from("businesses").update({ subscription_status: "canceled" }).eq("id", businessId);
+        await admin.from("businesses").update({ subscription_status: "canceled", cancel_at_period_end: false }).eq("id", businessId);
       }
       break;
     }

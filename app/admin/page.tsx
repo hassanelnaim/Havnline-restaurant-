@@ -17,7 +17,7 @@ export default async function PlatformAdminPage() {
   const admin = createAdminClient();
 
   const [{ data: businesses }, { count: totalCalls }, { count: totalAppointments }, { count: escalatedCalls }, totalSpentThisMonth] = await Promise.all([
-    admin.from("businesses").select("id, name, subscription_status, created_at, phone").order("created_at", { ascending: false }),
+    admin.from("businesses").select("id, name, subscription_status, cancel_at_period_end, current_period_end, created_at, phone").order("created_at", { ascending: false }),
     admin.from("calls").select("*", { count: "exact", head: true }),
     admin.from("appointments").select("*", { count: "exact", head: true }).neq("status", "cancelled"),
     admin.from("calls").select("*", { count: "exact", head: true }).eq("outcome", "escalated"),
@@ -110,7 +110,14 @@ export default async function PlatformAdminPage() {
                     <span className="relative group-hover:text-brand-dark">{b.name}</span>
                   </td>
                   <td className="py-3 pr-4 font-mono text-text-muted"><span className="relative">{b.phone || "—"}</span></td>
-                  <td className="py-3 pr-4"><span className={`relative rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[b.subscription_status] || STATUS_STYLES.none}`}>{b.subscription_status}</span></td>
+                  <td className="py-3 pr-4">
+                    <span className={`relative rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[b.subscription_status] || STATUS_STYLES.none}`}>{b.subscription_status}</span>
+                    {b.cancel_at_period_end && (
+                      <span className="relative ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700" title={b.current_period_end ? `Access ends ${formatDate(b.current_period_end)}` : undefined}>
+                        Canceling{b.current_period_end ? ` — ends ${formatDate(b.current_period_end)}` : ""}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 pr-4 text-text-muted"><span className="relative">{formatDate(b.created_at)}</span></td>
                   <td className="py-3 pr-4 text-right">
                     <ChevronRight className="relative inline h-4 w-4 text-text-faint group-hover:text-text" />
