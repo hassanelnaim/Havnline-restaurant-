@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HavnLine — AI Receptionist for Small Business",
-  description: "HavnLine answers your phones, books appointments, and knows your business — so you never miss a call again.",
+  description: "HavnLine answers your restaurant's phone, takes real orders off your menu, and sends them to your kitchen — so you never miss a call again.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

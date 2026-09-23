@@ -3,7 +3,7 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { mockIntegrations } from "@/lib/mock/data";
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 
-const ALL_PROVIDERS: IntegrationProvider[] = ["google_calendar", "icloud_calendar", "twilio", "sms", "voice_provider"];
+const ALL_PROVIDERS: IntegrationProvider[] = ["spoton", "twilio", "sms", "voice_provider"];
 
 const COMING_SOON: IntegrationProvider[] = [];
 

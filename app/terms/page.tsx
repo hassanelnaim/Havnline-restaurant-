@@ -27,13 +27,13 @@ export default function TermsPage() {
         </div>
 
         <section className="mt-8 space-y-5 text-[14px] leading-relaxed text-text">
-          <p>These Terms of Service ("Terms") govern your use of HavnLine (the "Service"), an AI receptionist platform that answers phone calls, answers questions, and books appointments on behalf of the business that subscribes to it. By creating an account or using the Service, you agree to these Terms.</p>
+          <p>These Terms of Service ("Terms") govern your use of HavnLine (the "Service"), an AI order-taking platform that answers phone calls, answers questions, and places restaurant orders on behalf of the business that subscribes to it. By creating an account or using the Service, you agree to these Terms.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">1. Your account</h2>
           <p>You must provide accurate information when creating an account and keep your login credentials secure. You're responsible for all activity that happens under your account.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">2. Subscription &amp; billing</h2>
           <p>The Service is offered as a monthly subscription, billed through our payment processor (Stripe). New subscriptions may include a free trial period; unless you cancel before the trial ends, you will be automatically charged. Cancel anytime through Billing — no partial-period refunds.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">3. What the AI does — and its limits</h2>
-          <p>Your AI receptionist acts based on the information you provide. You're responsible for keeping it accurate. Review calls, appointments, and escalations regularly rather than treating the AI as infallible.</p>
+          <p>Your AI order-taker acts based on the information you provide. You're responsible for keeping your menu accurate. Review calls, orders, and escalations regularly rather than treating the AI as infallible.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">4. Call recording &amp; monitoring notice</h2>
           <p>The Service records, transcribes, and stores phone conversations. <strong>You are responsible for complying with call recording and monitoring laws in your jurisdiction.</strong></p>
           <h2 className="font-display text-[18px] font-semibold text-ink">5. SMS messaging</h2>

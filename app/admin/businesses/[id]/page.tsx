@@ -1,7 +1,7 @@
 import { BusinessActions } from "@/components/admin/business-actions";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bot, DollarSign, Phone, CalendarCheck } from "lucide-react";
+import { ArrowLeft, Bot, DollarSign, Phone, ClipboardList } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBusinessCostBreakdown } from "@/lib/usage/tracking";
 import { formatDate, formatDateTime, formatDuration } from "@/lib/format";
@@ -13,10 +13,10 @@ export const dynamic = "force-dynamic";
 export default async function PlatformBusinessDetailPage({ params }: { params: { id: string } }) {
   const admin = createAdminClient();
 
-  const [{ data: business }, { data: calls }, { data: appointments }, { data: aiReceptionist }] = await Promise.all([
+  const [{ data: business }, { data: calls }, { data: orders }, { data: aiReceptionist }] = await Promise.all([
     admin.from("businesses").select("*").eq("id", params.id).maybeSingle(),
     admin.from("calls").select("*").eq("business_id", params.id).order("started_at", { ascending: false }).limit(50),
-    admin.from("appointments").select("*").eq("business_id", params.id).order("date", { ascending: false }).limit(50),
+    admin.from("orders").select("*").eq("business_id", params.id).neq("status", "building").order("created_at", { ascending: false }).limit(50),
     admin.from("ai_receptionists").select("*").eq("business_id", params.id).maybeSingle(),
   ]);
 
@@ -25,7 +25,7 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
   const costs = await getBusinessCostBreakdown(params.id);
   const timezone = business.timezone || "America/New_York";
   const callCount = calls?.length || 0;
-  const appointmentCount = appointments?.filter((a) => a.status !== "cancelled").length || 0;
+  const orderCount = orders?.filter((o) => o.status !== "cancelled").length || 0;
 
   return (
     <div>
@@ -54,7 +54,7 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="calls">Calls ({callCount})</TabsTrigger>
-          <TabsTrigger value="appointments">Appointments ({appointmentCount})</TabsTrigger>
+          <TabsTrigger value="orders">Orders ({orderCount})</TabsTrigger>
           <TabsTrigger value="ai">AI Config</TabsTrigger>
         </TabsList>
 
@@ -65,8 +65,8 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
               <div className="mt-2 font-display text-[26px] font-semibold text-ink">{callCount}</div>
             </div>
             <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-              <div className="text-[12.5px] text-text-muted">Appointments booked</div>
-              <div className="mt-2 font-display text-[26px] font-semibold text-ink">{appointmentCount}</div>
+              <div className="text-[12.5px] text-text-muted">Orders placed</div>
+              <div className="mt-2 font-display text-[26px] font-semibold text-ink">{orderCount}</div>
             </div>
           </div>
 
@@ -126,22 +126,22 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
           </div>
         </TabsContent>
 
-        <TabsContent value="appointments">
+        <TabsContent value="orders">
           <div className="rounded-2xl border border-border bg-card shadow-card">
-            {(!appointments || appointments.length === 0) ? (
-              <div className="p-8 text-center text-[13px] text-text-muted">No appointments yet.</div>
+            {(!orders || orders.length === 0) ? (
+              <div className="p-8 text-center text-[13px] text-text-muted">No orders yet.</div>
             ) : (
               <div className="divide-y divide-border-soft">
-                {appointments.map((apt) => (
-                  <div key={apt.id} className="flex items-center justify-between px-5 py-3.5">
+                {orders.map((order) => (
+                  <div key={order.id} className="flex items-center justify-between px-5 py-3.5">
                     <div className="flex items-center gap-3">
-                      <CalendarCheck className="h-4 w-4 text-text-faint" />
+                      <ClipboardList className="h-4 w-4 text-text-faint" />
                       <div>
-                        <div className="text-[13px] font-medium text-text">{apt.customer_name} — {apt.service_name}</div>
-                        <div className="text-[11.5px] text-text-faint">{apt.date} at {apt.time}</div>
+                        <div className="text-[13px] font-medium text-text">{order.customer_name || "Phone order"} — ${(order.total_cents / 100).toFixed(2)}</div>
+                        <div className="text-[11.5px] text-text-faint">{formatDateTime(order.created_at, timezone)}{order.submit_error ? ` · ${order.submit_error}` : ""}</div>
                       </div>
                     </div>
-                    <span className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${apt.status === "cancelled" ? "bg-danger-soft text-danger" : "bg-success-soft text-success"}`}>{apt.status}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${order.status === "cancelled" || order.submit_error ? "bg-danger-soft text-danger" : order.status === "submitted" ? "bg-success-soft text-success" : "bg-border-soft text-text-muted"}`}>{order.status}</span>
                   </div>
                 ))}
               </div>

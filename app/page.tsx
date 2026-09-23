@@ -1,8 +1,7 @@
 import Link from "next/link";
 import {
   ArrowRight, Phone, PhoneMissed, PhoneCall, MessageSquareText, BookOpen, ShieldCheck, Voicemail,
-  Mic2, CalendarClock, Check, Globe, Wrench, Scissors, Stethoscope, Scale, Hammer,
-  UtensilsCrossed, HeartPulse, Star, Sparkles,
+  Mic2, ClipboardList, Check, Globe, UtensilsCrossed, Pizza, Coffee, Beef, Soup, Star, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/brand/logo";
@@ -11,23 +10,20 @@ import { getApprovedReviews } from "@/lib/data/reviews";
 export const dynamic = "force-dynamic";
 
 const FEATURES = [
-  { icon: Phone, title: "Answers every call, day or night", detail: "Picks up 24/7 and knows your business." },
-  { icon: CalendarClock, title: "Books real appointments", detail: "Checks your real calendar, only offers open times." },
-  { icon: Globe, title: "Learns your business in minutes", detail: "Paste your website — services and FAQs import automatically." },
-  { icon: ShieldCheck, title: "Knows when to hand off", detail: "Escalates refunds and complaints to you, handles the rest itself." },
-  { icon: MessageSquareText, title: "Texts a confirmation automatically", detail: "Every booking gets a real SMS, no extra step for you." },
+  { icon: Phone, title: "Answers every call, day or night", detail: "Picks up 24/7 and takes real phone orders." },
+  { icon: ClipboardList, title: "Takes the full order", detail: "Walks callers through your real menu, add-ons and all." },
+  { icon: Globe, title: "Learns your menu in minutes", detail: "Paste your website or a photo of your menu — items and prices import automatically." },
+  { icon: UtensilsCrossed, title: "Sends orders to your kitchen", detail: "Connects to SpotOn so a phone order reaches your kitchen printer, same as your online orders." },
+  { icon: MessageSquareText, title: "Texts a confirmation automatically", detail: "Every order gets a real SMS, no extra step for you." },
   { icon: Mic2, title: "Sounds like a real person", detail: "Natural voices, not a robotic phone tree." },
 ];
 
-const INDUSTRIES = [
-  { icon: Wrench, label: "Auto Repair" },
-  { icon: Scissors, label: "Salon" },
-  { icon: HeartPulse, label: "Dental Practice" },
-  { icon: Stethoscope, label: "Medical Practice" },
-  { icon: Scale, label: "Law Firm" },
-  { icon: Hammer, label: "Home Services" },
-  { icon: UtensilsCrossed, label: "Restaurant" },
-  { icon: Sparkles, label: "Spa" },
+const CUISINES = [
+  { icon: Pizza, label: "Pizzerias" },
+  { icon: Beef, label: "Burger Joints" },
+  { icon: Soup, label: "Casual Dining" },
+  { icon: Coffee, label: "Cafes" },
+  { icon: UtensilsCrossed, label: "Any Restaurant" },
 ];
 
 const STEPS = [
@@ -102,14 +98,14 @@ export default async function LandingPage() {
             <div>
               <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-muted">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-ring" />
-                Now answering calls for small businesses
+                Now taking phone orders for restaurants
               </span>
               <h1 className="mt-5 max-w-xl font-display text-[34px] font-semibold leading-[1.1] text-ink sm:text-[48px]">
-                An AI receptionist that actually knows your business.
+                An AI order-taker that actually knows your menu.
               </h1>
               <p className="mt-4 max-w-md text-[14px] leading-relaxed text-text-muted">
-                Answers your phone, books real appointments, and hands off anything it shouldn&apos;t handle
-                alone — day or night.
+                Answers your phone, takes the full order off your real menu, and sends it straight to your
+                kitchen printer — day or night, no waitress required.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
                 <Button variant="brand" size="lg" asChild>
@@ -145,7 +141,7 @@ export default async function LandingPage() {
                   <div>
                     <div className="text-[13px] font-medium text-text">9:47 PM — answered by Alex</div>
                     <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-medium text-brand-dark">
-                      <Check className="h-3.5 w-3.5" /> Booked, confirmation texted
+                      <Check className="h-3.5 w-3.5" /> Order placed, sent to the kitchen
                     </div>
                   </div>
                 </div>
@@ -156,10 +152,10 @@ export default async function LandingPage() {
 
         <section className="border-y border-border bg-card py-14">
           <div className="mx-auto max-w-5xl px-6 text-center">
-            <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Built for real businesses</p>
-            <h2 className="mt-2.5 font-display text-[22px] font-semibold text-ink">If you take appointments by phone, this is for you.</h2>
+            <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Built for restaurants</p>
+            <h2 className="mt-2.5 font-display text-[22px] font-semibold text-ink">If you take phone orders, this is for you.</h2>
             <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {INDUSTRIES.map((ind) => (
+              {CUISINES.map((ind) => (
                 <div key={ind.label} className="flex flex-col items-center gap-2.5 rounded-2xl border border-border bg-paper px-4 py-6">
                   <ind.icon className="h-7 w-7 text-brand" />
                   <span className="text-[14px] font-semibold text-ink">{ind.label}</span>

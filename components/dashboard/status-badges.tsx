@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 
 export function CallOutcomeBadge({ outcome }: { outcome: string }) {
   const map: Record<string, { label: string; variant: "brand" | "success" | "danger" | "neutral" }> = {
-    appointment_booked: { label: "Booked", variant: "success" },
+    order_placed: { label: "Order placed", variant: "success" },
     question_answered: { label: "Answered", variant: "brand" },
     escalated: { label: "Escalated", variant: "danger" },
     no_action: { label: "No action", variant: "neutral" },
@@ -12,13 +12,13 @@ export function CallOutcomeBadge({ outcome }: { outcome: string }) {
   return <Badge variant={entry.variant}>{entry.label}</Badge>;
 }
 
-export function AppointmentStatusBadge({ status }: { status: string }) {
+export function OrderStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: "brand" | "success" | "danger" | "neutral" }> = {
-    confirmed: { label: "Confirmed", variant: "success" },
-    pending: { label: "Pending", variant: "brand" },
+    building: { label: "Building", variant: "neutral" },
+    confirmed: { label: "Confirmed (not sent)", variant: "brand" },
+    submitted: { label: "Sent to kitchen", variant: "success" },
+    failed: { label: "Failed to send", variant: "danger" },
     cancelled: { label: "Cancelled", variant: "danger" },
-    completed: { label: "Completed", variant: "neutral" },
-    no_show: { label: "No-show", variant: "danger" },
   };
   const entry = map[status] || { label: status, variant: "neutral" as const };
   return <Badge variant={entry.variant}>{entry.label}</Badge>;

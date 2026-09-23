@@ -93,7 +93,7 @@ export async function updateAiEmployeeAction(input: {
   personality: Personality;
   responsibilities: AiResponsibilities;
   voiceId: VoiceId;
-  bookingRules: string;
+  orderingRules: string;
   escalationRules: string;
   customVoice?: { providerVoiceRef: string; providerVoiceName: string } | null;
 }): Promise<ActionResult> {
@@ -112,7 +112,7 @@ export async function updateAiEmployeeAction(input: {
       name: input.name,
       personality: input.personality,
       responsibilities: input.responsibilities,
-      booking_rules: input.bookingRules || null,
+      ordering_rules: input.orderingRules || null,
       escalation_rules: input.escalationRules || null,
     })
     .eq("business_id", businessId);

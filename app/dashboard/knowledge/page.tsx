@@ -1,5 +1,4 @@
 import { getKnowledgeItems } from "@/lib/data/knowledge";
-import { getServices } from "@/lib/data/business";
 import { getPromotions } from "@/lib/data/promotions";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { KnowledgeClient } from "@/components/dashboard/knowledge-client";
@@ -7,12 +6,12 @@ import { KnowledgeClient } from "@/components/dashboard/knowledge-client";
 export const dynamic = "force-dynamic";
 
 export default async function KnowledgePage() {
-  const [items, services, promotions] = await Promise.all([getKnowledgeItems(), getServices(), getPromotions()]);
+  const [items, promotions] = await Promise.all([getKnowledgeItems(), getPromotions()]);
 
   return (
     <div>
-      <PageHeader title="Knowledge" description="What your AI receptionist knows about your business, services, and policies." />
-      <KnowledgeClient initialItems={items} initialServices={services} initialPromotions={promotions} />
+      <PageHeader title="Knowledge" description="What your AI order-taker knows about your business and policies. For menu items and prices, see the Menu page." />
+      <KnowledgeClient initialItems={items} initialPromotions={promotions} />
     </div>
   );
 }

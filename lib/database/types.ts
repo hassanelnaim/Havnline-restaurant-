@@ -19,6 +19,18 @@ export interface DbBusiness {
   cancel_at_period_end: boolean;
   current_period_end: ISODateTime | null;
   notification_preferences: { calls: boolean; escalations: boolean; digest: boolean } | null;
+
+  // SpotOn POS connection. A business can take AI phone orders without
+  // this connected — orders just sit at status "confirmed" instead of
+  // "submitted" until the connection exists, same as any other
+  // integration that hasn't been set up yet.
+  spoton_location_id: string | null;
+  spoton_access_token: string | null;
+  spoton_refresh_token: string | null;
+  spoton_token_expires_at: ISODateTime | null;
+  spoton_connected_at: ISODateTime | null;
+  spoton_menu_synced_at: ISODateTime | null;
+
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -26,10 +38,10 @@ export interface DbBusiness {
 export type OnboardingStep =
   | "business_info"
   | "hours"
-  | "services"
+  | "menu"
   | "ai_receptionist"
   | "voice"
-  | "calendar"
+  | "spoton"
   | "complete";
 
 export interface DbBusinessMember {
@@ -38,18 +50,6 @@ export interface DbBusinessMember {
   user_id: UUID;
   role: "owner" | "admin" | "member";
   created_at: ISODateTime;
-}
-
-export interface DbService {
-  id: UUID;
-  business_id: UUID;
-  name: string;
-  description: string | null;
-  price_cents: number;
-  duration_minutes: number;
-  is_active: boolean;
-  created_at: ISODateTime;
-  updated_at: ISODateTime;
 }
 
 export type Weekday = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
@@ -63,13 +63,156 @@ export interface DbBusinessHours {
   close_time: string | null;
 }
 
+// --------------------------------------------------------------------------
+// Menu
+// --------------------------------------------------------------------------
+
+export interface DbMenuCategory {
+  id: UUID;
+  business_id: UUID;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export type MenuItemSource = "manual" | "import" | "spoton_sync";
+
+export interface DbMenuItem {
+  id: UUID;
+  business_id: UUID;
+  category_id: UUID | null;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  image_url: string | null;
+  is_active: boolean;
+  sort_order: number;
+  // "manual"/"import" items aren't orderable by the AI until
+  // spoton_item_id is set — see the migration comment for why.
+  source: MenuItemSource;
+  spoton_item_id: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface DbModifierGroup {
+  id: UUID;
+  business_id: UUID;
+  menu_item_id: UUID;
+  name: string;
+  is_required: boolean;
+  min_select: number;
+  max_select: number;
+  sort_order: number;
+  spoton_modifier_group_id: string | null;
+  created_at: ISODateTime;
+}
+
+export interface DbModifier {
+  id: UUID;
+  business_id: UUID;
+  modifier_group_id: UUID;
+  name: string;
+  price_delta_cents: number;
+  is_active: boolean;
+  sort_order: number;
+  spoton_modifier_id: string | null;
+  created_at: ISODateTime;
+}
+
+// A menu item with its modifier groups/modifiers attached — the shape
+// the AI's get_menu tool and the menu-management UI both work with.
+export interface MenuItemWithModifiers extends DbMenuItem {
+  modifier_groups: (DbModifierGroup & { modifiers: DbModifier[] })[];
+}
+
+// --------------------------------------------------------------------------
+// Orders
+// --------------------------------------------------------------------------
+
+export type OrderStatus = "building" | "confirmed" | "submitted" | "failed" | "cancelled";
+
+export interface DbOrder {
+  id: UUID;
+  business_id: UUID;
+  call_id: UUID | null;
+  customer_id: UUID | null;
+  customer_name: string | null;
+  phone: string | null;
+  status: OrderStatus;
+  fulfillment_type: "pickup";
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  special_instructions: string | null;
+  spoton_order_id: string | null;
+  submitted_at: ISODateTime | null;
+  submit_error: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface DbOrderItem {
+  id: UUID;
+  order_id: UUID;
+  menu_item_id: UUID | null;
+  item_name: string;
+  unit_price_cents: number;
+  quantity: number;
+  notes: string | null;
+  created_at: ISODateTime;
+}
+
+export interface DbOrderItemModifier {
+  id: UUID;
+  order_item_id: UUID;
+  modifier_id: UUID | null;
+  modifier_name: string;
+  price_delta_cents: number;
+}
+
+export interface OrderWithItems extends DbOrder {
+  items: (DbOrderItem & { modifiers: DbOrderItemModifier[] })[];
+}
+
+// --------------------------------------------------------------------------
+// Calls / AI (unchanged from the service-business model — a call is still
+// a call regardless of what the AI does during it)
+// --------------------------------------------------------------------------
+
+export interface DbCall {
+  id: UUID;
+  business_id: UUID;
+  customer_id: UUID | null;
+  customer_name: string;
+  phone: string;
+  started_at: ISODateTime;
+  duration_seconds: number;
+  outcome: "order_placed" | "question_answered" | "escalated" | "no_action" | "missed";
+  status: "completed" | "in_progress" | "missed" | "voicemail";
+  handled_by: "ai" | "human";
+  escalation_reason: string | null;
+  recording_url: string | null;
+  created_at: ISODateTime;
+}
+
+export interface DbCallMessage {
+  id: UUID;
+  call_id: UUID;
+  role: "customer" | "ai" | "system";
+  content: string;
+  tool_call: string | null;
+  created_at: ISODateTime;
+}
+
 export type Personality = "professional" | "friendly" | "warm" | "energetic" | "calm";
 
 export interface AiResponsibilities {
   answer_questions: boolean;
-  schedule_appointments: boolean;
-  reschedule_appointments: boolean;
-  cancel_appointments: boolean;
+  take_orders: boolean;
+  modify_orders: boolean;
   collect_customer_info: boolean;
   escalate_to_human: boolean;
 }
@@ -82,7 +225,7 @@ export interface DbAiReceptionist {
   responsibilities: AiResponsibilities;
   status: "online" | "offline";
   escalation_rules: string | null;
-  booking_rules: string | null;
+  ordering_rules: string | null;
   generated_instructions: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -113,49 +256,7 @@ export interface DbCustomer {
   updated_at: ISODateTime;
 }
 
-export interface DbCall {
-  id: UUID;
-  business_id: UUID;
-  customer_id: UUID | null;
-  customer_name: string;
-  phone: string;
-  started_at: ISODateTime;
-  duration_seconds: number;
-  outcome: "appointment_booked" | "question_answered" | "escalated" | "no_action" | "missed";
-  status: "completed" | "in_progress" | "missed" | "voicemail";
-  handled_by: "ai" | "human";
-  escalation_reason: string | null;
-  recording_url: string | null;
-  created_at: ISODateTime;
-}
-
-export interface DbCallMessage {
-  id: UUID;
-  call_id: UUID;
-  role: "customer" | "ai" | "system";
-  content: string;
-  tool_call: string | null;
-  created_at: ISODateTime;
-}
-
-export interface DbAppointment {
-  id: UUID;
-  business_id: UUID;
-  customer_id: UUID | null;
-  customer_name: string;
-  phone: string;
-  service_id: UUID | null;
-  service_name: string;
-  date: ISODate;
-  time: string;
-  status: "confirmed" | "pending" | "cancelled" | "completed" | "no_show";
-  created_via: "ai" | "human";
-  sms_consent: boolean;
-  reminder_sent_at: ISODateTime | null;
-  created_at: ISODateTime;
-}
-
-export type KnowledgeCategory = "business_info" | "services" | "pricing" | "faq" | "policy" | "custom";
+export type KnowledgeCategory = "business_info" | "menu" | "faq" | "policy" | "custom";
 
 export interface DbKnowledgeItem {
   id: UUID;
@@ -181,9 +282,7 @@ export interface DbPromotion {
 }
 
 export type IntegrationProvider =
-  | "google_calendar"
-  | "icloud_calendar"
-  | "microsoft_outlook"
+  | "spoton"
   | "twilio"
   | "sms"
   | "voice_provider";

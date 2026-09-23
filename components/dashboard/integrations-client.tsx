@@ -1,23 +1,20 @@
 "use client";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CalendarDays, PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, Apple } from "lucide-react";
+import { UtensilsCrossed, PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, RefreshCw } from "lucide-react";
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 import { provisionPhoneNumberAction, changePhoneNumberAction } from "@/app/actions/business";
-import { connectICloudCalendarAction, disconnectICloudCalendarAction } from "@/app/actions/icloud-calendar";
+import { connectSpotOnAction, disconnectSpotOnAction, syncSpotOnMenuAction } from "@/app/actions/spoton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { IntegrationStatusBadge } from "@/components/dashboard/status-badges";
 
-const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof CalendarDays }> = {
-  google_calendar: { name: "Google Calendar", description: "Sync availability and appointments both ways.", icon: CalendarDays },
-  icloud_calendar: { name: "iCloud Calendar", description: "Sync with your Apple Calendar using an app-specific password.", icon: Apple },
-  microsoft_outlook: { name: "Microsoft Outlook", description: "Sync availability and appointments both ways.", icon: CalendarDays },
+const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof UtensilsCrossed }> = {
+  spoton: { name: "SpotOn POS", description: "Sends orders your AI takes straight to your kitchen printer.", icon: UtensilsCrossed },
   twilio: { name: "Phone (Twilio)", description: "Powers your HavnLine phone number and inbound calls.", icon: PhoneCall },
   sms: { name: "SMS confirmations", description: "Sent automatically from your HavnLine number once you have one.", icon: MessageSquare },
-  voice_provider: { name: "Receptionist voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
+  voice_provider: { name: "Order-taker voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
 };
 
 export function IntegrationsClient({ initialIntegrations }: { initialIntegrations: DbIntegration[] }) {
@@ -28,15 +25,15 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
   const [copied, setCopied] = useState(false);
   const [, startTransition] = useTransition();
 
-  const [icloudExpanded, setIcloudExpanded] = useState(false);
-  const [appleId, setAppleId] = useState("");
-  const [appPassword, setAppPassword] = useState("");
-  const [icloudConnecting, setIcloudConnecting] = useState(false);
-  const [icloudError, setIcloudError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   const twilioIntegration = integrations.find((i) => i.provider === "twilio");
   const twilioConnected = twilioIntegration?.status === "connected";
   const phoneNumber = (twilioIntegration?.metadata as Record<string, unknown> | null)?.phone_number as string | undefined;
+
+  const spotonIntegration = integrations.find((i) => i.provider === "spoton");
+  const spotonConnected = spotonIntegration?.status === "connected";
 
   function handleGetNumber() {
     setProvisioning(true);
@@ -60,22 +57,20 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
     });
   }
 
-  function handleConnectICloud() {
-    setIcloudConnecting(true);
-    setIcloudError(null);
+  function handleDisconnectSpotOn() {
     startTransition(async () => {
-      const result = await connectICloudCalendarAction(appleId, appPassword);
-      setIcloudConnecting(false);
-      if (!result.success) { setIcloudError(result.error || "Could not connect iCloud Calendar."); return; }
-      setAppleId(""); setAppPassword(""); setIcloudExpanded(false);
-      setIntegrations((prev) => prev.map((i) => (i.provider === "icloud_calendar" ? { ...i, status: "connected" } : i)));
+      await disconnectSpotOnAction();
+      setIntegrations((prev) => prev.map((i) => (i.provider === "spoton" ? { ...i, status: "not_connected" } : i)));
     });
   }
 
-  function handleDisconnectICloud() {
+  function handleSyncMenu() {
+    setSyncing(true);
+    setSyncMsg(null);
     startTransition(async () => {
-      await disconnectICloudCalendarAction();
-      setIntegrations((prev) => prev.map((i) => (i.provider === "icloud_calendar" ? { ...i, status: "not_connected" } : i)));
+      const result = await syncSpotOnMenuAction();
+      setSyncing(false);
+      setSyncMsg(result.success ? `Synced ${result.itemCount} item${result.itemCount === 1 ? "" : "s"} from SpotOn.` : result.error || "Sync failed.");
     });
   }
 
@@ -86,7 +81,6 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
     setTimeout(() => setCopied(false), 1500);
   }
 
-  const calendarIntegrations = integrations.filter((i) => i.provider === "google_calendar" || i.provider === "icloud_calendar");
   const commsIntegrations = integrations.filter((i) => i.provider === "twilio" || i.provider === "sms" || i.provider === "voice_provider");
 
   function renderCard(integration: DbIntegration) {
@@ -95,7 +89,7 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
     const phoneNum = integration.provider === "twilio" ? (integration.metadata as Record<string, unknown> | null)?.phone_number : null;
 
     return (
-      <Card key={integration.id} className={integration.provider === "icloud_calendar" && icloudExpanded ? "sm:col-span-2" : undefined}>
+      <Card key={integration.id}>
         <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><Icon className="h-4.5 w-4.5" /></div>
@@ -106,17 +100,7 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
             </div>
           </div>
 
-          {integration.provider === "google_calendar" ? (
-            <Button size="sm" variant={integration.status === "connected" ? "outline" : "brand"} asChild>
-              <a href="/api/auth/google-calendar">{integration.status === "connected" ? "Reconnect" : "Connect"}</a>
-            </Button>
-          ) : integration.provider === "icloud_calendar" ? (
-            integration.status === "connected" ? (
-              <Button size="sm" variant="outline" onClick={handleDisconnectICloud}>Disconnect</Button>
-            ) : (
-              <Button size="sm" variant="brand" onClick={() => setIcloudExpanded((v) => !v)}>{icloudExpanded ? "Cancel" : "Connect"}</Button>
-            )
-          ) : integration.provider === "twilio" ? (
+          {integration.provider === "twilio" ? (
             <div className="flex flex-wrap items-center gap-2">
               <Input placeholder="Area code" value={areaCode} onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))} className="w-24" />
               <Button size="sm" variant={twilioConnected ? "outline" : "brand"} onClick={twilioConnected ? handleChangeNumber : handleGetNumber} disabled={provisioning}>
@@ -127,25 +111,8 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
             <Button size="sm" variant="outline" asChild><Link href="/dashboard/ai-employee">Choose voice</Link></Button>
           ) : integration.provider === "sms" ? (
             <span className="text-[12px] text-text-faint">{integration.status === "connected" ? "Automatic" : "Needs a phone number first"}</span>
-          ) : (
-            <Button size="sm" variant="brand" disabled={integration.status === "coming_soon"}>{integration.status === "coming_soon" ? "Coming soon" : "Connect"}</Button>
-          )}
+          ) : null}
         </CardContent>
-
-        {integration.provider === "icloud_calendar" && icloudExpanded && (
-          <CardContent className="border-t border-border-soft pt-4">
-            {icloudError && <div className="mb-3 rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{icloudError}</div>}
-            <div className="rounded-lg border border-border bg-paper px-3.5 py-3 text-[12px] leading-relaxed text-text-muted">
-              Apple requires a separate <strong>app-specific password</strong> — not your real Apple ID password. Generate one at{" "}
-              <a href="https://appleid.apple.com" target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">appleid.apple.com</a> → Sign-In and Security → App-Specific Passwords.
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div><Label>Apple ID</Label><Input className="mt-1.5" type="email" value={appleId} onChange={(e) => setAppleId(e.target.value)} /></div>
-              <div><Label>App-specific password</Label><Input className="mt-1.5" type="password" value={appPassword} onChange={(e) => setAppPassword(e.target.value)} /></div>
-            </div>
-            <Button size="sm" variant="brand" className="mt-3" onClick={handleConnectICloud} disabled={icloudConnecting}>{icloudConnecting ? "Connecting…" : "Connect iCloud Calendar"}</Button>
-          </CardContent>
-        )}
       </Card>
     );
   }
@@ -155,9 +122,34 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
       {phoneError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{phoneError}</div>}
 
       <div>
-        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Calendar</h3>
-        <div className="grid gap-3 sm:grid-cols-2">{calendarIntegrations.map(renderCard)}</div>
+        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Point of sale</h3>
+        <Card>
+          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><UtensilsCrossed className="h-4.5 w-4.5" /></div>
+              <div>
+                <div className="text-[13.5px] font-semibold text-ink">SpotOn POS</div>
+                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">This is what lets an order your AI takes reach your kitchen printer — the same path your existing online orders already take.</p>
+                <div className="mt-2">{spotonIntegration && <IntegrationStatusBadge status={spotonIntegration.status} />}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {spotonConnected ? (
+                <>
+                  <Button size="sm" variant="outline" onClick={handleSyncMenu} disabled={syncing}><RefreshCw className="h-3.5 w-3.5" /> {syncing ? "Syncing…" : "Sync menu"}</Button>
+                  <Button size="sm" variant="ghost" onClick={handleDisconnectSpotOn}>Disconnect</Button>
+                </>
+              ) : (
+                <form action={connectSpotOnAction}>
+                  <Button size="sm" variant="brand" type="submit">Connect SpotOn</Button>
+                </form>
+              )}
+            </div>
+          </CardContent>
+          {syncMsg && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">{syncMsg}</CardContent>}
+        </Card>
       </div>
+
       <div>
         <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Phone, SMS &amp; Voice</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{commsIntegrations.map(renderCard)}</div>
@@ -191,7 +183,7 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
       <Card>
         <CardContent className="p-5">
           <div className="flex items-center gap-2 text-[13.5px] font-semibold text-ink"><Globe className="h-4 w-4 text-text-faint" /> Import knowledge from your website</div>
-          <p className="mt-2 text-[13px] text-text-muted">Manage this from Knowledge → Import.</p>
+          <p className="mt-2 text-[13px] text-text-muted">Manage this from Knowledge → Import. For your menu specifically, use the Menu page.</p>
           <Button size="sm" variant="outline" className="mt-3" asChild><Link href="/dashboard/knowledge">Go to Knowledge → Import</Link></Button>
         </CardContent>
       </Card>

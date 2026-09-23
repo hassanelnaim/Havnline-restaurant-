@@ -10,12 +10,26 @@ export interface OnboardingHoursDraft {
   closeTime: string;
 }
 
-export interface OnboardingServiceDraft {
+export interface OnboardingModifierOptionDraft {
+  id: string;
+  name: string;
+  priceDelta: string;
+}
+
+export interface OnboardingModifierGroupDraft {
+  id: string;
+  name: string;
+  required: boolean;
+  options: OnboardingModifierOptionDraft[];
+}
+
+export interface OnboardingMenuItemDraft {
   id: string;
   name: string;
   description: string;
   price: string;
-  durationMinutes: number;
+  category: string;
+  modifierGroups: OnboardingModifierGroupDraft[];
 }
 
 export interface OnboardingDraft {
@@ -30,7 +44,7 @@ export interface OnboardingDraft {
 
   hours: OnboardingHoursDraft[];
 
-  services: OnboardingServiceDraft[];
+  menuItems: OnboardingMenuItemDraft[];
 
   receptionistName: string;
   personality: Personality;
@@ -40,16 +54,18 @@ export interface OnboardingDraft {
   customVoiceRef: string | null;
   customVoiceName: string | null;
 
-  calendarProvider: "google_calendar" | "microsoft_outlook" | null;
+  // Set once the owner completes the SpotOn OAuth connect flow on the
+  // spoton onboarding step. Not collected as form input — it's filled
+  // in by the callback route after a real connection succeeds.
+  spotonConnected: boolean;
 }
 
 const WEEKDAYS: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 export const DEFAULT_RESPONSIBILITIES: AiResponsibilities = {
   answer_questions: true,
-  schedule_appointments: true,
-  reschedule_appointments: true,
-  cancel_appointments: true,
+  take_orders: true,
+  modify_orders: true,
   collect_customer_info: true,
   escalate_to_human: true,
 };
@@ -81,14 +97,14 @@ const defaultDraft: OnboardingDraft = {
     openTime: "09:00",
     closeTime: "17:00",
   })),
-  services: [],
+  menuItems: [],
   receptionistName: "Alex",
   personality: "professional",
   responsibilities: DEFAULT_RESPONSIBILITIES,
   voiceId: "alex_professional",
   customVoiceRef: null,
   customVoiceName: null,
-  calendarProvider: null,
+  spotonConnected: false,
 };
 
 interface OnboardingContextValue {

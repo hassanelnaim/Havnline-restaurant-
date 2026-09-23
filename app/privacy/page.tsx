@@ -31,8 +31,8 @@ export default function PrivacyPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">1. Information we collect</h2>
           <ul className="ml-5 list-disc space-y-1.5">
             <li><strong>Account information:</strong> name and email.</li>
-            <li><strong>Business information:</strong> name, address, hours, services, knowledge base.</li>
-            <li><strong>Call and customer data:</strong> phone numbers, transcripts, appointments.</li>
+            <li><strong>Business information:</strong> name, address, hours, menu, knowledge base.</li>
+            <li><strong>Call and customer data:</strong> phone numbers, transcripts, orders.</li>
             <li><strong>Payment information:</strong> handled entirely by Stripe.</li>
           </ul>
           <h2 className="font-display text-[18px] font-semibold text-ink">2. SMS messaging &amp; consent</h2>

@@ -1,6 +1,6 @@
 import { getTotalSpentThisMonth } from "@/app/actions/cost-summary";
 import Link from "next/link";
-import { Building2, PhoneCall, CalendarCheck, DollarSign, TrendingUp, AlertTriangle, ChevronRight } from "lucide-react";
+import { Building2, PhoneCall, ClipboardList, DollarSign, TrendingUp, AlertTriangle, ChevronRight } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatDate } from "@/lib/format";
 import { getAllReviewsForModeration } from "@/lib/data/reviews";
@@ -16,10 +16,10 @@ const MONTHLY_PRICE = 199;
 export default async function PlatformAdminPage() {
   const admin = createAdminClient();
 
-  const [{ data: businesses }, { count: totalCalls }, { count: totalAppointments }, { count: escalatedCalls }, totalSpentThisMonth] = await Promise.all([
+  const [{ data: businesses }, { count: totalCalls }, { count: totalOrders }, { count: escalatedCalls }, totalSpentThisMonth] = await Promise.all([
     admin.from("businesses").select("id, name, subscription_status, cancel_at_period_end, current_period_end, created_at, phone").order("created_at", { ascending: false }),
     admin.from("calls").select("*", { count: "exact", head: true }),
-    admin.from("appointments").select("*", { count: "exact", head: true }).neq("status", "cancelled"),
+    admin.from("orders").select("*", { count: "exact", head: true }).neq("status", "building").neq("status", "cancelled"),
     admin.from("calls").select("*", { count: "exact", head: true }).eq("outcome", "escalated"),
     getTotalSpentThisMonth(),
   ]);
@@ -62,8 +62,8 @@ export default async function PlatformAdminPage() {
           <div className="mt-2 font-display text-[28px] font-semibold text-ink">{totalCalls || 0}</div>
         </div>
         <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-          <div className="flex items-center justify-between"><span className="text-[12.5px] text-text-muted">Appointments booked</span><CalendarCheck className="h-4 w-4 text-success" /></div>
-          <div className="mt-2 font-display text-[28px] font-semibold text-ink">{totalAppointments || 0}</div>
+          <div className="flex items-center justify-between"><span className="text-[12.5px] text-text-muted">Orders placed</span><ClipboardList className="h-4 w-4 text-success" /></div>
+          <div className="mt-2 font-display text-[28px] font-semibold text-ink">{totalOrders || 0}</div>
         </div>
         <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <div className="flex items-center justify-between"><span className="text-[12.5px] text-text-muted">Spent this month</span><DollarSign className="h-4 w-4 text-danger" /></div>

@@ -18,7 +18,7 @@ export default function HoursStep() {
   }
 
   return (
-    <StepShell title="What are your hours?" description="Your AI will only offer appointments during these hours." backHref="/onboarding/business-info" onContinue={() => router.push("/onboarding/services")}>
+    <StepShell title="What are your hours?" description="Your AI will only take pickup orders during these hours." backHref="/onboarding/business-info" onContinue={() => router.push("/onboarding/menu")}>
       <div className="divide-y divide-border-soft rounded-2xl border border-border bg-card">
         {draft.hours.map((day, i) => (
           <div key={day.weekday} className="flex flex-wrap items-center gap-4 px-4 py-3.5">

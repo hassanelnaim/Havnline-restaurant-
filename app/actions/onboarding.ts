@@ -81,19 +81,70 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
   const { error: hoursError } = await admin.from("business_hours").upsert(hoursRows, { onConflict: "business_id,weekday" });
   if (hoursError) return { success: false, error: hoursError.message };
 
-  if (draft.services.length > 0) {
-    const serviceRows = draft.services
-      .filter((s) => s.name.trim())
-      .map((s) => ({
+  const categoryIdByName = new Map<string, string>();
+
+  for (const item of draft.menuItems) {
+    if (!item.name.trim()) continue;
+
+    let categoryId: string | null = null;
+    const categoryName = item.category.trim();
+    if (categoryName) {
+      if (categoryIdByName.has(categoryName)) {
+        categoryId = categoryIdByName.get(categoryName)!;
+      } else {
+        const { data: category, error: categoryError } = await admin
+          .from("menu_categories")
+          .insert({ business_id: businessId, name: categoryName })
+          .select("id")
+          .single();
+        if (categoryError) return { success: false, error: categoryError.message };
+        categoryId = category.id;
+        categoryIdByName.set(categoryName, categoryId!);
+      }
+    }
+
+    const { data: menuItem, error: itemError } = await admin
+      .from("menu_items")
+      .insert({
         business_id: businessId,
-        name: s.name,
-        description: s.description || null,
-        price_cents: Math.round((parseFloat(s.price) || 0) * 100),
-        duration_minutes: s.durationMinutes,
-      }));
-    if (serviceRows.length > 0) {
-      const { error: servicesError } = await admin.from("services").insert(serviceRows);
-      if (servicesError) return { success: false, error: servicesError.message };
+        category_id: categoryId,
+        name: item.name,
+        description: item.description || null,
+        price_cents: Math.round((parseFloat(item.price) || 0) * 100),
+        source: "manual",
+      })
+      .select("id")
+      .single();
+    if (itemError) return { success: false, error: itemError.message };
+
+    for (const group of item.modifierGroups) {
+      if (!group.name.trim()) continue;
+      const { data: modifierGroup, error: groupError } = await admin
+        .from("modifier_groups")
+        .insert({
+          business_id: businessId,
+          menu_item_id: menuItem.id,
+          name: group.name,
+          is_required: group.required,
+          min_select: group.required ? 1 : 0,
+          max_select: 1,
+        })
+        .select("id")
+        .single();
+      if (groupError) return { success: false, error: groupError.message };
+
+      const optionRows = group.options
+        .filter((o) => o.name.trim())
+        .map((o) => ({
+          business_id: businessId,
+          modifier_group_id: modifierGroup.id,
+          name: o.name,
+          price_delta_cents: Math.round((parseFloat(o.priceDelta) || 0) * 100),
+        }));
+      if (optionRows.length > 0) {
+        const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
+        if (optionsError) return { success: false, error: optionsError.message };
+      }
     }
   }
 
@@ -105,7 +156,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
     receptionistName,
     personality,
     responsibilities: draft.responsibilities,
-    services: draft.services.filter((s) => s.name.trim()).map((s) => ({ name: s.name, price_cents: Math.round((parseFloat(s.price) || 0) * 100), duration_minutes: s.durationMinutes })),
+    menuItemCount: draft.menuItems.filter((m) => m.name.trim()).length,
     hours: draft.hours.map((h) => ({ weekday: h.weekday, is_open: h.isOpen, open_time: h.isOpen ? h.openTime : null, close_time: h.isOpen ? h.closeTime : null })),
   });
 

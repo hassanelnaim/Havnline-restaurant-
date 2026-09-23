@@ -7,10 +7,9 @@ import { Switch } from "@/components/ui/switch";
 
 const RESPONSIBILITY_ITEMS: { key: keyof AiResponsibilities; label: string; hint: string }[] = [
   { key: "answer_questions", label: "Answering questions", hint: "Uses your business knowledge to respond" },
-  { key: "schedule_appointments", label: "Scheduling appointments", hint: "Checks availability and books" },
-  { key: "reschedule_appointments", label: "Rescheduling appointments", hint: "Moves existing bookings" },
-  { key: "cancel_appointments", label: "Cancelling appointments", hint: "Cancels on the customer's request" },
-  { key: "collect_customer_info", label: "Collecting customer info", hint: "Gets name and phone before booking" },
+  { key: "take_orders", label: "Taking phone orders", hint: "Walks callers through the menu and places orders" },
+  { key: "modify_orders", label: "Adding/removing items mid-call", hint: "Lets a customer change their order before confirming" },
+  { key: "collect_customer_info", label: "Collecting customer info", hint: "Gets name and phone before placing the order" },
   { key: "escalate_to_human", label: "Escalating to a human", hint: "Hands off anything out of scope" },
 ];
 
@@ -23,7 +22,7 @@ export default function AiReceptionistStep() {
   }
 
   return (
-    <StepShell title="What should your receptionist handle?" description="Pick what it's allowed to do. You can name it, pick its voice and tone, and fine-tune everything else afterward in your dashboard." backHref="/onboarding/services" onContinue={() => router.push("/onboarding/voice")}>
+    <StepShell title="What should your order-taker handle?" description="Pick what it's allowed to do. You can name it, pick its voice and tone, and fine-tune everything else afterward in your dashboard." backHref="/onboarding/menu" onContinue={() => router.push("/onboarding/voice")}>
       <div className="divide-y divide-border-soft rounded-2xl border border-border bg-card">
         {RESPONSIBILITY_ITEMS.map((item) => (
           <div key={item.key} className="flex items-center justify-between gap-4 px-4 py-3.5">

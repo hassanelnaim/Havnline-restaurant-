@@ -90,7 +90,22 @@ export async function deleteBusinessAction(businessId: string, typedConfirmation
     (await admin.from("calls").select("id").eq("business_id", businessId)).data?.map((c) => c.id) || []
   );
   await admin.from("calls").delete().eq("business_id", businessId);
-  await admin.from("appointments").delete().eq("business_id", businessId);
+  await admin.from("order_item_modifiers").delete().in(
+    "order_item_id",
+    (await admin.from("order_items").select("id").in(
+      "order_id",
+      (await admin.from("orders").select("id").eq("business_id", businessId)).data?.map((o) => o.id) || []
+    )).data?.map((i) => i.id) || []
+  );
+  await admin.from("order_items").delete().in(
+    "order_id",
+    (await admin.from("orders").select("id").eq("business_id", businessId)).data?.map((o) => o.id) || []
+  );
+  await admin.from("orders").delete().eq("business_id", businessId);
+  await admin.from("modifiers").delete().eq("business_id", businessId);
+  await admin.from("modifier_groups").delete().eq("business_id", businessId);
+  await admin.from("menu_items").delete().eq("business_id", businessId);
+  await admin.from("menu_categories").delete().eq("business_id", businessId);
   await admin.from("customers").delete().eq("business_id", businessId);
   await admin.from("ai_receptionists").delete().eq("business_id", businessId);
   await admin.from("business_members").delete().eq("business_id", businessId);

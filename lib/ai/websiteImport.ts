@@ -61,7 +61,7 @@ export async function extractKnowledgeFromText(businessName: string, websiteText
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,
-    system: `You extract factual business knowledge from raw website text for "${businessName}". Only extract information that is genuinely present in the text — never invent, guess, or embellish. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"category": "faq"|"business_info"|"policy"|"services"|"custom", "question": string (only for category "faq"), "title": string (for non-faq categories), "content": string}. Aim for 5-15 concise, genuinely useful items. Skip navigation text, cookie notices, and anything not substantive.`,
+    system: `You extract factual business knowledge from raw website text for "${businessName}", a restaurant. Only extract information that is genuinely present in the text — never invent, guess, or embellish. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"category": "faq"|"business_info"|"policy"|"menu"|"custom", "question": string (only for category "faq"), "title": string (for non-faq categories), "content": string}. Aim for 5-15 concise, genuinely useful items. Skip navigation text, cookie notices, and anything not substantive.`,
     messages: [{ role: "user", content: `Extract knowledge items from this website text:\n\n${websiteText}` }],
   });
 
@@ -76,7 +76,7 @@ export async function extractKnowledgeFromText(businessName: string, websiteText
     return parsed
       .filter((item) => item && typeof item.content === "string" && item.content.trim())
       .map((item) => ({
-        category: (["faq", "business_info", "policy", "services", "custom"].includes(item.category) ? item.category : "custom") as KnowledgeCategory,
+        category: (["faq", "business_info", "policy", "menu", "custom"].includes(item.category) ? item.category : "custom") as KnowledgeCategory,
         question: typeof item.question === "string" ? item.question : undefined,
         title: typeof item.title === "string" ? item.title : undefined,
         content: item.content,
@@ -86,14 +86,23 @@ export async function extractKnowledgeFromText(businessName: string, websiteText
   }
 }
 
-export interface ExtractedService {
+export interface ExtractedMenuItem {
   name: string;
   description: string;
   priceDollars: string;
-  durationMinutes: number;
+  category: string;
+  modifierGroups: { name: string; required: boolean; options: { name: string; priceDeltaDollars: string }[] }[];
 }
 
-export async function extractServicesFromText(businessName: string, websiteText: string): Promise<ExtractedService[]> {
+/**
+ * IMPORTANT: extracted items are staged, review-only data — never
+ * written straight into menu_items. The onboarding/menu-management UI
+ * must show these to the owner for confirmation/editing before
+ * anything here becomes a real, orderable menu item. An AI misread
+ * price or item name served as fact would be a real menu error a
+ * customer could be charged for.
+ */
+export async function extractMenuItemsFromText(businessName: string, websiteText: string): Promise<ExtractedMenuItem[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
 
@@ -101,9 +110,9 @@ export async function extractServicesFromText(businessName: string, websiteText:
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 1500,
-    system: `You extract a list of SERVICES (things customers can book/buy) from raw website text for "${businessName}". Only include services that are genuinely mentioned in the text — never invent a service, price, or duration that isn't there. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line), "priceDollars": string (just the number as a string — empty string "" if no price is stated), "durationMinutes": number (your best reasonable estimate if not explicitly stated)}. Skip navigation text and anything that isn't really a bookable service.`,
-    messages: [{ role: "user", content: `Extract the list of services from this website text:\n\n${websiteText}` }],
+    max_tokens: 2048,
+    system: `You extract a restaurant MENU (items customers can order) from raw website text for "${businessName}". Only include items genuinely mentioned in the text — never invent an item, price, or add-on that isn't there. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line, empty string if none), "priceDollars": string (just the number, e.g. "12.99" — empty string "" if no price is stated), "category": string (e.g. "Burgers", "Drinks" — empty string if unclear), "modifierGroups": [{"name": string, "required": boolean, "options": [{"name": string, "priceDeltaDollars": string (e.g. "2.00" or "0" — empty string if none stated)}]}]}. Only include modifierGroups that are genuinely stated (like size or topping choices) — an empty array is fine and expected for most items. Skip navigation text and anything that isn't really a menu item.`,
+    messages: [{ role: "user", content: `Extract the menu from this website text:\n\n${websiteText}` }],
   });
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -116,30 +125,24 @@ export async function extractServicesFromText(businessName: string, websiteText:
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((item) => item && typeof item.name === "string" && item.name.trim())
-      .map((item) => ({
-        name: item.name,
-        description: typeof item.description === "string" ? item.description : "",
-        priceDollars: typeof item.priceDollars === "string" ? item.priceDollars : "",
-        durationMinutes: typeof item.durationMinutes === "number" ? item.durationMinutes : 30,
-      }));
+      .map((item) => normalizeExtractedMenuItem(item));
   } catch {
     return [];
   }
 }
 
 /**
- * The photo equivalent of extractServicesFromText — for businesses
- * that don't have a website at all, or whose real menu/price list
- * only exists as a physical sign, printed menu, or handwritten sheet.
- * Uses Claude's real vision capability to read the actual photo,
- * not OCR-then-guess — same strict "never invent a price" rule as
- * the text-based version.
+ * The photo equivalent of extractMenuItemsFromText — for a physical
+ * printed menu, a sign, or a PDF menu that's been exported/screenshotted
+ * as an image page. Uses Claude's real vision capability to read the
+ * actual photo, not OCR-then-guess — same strict "never invent a price"
+ * rule as the text-based version, and same review-before-live staging.
  */
-export async function extractServicesFromImage(
+export async function extractMenuItemsFromImage(
   businessName: string,
   imageBase64: string,
   mediaType: "image/jpeg" | "image/png" | "image/webp"
-): Promise<ExtractedService[]> {
+): Promise<ExtractedMenuItem[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
 
@@ -147,14 +150,14 @@ export async function extractServicesFromImage(
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 1500,
-    system: `You extract a list of SERVICES (things customers can book/buy) from a photo of a menu, price list, or service sheet for "${businessName}". Only include services that are genuinely visible in the image — never invent a service, price, or duration that isn't clearly shown. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line — leave empty if the image doesn't show one), "priceDollars": string (just the number as a string — empty string "" if no price is visible), "durationMinutes": number (your best reasonable estimate if not shown, otherwise the real stated duration)}. If the image is blurry, unreadable, or doesn't actually show services/pricing, return an empty array rather than guessing.`,
+    max_tokens: 2048,
+    system: `You extract a restaurant MENU (items customers can order) from a photo of a menu for "${businessName}". Only include items genuinely visible in the image — never invent an item, price, or add-on that isn't clearly shown. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line — empty string if the image doesn't show one), "priceDollars": string (just the number, e.g. "12.99" — empty string "" if no price is visible), "category": string (the section heading it's under, e.g. "Burgers" — empty string if unclear), "modifierGroups": [{"name": string, "required": boolean, "options": [{"name": string, "priceDeltaDollars": string}]}]}. Only include modifierGroups genuinely shown (like size or topping choices) — an empty array is fine and expected for most items. If the image is blurry, unreadable, or doesn't actually show a menu, return an empty array rather than guessing.`,
     messages: [
       {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
-          { type: "text", text: "Extract the list of services and prices from this photo." },
+          { type: "text", text: "Extract the menu items and prices from this photo." },
         ],
       },
     ],
@@ -170,13 +173,28 @@ export async function extractServicesFromImage(
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((item) => item && typeof item.name === "string" && item.name.trim())
-      .map((item) => ({
-        name: item.name,
-        description: typeof item.description === "string" ? item.description : "",
-        priceDollars: typeof item.priceDollars === "string" ? item.priceDollars : "",
-        durationMinutes: typeof item.durationMinutes === "number" ? item.durationMinutes : 30,
-      }));
+      .map((item) => normalizeExtractedMenuItem(item));
   } catch {
     return [];
   }
+}
+
+function normalizeExtractedMenuItem(item: any): ExtractedMenuItem {
+  return {
+    name: item.name,
+    description: typeof item.description === "string" ? item.description : "",
+    priceDollars: typeof item.priceDollars === "string" ? item.priceDollars : "",
+    category: typeof item.category === "string" ? item.category : "",
+    modifierGroups: Array.isArray(item.modifierGroups)
+      ? item.modifierGroups
+          .filter((g: any) => g && typeof g.name === "string" && Array.isArray(g.options))
+          .map((g: any) => ({
+            name: g.name,
+            required: Boolean(g.required),
+            options: g.options
+              .filter((o: any) => o && typeof o.name === "string")
+              .map((o: any) => ({ name: o.name, priceDeltaDollars: typeof o.priceDeltaDollars === "string" ? o.priceDeltaDollars : "" })),
+          }))
+      : [],
+  };
 }

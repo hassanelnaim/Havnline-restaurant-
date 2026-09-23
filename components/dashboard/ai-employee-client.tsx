@@ -23,9 +23,8 @@ const PERSONALITIES: { id: Personality; label: string }[] = [
 
 const RESPONSIBILITY_ITEMS: { key: keyof AiResponsibilities; label: string }[] = [
   { key: "answer_questions", label: "Answering questions" },
-  { key: "schedule_appointments", label: "Scheduling appointments" },
-  { key: "reschedule_appointments", label: "Rescheduling appointments" },
-  { key: "cancel_appointments", label: "Cancelling appointments" },
+  { key: "take_orders", label: "Taking phone orders" },
+  { key: "modify_orders", label: "Adding/removing items mid-call" },
   { key: "collect_customer_info", label: "Collecting customer info" },
   { key: "escalate_to_human", label: "Escalating to a human" },
 ];
@@ -34,7 +33,7 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
   const [name, setName] = useState(ai.name);
   const [personality, setPersonality] = useState(ai.personality);
   const [responsibilities, setResponsibilities] = useState(ai.responsibilities);
-  const [bookingRules, setBookingRules] = useState(ai.booking_rules || "");
+  const [orderingRules, setOrderingRules] = useState(ai.ordering_rules || "");
   const [escalationRules, setEscalationRules] = useState(ai.escalation_rules || "");
   const [voiceId, setVoiceId] = useState(voice.voice_id);
   const [customVoiceRef, setCustomVoiceRef] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_ref : null);
@@ -47,7 +46,7 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
     setError(null);
     startTransition(async () => {
       const result = await updateAiEmployeeAction({
-        name, personality, responsibilities, voiceId, bookingRules, escalationRules,
+        name, personality, responsibilities, voiceId, orderingRules, escalationRules,
         customVoice: customVoiceRef && customVoiceName ? { providerVoiceRef: customVoiceRef, providerVoiceName: customVoiceName } : null,
       });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
@@ -121,7 +120,7 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
         <Card>
           <CardHeader><CardTitle>Rules</CardTitle><CardDescription>Extra instructions layered on top of the defaults.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
-            <div><Label>Booking rules</Label><Textarea rows={3} className="mt-1.5" value={bookingRules} onChange={(e) => setBookingRules(e.target.value)} /></div>
+            <div><Label>Ordering rules</Label><Textarea rows={3} className="mt-1.5" value={orderingRules} onChange={(e) => setOrderingRules(e.target.value)} /></div>
             <div><Label>Escalation rules</Label><Textarea rows={3} className="mt-1.5" value={escalationRules} onChange={(e) => setEscalationRules(e.target.value)} /></div>
           </CardContent>
         </Card>

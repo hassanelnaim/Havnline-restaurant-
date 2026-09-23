@@ -49,7 +49,7 @@ export async function unblockCustomerAction(customerId: string): Promise<ActionR
 /**
  * Permanently deletes a customer record. Scoped to business_id for the
  * same IDOR-safety reason as above. This does not touch past calls or
- * appointments tied to this customer_id — those keep their own
+ * orders tied to this customer_id — those keep their own
  * customer_name/phone snapshot and remain in history.
  */
 export async function deleteCustomerAction(customerId: string): Promise<ActionResult> {

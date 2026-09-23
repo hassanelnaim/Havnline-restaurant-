@@ -1,10 +1,9 @@
 "use client";
-import { useState, useEffect, useTransition, useRef } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Globe, Tag, Percent, Camera, Loader2, Pencil } from "lucide-react";
-import type { DbKnowledgeItem, DbService, DbPromotion, KnowledgeCategory } from "@/lib/database/types";
+import { Plus, Trash2, Globe, Tag, Percent, Pencil } from "lucide-react";
+import type { DbKnowledgeItem, DbPromotion, KnowledgeCategory } from "@/lib/database/types";
 import { addKnowledgeItemAction, updateKnowledgeItemAction, deleteKnowledgeItemAction, importWebsiteKnowledgeAction, addPromotionAction, togglePromotionAction, deletePromotionAction } from "@/app/actions/knowledge";
-import { addServiceAction, updateServiceAction, deleteServiceAction, importServicesFromImageAction } from "@/app/actions/services";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,9 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { formatCents } from "@/lib/format";
 
-export function KnowledgeClient({ initialItems, initialServices, initialPromotions }: { initialItems: DbKnowledgeItem[]; initialServices: DbService[]; initialPromotions: DbPromotion[] }) {
+export function KnowledgeClient({ initialItems, initialPromotions }: { initialItems: DbKnowledgeItem[]; initialPromotions: DbPromotion[] }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [, startTransition] = useTransition();
@@ -92,109 +90,6 @@ export function KnowledgeClient({ initialItems, initialServices, initialPromotio
     });
   }
 
-  // Services
-  const [services, setServices] = useState(initialServices);
-  const [newServiceName, setNewServiceName] = useState("");
-  const [newServiceDescription, setNewServiceDescription] = useState("");
-  const [newServicePrice, setNewServicePrice] = useState("");
-  const [newServiceDuration, setNewServiceDuration] = useState(30);
-  const [serviceError, setServiceError] = useState<string | null>(null);
-
-  const [photoImporting, setPhotoImporting] = useState(false);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [photoResult, setPhotoResult] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function handlePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setPhotoImporting(true);
-    setPhotoError(null);
-    setPhotoResult(null);
-
-    try {
-      const base64 = await fileToBase64(file);
-      const mediaType = (file.type === "image/png" ? "image/png" : file.type === "image/webp" ? "image/webp" : "image/jpeg") as "image/jpeg" | "image/png" | "image/webp";
-      const result = await importServicesFromImageAction(base64, mediaType);
-      setPhotoImporting(false);
-
-      if (!result.success) {
-        setPhotoError(result.error || "Could not read that photo.");
-        return;
-      }
-      setPhotoResult(`Added ${result.itemsAdded} service${result.itemsAdded === 1 ? "" : "s"} from your photo.`);
-      router.refresh();
-    } catch {
-      setPhotoImporting(false);
-      setPhotoError("Could not read that photo. Try a clearer picture.");
-    }
-
-    e.target.value = "";
-  }
-
-  useEffect(() => { setServices(initialServices); }, [initialServices]);
-
-  function addService() {
-    if (!newServiceName.trim()) { setServiceError("Service name is required."); return; }
-    setServiceError(null);
-    startTransition(async () => {
-      const result = await addServiceAction({ name: newServiceName, description: newServiceDescription, priceDollars: newServicePrice, durationMinutes: newServiceDuration });
-      if (!result.success) { setServiceError(result.error || "Could not save that service."); return; }
-      setNewServiceName(""); setNewServiceDescription(""); setNewServicePrice(""); setNewServiceDuration(30);
-      router.refresh();
-    });
-  }
-
-  function removeService(id: string) {
-    setServices((prev) => prev.filter((s) => s.id !== id));
-    startTransition(async () => { await deleteServiceAction(id); });
-  }
-
-  // ---- Edit service dialog ----
-  const [editingService, setEditingService] = useState<DbService | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editDuration, setEditDuration] = useState(30);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [editSaving, setEditSaving] = useState(false);
-
-  function openEditService(service: DbService) {
-    setEditingService(service);
-    setEditName(service.name);
-    setEditDescription(service.description || "");
-    setEditPrice((service.price_cents / 100).toString());
-    setEditDuration(service.duration_minutes);
-    setEditError(null);
-  }
-
-  function saveEditService() {
-    if (!editingService) return;
-    setEditSaving(true);
-    setEditError(null);
-    startTransition(async () => {
-      const result = await updateServiceAction(editingService.id, { name: editName, description: editDescription, priceDollars: editPrice, durationMinutes: editDuration });
-      setEditSaving(false);
-      if (!result.success) {
-        setEditError(result.error || "Could not save changes.");
-        return;
-      }
-      setServices((prev) => prev.map((s) => (s.id === editingService.id ? { ...s, name: editName, description: editDescription, price_cents: Math.round((parseFloat(editPrice) || 0) * 100), duration_minutes: editDuration } : s)));
-      setEditingService(null);
-      router.refresh();
-    });
-  }
-
   // Promotions
   const [promotions, setPromotions] = useState(initialPromotions);
   const [promoTitle, setPromoTitle] = useState("");
@@ -229,7 +124,6 @@ export function KnowledgeClient({ initialItems, initialServices, initialPromotio
     <Tabs defaultValue="faqs">
       <TabsList className="flex-wrap">
         <TabsTrigger value="faqs">FAQs</TabsTrigger>
-        <TabsTrigger value="services"><Tag className="h-3.5 w-3.5" /> Services</TabsTrigger>
         <TabsTrigger value="promotions"><Percent className="h-3.5 w-3.5" /> Promotions</TabsTrigger>
         <TabsTrigger value="policies">Policies</TabsTrigger>
         <TabsTrigger value="import"><Globe className="h-3.5 w-3.5" /> Import</TabsTrigger>
@@ -266,38 +160,6 @@ export function KnowledgeClient({ initialItems, initialServices, initialPromotio
                 <div className="flex items-center gap-2">
                   <button onClick={() => openEditKnowledge(item)} className="rounded-md p-1 text-text-faint hover:bg-brand-soft hover:text-brand" aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>
                   <button onClick={() => removeItem(item.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
-                </div>
-              </CardContent></Card>
-            ))}
-          </div>
-        )}
-      </TabsContent>
-
-      <TabsContent value="services">
-        <Card className="mb-4">
-          <CardHeader><CardTitle>Add a service</CardTitle><CardDescription>Your AI only quotes prices and durations listed here.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {serviceError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{serviceError}</div>}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2"><Label>Name</Label><Input className="mt-1.5" value={newServiceName} onChange={(e) => setNewServiceName(e.target.value)} /></div>
-              <div className="sm:col-span-2"><Label>Description</Label><Input className="mt-1.5" value={newServiceDescription} onChange={(e) => setNewServiceDescription(e.target.value)} /></div>
-              <div><Label>Price ($)</Label><Input type="number" step="0.01" className="mt-1.5" value={newServicePrice} onChange={(e) => setNewServicePrice(e.target.value)} /></div>
-              <div><Label>Duration (minutes)</Label><Input type="number" className="mt-1.5" value={newServiceDuration} onChange={(e) => setNewServiceDuration(parseInt(e.target.value) || 30)} /></div>
-            </div>
-            <Button variant="outline" size="sm" onClick={addService} disabled={isPending}><Plus className="h-3.5 w-3.5" /> Add service</Button>
-          </CardContent>
-        </Card>
-        {services.length === 0 ? (
-          <EmptyState icon={Tag} title="No services yet" description="Add your first service above." />
-        ) : (
-          <div className="space-y-2.5">
-            {services.map((s) => (
-              <Card key={s.id}><CardContent className="flex items-center justify-between gap-4 p-4">
-                <div><div className="text-[13.5px] font-medium text-text">{s.name}</div><div className="text-[12px] text-text-muted">{s.description}</div></div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right font-mono text-[12.5px] text-text">{formatCents(s.price_cents)} · {s.duration_minutes}m</div>
-                  <button onClick={() => openEditService(s)} className="rounded-md p-1 text-text-faint hover:bg-brand-soft hover:text-brand" aria-label="Edit service"><Pencil className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => removeService(s.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete service"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               </CardContent></Card>
             ))}
@@ -349,26 +211,14 @@ export function KnowledgeClient({ initialItems, initialServices, initialPromotio
       </TabsContent>
 
       <TabsContent value="import">
-        <Card className="mb-4">
-          <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import knowledge from your website</CardTitle><CardDescription>Let HavnLine read your website and automatically pull in FAQs, services, and business info.</CardDescription></CardHeader>
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import knowledge from your website</CardTitle><CardDescription>Let HavnLine read your website and automatically pull in FAQs and business info. To import your menu specifically, use the Menu page instead — it has its own website and photo import built for real, orderable items.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             {importMsg && <div className="rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">{importMsg}</div>}
             <div className="flex gap-2">
               <Input placeholder="yourbusiness.com" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
               <Button variant="brand" onClick={handleImport} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Camera className="h-4 w-4 text-brand" /> No website? Import services from a photo</CardTitle><CardDescription>Take a picture of your menu, price list, or service sheet — we&apos;ll read it and add the services directly.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {photoError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{photoError}</div>}
-            {photoResult && <div className="rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success">{photoResult}</div>}
-            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handlePhotoSelected} className="hidden" />
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={photoImporting}>
-              {photoImporting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading your photo…</> : <><Camera className="h-3.5 w-3.5" /> Take or upload a photo</>}
-            </Button>
           </CardContent>
         </Card>
       </TabsContent>
@@ -385,29 +235,6 @@ export function KnowledgeClient({ initialItems, initialServices, initialPromotio
             <div className="flex gap-2">
               <Button variant="brand" onClick={saveEditKnowledge} disabled={editKnowledgeSaving || !editKnowledgeContent.trim()}>{editKnowledgeSaving ? "Saving…" : "Save changes"}</Button>
               <Button variant="outline" onClick={() => setEditingKnowledgeItem(null)} disabled={editKnowledgeSaving}>Cancel</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={editingService !== null} onOpenChange={(open) => !open && setEditingService(null)}>
-        <DialogContent>
-          <DialogTitle className="font-display text-[17px] font-semibold text-ink">Edit service</DialogTitle>
-          <DialogDescription className="mt-1 text-[13px] text-text-muted">Changes take effect immediately — your AI only quotes what's saved here.</DialogDescription>
-
-          <div className="mt-5 space-y-4">
-            {editError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{editError}</div>}
-
-            <div><Label>Name</Label><Input className="mt-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
-            <div><Label>Description</Label><Input className="mt-1.5" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label>Price ($)</Label><Input type="number" step="0.01" className="mt-1.5" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} /></div>
-              <div><Label>Duration (minutes)</Label><Input type="number" className="mt-1.5" value={editDuration} onChange={(e) => setEditDuration(parseInt(e.target.value) || 0)} /></div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="brand" onClick={saveEditService} disabled={editSaving || !editName.trim()}>{editSaving ? "Saving…" : "Save changes"}</Button>
-              <Button variant="outline" onClick={() => setEditingService(null)} disabled={editSaving}>Cancel</Button>
             </div>
           </div>
         </DialogContent>

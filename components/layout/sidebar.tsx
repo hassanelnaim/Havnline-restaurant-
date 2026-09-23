@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, Phone, CalendarCheck, Users, Bot, MessageSquare, BookOpen, Plug, CreditCard, Settings, AlertTriangle } from "lucide-react";
+import { LayoutGrid, Phone, ClipboardList, UtensilsCrossed, Users, Bot, MessageSquare, BookOpen, Plug, CreditCard, Settings, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_GROUPS = [
@@ -10,7 +10,8 @@ const NAV_GROUPS = [
     items: [
       { href: "/dashboard", label: "Overview", icon: LayoutGrid },
       { href: "/dashboard/calls", label: "Calls", icon: Phone },
-      { href: "/dashboard/appointments", label: "Appointments", icon: CalendarCheck },
+      { href: "/dashboard/orders", label: "Orders", icon: ClipboardList },
+      { href: "/dashboard/menu", label: "Menu", icon: UtensilsCrossed },
       { href: "/dashboard/customers", label: "Customers", icon: Users },
       { href: "/dashboard/escalations", label: "Escalations", icon: AlertTriangle },
     ],
