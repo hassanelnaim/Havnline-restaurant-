@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HavnLine — AI Receptionist for Small Business",
+  title: "HavnLine — AI Phone Order-Taker for Restaurants",
   description: "HavnLine answers your restaurant's phone, takes real orders off your menu, and sends them to your kitchen — so you never miss a call again.",
 };
 

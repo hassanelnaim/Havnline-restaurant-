@@ -37,11 +37,11 @@ export default function TermsPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">4. Call recording &amp; monitoring notice</h2>
           <p>The Service records, transcribes, and stores phone conversations. <strong>You are responsible for complying with call recording and monitoring laws in your jurisdiction.</strong></p>
           <h2 className="font-display text-[18px] font-semibold text-ink">5. SMS messaging</h2>
-          <p>With consent, customers who book receive a one-time SMS confirmation. Reply STOP to opt out, HELP for assistance.</p>
+          <p>With consent, customers who place an order receive a one-time SMS confirmation. Reply STOP to opt out, HELP for assistance.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">6. Acceptable use</h2>
           <p>No illegal use, spam, impersonation, or reverse-engineering.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">7. Third-party services</h2>
-          <p>HavnLine relies on Twilio, Anthropic, ElevenLabs, Google, Stripe, and Supabase.</p>
+          <p>HavnLine relies on Twilio, Anthropic, ElevenLabs, SpotOn, Stripe, and Supabase.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">8. Disclaimer &amp; limitation of liability</h2>
           <p>The Service is provided "as is." Liability is limited to amounts paid in the preceding three months.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">9. Termination</h2>

@@ -69,7 +69,7 @@ export default async function LandingPage() {
                   <span className="text-brand-light">62%</span> of small business calls go unanswered.
                 </h2>
                 <p className="mt-3 text-[13.5px] leading-relaxed text-[#B8C0D0]">
-                  Every missed call is a customer who was ready to book — and most won&apos;t call back. HavnLine
+                  Every missed call is a customer who was ready to order — and most won&apos;t call back. HavnLine
                   picks up every time.
                 </p>
                 <p className="mt-4 text-[11px] text-[#6B7488]">Source: 411 Locals, 85 businesses across 58 industries.</p>
@@ -266,7 +266,7 @@ export default async function LandingPage() {
               </div>
               <p className="mt-1 text-[12px] text-text-muted">7 days free, then billed monthly. Cancel anytime.</p>
               <ul className="mx-auto mt-5 inline-block space-y-2 text-left">
-                {["Unlimited calls answered", "Real appointment booking", "Automatic SMS confirmations", "Google Calendar sync", "Custom AI voice & personality", "Escalation to you when it matters"].map((item) => (
+                {["Unlimited calls answered", "Real phone order-taking off your menu", "Sends straight to your kitchen printer", "Automatic SMS order confirmations", "Custom AI voice & personality", "Escalation to you when it matters"].map((item) => (
                   <li key={item} className="flex items-center gap-2 text-[13px] text-text">
                     <Check className="h-3.5 w-3.5 shrink-0 text-brand" />
                     {item}
