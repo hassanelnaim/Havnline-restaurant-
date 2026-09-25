@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import type { VoiceId } from "@/lib/database/types";
+import { getSiteUrl } from "@/lib/env";
 
 interface TwilioCredentials {
   accountSid: string;
@@ -65,8 +66,8 @@ export async function provisionNumber(
   const client = getClient(subAccountCreds);
   if (!client) return { success: false, reason: "Twilio is not configured." };
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!siteUrl) return { success: false, reason: "NEXT_PUBLIC_SITE_URL is not set." };
+  if (!process.env.NEXT_PUBLIC_SITE_URL) return { success: false, reason: "NEXT_PUBLIC_SITE_URL is not set." };
+  const siteUrl = getSiteUrl();
 
   try {
     const available = await client.availablePhoneNumbers("US").local.list({

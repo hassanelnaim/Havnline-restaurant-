@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { createCheckoutSession, createBillingPortalSession } from "@/lib/billing/stripe";
+import { getSiteUrl } from "@/lib/env";
 
 export interface BillingActionResult {
   url?: string;
@@ -21,7 +22,7 @@ async function requireAuth(): Promise<{ businessId: string; email: string }> {
   return { businessId, email: user.email || "" };
 }
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const SITE_URL = getSiteUrl();
 
 export async function startCheckoutAction(): Promise<BillingActionResult> {
   let auth: { businessId: string; email: string };

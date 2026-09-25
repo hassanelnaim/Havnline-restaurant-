@@ -3,8 +3,9 @@ import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider"
 import { isElevenLabsConfigured } from "@/lib/integrations/telephony/elevenlabsProvider";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
+import { getSiteUrl } from "@/lib/env";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const SITE_URL = getSiteUrl();
 
 export interface VoiceSelection {
   voiceId: VoiceId | null | undefined;

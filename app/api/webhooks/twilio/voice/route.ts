@@ -5,10 +5,11 @@ import { startCall } from "@/lib/ai/receptionist";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const SITE_URL = getSiteUrl();
 
 function twiml(body: string) {
   return new Response(`<?xml version="1.0" encoding="UTF-8"?>${body}`, { headers: { "Content-Type": "text/xml" } });
