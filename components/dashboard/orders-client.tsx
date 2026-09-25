@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { RefreshCw, XCircle, ClipboardList } from "lucide-react";
+import { RefreshCw, XCircle, ClipboardList, Printer } from "lucide-react";
 import type { OrderWithItems } from "@/lib/database/types";
 import { retrySubmitOrderAction, cancelOrderAction } from "@/app/actions/orders";
 import { OrderStatusBadge } from "@/components/dashboard/status-badges";
@@ -42,12 +42,15 @@ export function OrdersClient({ initialOrders, timezone, spotonConnected }: { ini
         <Card key={order.id}>
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-semibold text-ink">{order.customer_name || "Phone order"}</span>
-                  <OrderStatusBadge status={order.status} />
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-paper text-text-faint"><Printer className="h-4 w-4" /></div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-semibold text-ink">{order.customer_name || "Phone order"}</span>
+                    <OrderStatusBadge status={order.status} />
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-text-muted">{order.phone} · {formatDateTime(order.created_at, timezone)}</div>
                 </div>
-                <div className="mt-0.5 text-[12px] text-text-muted">{order.phone} · {formatDateTime(order.created_at, timezone)}</div>
               </div>
               <div className="text-right">
                 <div className="font-mono text-[15px] font-semibold text-ink">${(order.total_cents / 100).toFixed(2)}</div>
@@ -55,22 +58,27 @@ export function OrdersClient({ initialOrders, timezone, spotonConnected }: { ini
               </div>
             </div>
 
-            <div className="mt-3 divide-y divide-border-soft border-t border-border-soft">
-              {order.items.map((item) => (
-                <div key={item.id} className="flex items-start justify-between py-2 text-[13px]">
-                  <div>
-                    <span className="font-medium text-text">{item.quantity}× {item.item_name}</span>
-                    {item.modifiers.length > 0 && <span className="text-text-muted"> — {item.modifiers.map((m) => m.modifier_name).join(", ")}</span>}
-                    {item.notes && <div className="text-[11.5px] text-text-faint">Note: {item.notes}</div>}
+            <div className="mt-3 rounded-xl border border-dashed border-border bg-paper p-4 font-mono text-[12.5px] leading-relaxed text-text">
+              <div className="divide-y divide-dashed divide-border">
+                {order.items.map((item) => (
+                  <div key={item.id} className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                    <div>
+                      <span className="font-medium">{item.quantity}× {item.item_name}</span>
+                      {item.modifiers.length > 0 && <span className="text-text-muted"> — {item.modifiers.map((m) => m.modifier_name).join(", ")}</span>}
+                      {item.notes && <div className="text-[11px] text-text-faint">Note: {item.notes}</div>}
+                    </div>
+                    <span className="text-text-muted">${((item.unit_price_cents + item.modifiers.reduce((s, m) => s + m.price_delta_cents, 0)) * item.quantity / 100).toFixed(2)}</span>
                   </div>
-                  <span className="font-mono text-text-muted">${((item.unit_price_cents + item.modifiers.reduce((s, m) => s + m.price_delta_cents, 0)) * item.quantity / 100).toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            {order.special_instructions && (
-              <div className="mt-2 rounded-lg bg-paper px-3 py-2 text-[12px] text-text-muted">Special instructions: {order.special_instructions}</div>
-            )}
+              {order.special_instructions && (
+                <>
+                  <div className="my-2 border-t border-dashed border-border" />
+                  <div className="text-text-muted">Note: {order.special_instructions}</div>
+                </>
+              )}
+            </div>
 
             {order.submit_error && (
               <div className="mt-3 rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">

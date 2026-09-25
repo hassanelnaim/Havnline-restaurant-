@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, X, ChevronDown } from "lucide-react";
+import { Menu, X, ChevronDown, ChefHat } from "lucide-react";
 import { SidebarNav } from "@/components/layout/sidebar";
 import { AiStatusToggle } from "@/components/dashboard/ai-status-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -34,9 +34,14 @@ export function DashboardShell({
         <SidebarNav />
         <div className="mt-auto px-4 pt-4">
           <div className="rounded-xl bg-ink-soft p-3">
-            <div className="text-[11px] uppercase tracking-wide text-[#8A90A0]">Receptionist</div>
-            <div className="mt-0.5 text-[13px] font-medium text-white">{employeeName}</div>
-            <div className="mt-2"><AiStatusToggle initialStatus={initialStatus} /></div>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-dark"><ChefHat className="h-4 w-4" /></div>
+              <div className="min-w-0">
+                <div className="text-[10.5px] uppercase tracking-wide text-[#8A90A0]">Order-taker</div>
+                <div className="truncate text-[13px] font-medium text-white">{employeeName}</div>
+              </div>
+            </div>
+            <div className="mt-2.5"><AiStatusToggle initialStatus={initialStatus} tone="light" /></div>
           </div>
         </div>
       </aside>
