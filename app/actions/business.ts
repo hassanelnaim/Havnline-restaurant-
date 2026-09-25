@@ -287,4 +287,18 @@ export interface NotificationPreferences {
 }
 
 /**
- * Real, persisted notification
+ * Real, persisted notification preferences. Previously these toggles
+ * were only ever held in component state — they looked interactive
+ * but nothing was ever saved, so they silently reset on every reload.
+ */
+export async function updateNotificationPreferencesAction(prefs: NotificationPreferences): Promise<{ success: boolean; error?: string }> {
+  const businessId = await getCurrentBusinessId();
+  if (!businessId) return { success: false, error: "Not authenticated." };
+
+  const supabase = createClient();
+  const { error } = await supabase.from("businesses").update({ notification_preferences: prefs }).eq("id", businessId);
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}
