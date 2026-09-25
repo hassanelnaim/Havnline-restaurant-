@@ -47,7 +47,8 @@ export async function createCheckoutSession(input: {
     return { url: session.url };
   } catch (err) {
     console.error("Stripe checkout session creation failed:", err);
-    return { url: null, error: "Could not start checkout." };
+    const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not start checkout.";
+    return { url: null, error: message };
   }
 }
 
@@ -60,6 +61,7 @@ export async function createBillingPortalSession(customerId: string, returnUrl: 
     return { url: session.url };
   } catch (err) {
     console.error("Stripe billing portal session failed:", err);
-    return { url: null, error: "Could not open billing portal." };
+    const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not open billing portal.";
+    return { url: null, error: message };
   }
 }
