@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  switch (event.type) {
+  try {
+    switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
       const businessId = session.client_reference_id || (session.metadata?.business_id as string | undefined);
@@ -49,6 +50,21 @@ export async function POST(request: NextRequest) {
       const subscription = event.data.object as Stripe.Subscription;
       const businessId = subscription.metadata?.business_id;
       if (businessId) {
+        // Stripe API versions 2025-03-31 ("basil") and later removed
+        // current_period_end from the top-level Subscription object —
+        // it now lives per subscription item. Read it from there, with
+        // a fallback to the (deprecated but still-present on older API
+        // versions) top-level field, so this works regardless of which
+        // API version actually serialized the incoming event.
+        // Cast needed: the installed `stripe` SDK's TypeScript types
+        // (pinned to the older 2024-06-20 API shape) don't yet declare
+        // current_period_end on SubscriptionItem, even though newer
+        // API versions (like the one this webhook endpoint is actually
+        // serializing events with) do return it there at runtime.
+        const firstItem = subscription.items?.data?.[0] as (Stripe.SubscriptionItem & { current_period_end?: number }) | undefined;
+        const rawPeriodEnd = firstItem?.current_period_end ?? subscription.current_period_end;
+        const currentPeriodEnd = typeof rawPeriodEnd === "number" ? new Date(rawPeriodEnd * 1000).toISOString() : null;
+
         await admin
           .from("businesses")
           .update({
@@ -62,7 +78,7 @@ export async function POST(request: NextRequest) {
             // canceled-but-still-active business is indistinguishable
             // from one that's never canceled at all.
             cancel_at_period_end: subscription.cancel_at_period_end,
-            current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+            ...(currentPeriodEnd ? { current_period_end: currentPeriodEnd } : {}),
           })
           .eq("id", businessId);
       }
@@ -86,6 +102,14 @@ export async function POST(request: NextRequest) {
       }
       break;
     }
+    }
+  } catch (err) {
+    // Any unexpected payload shape or DB error lands here instead of
+    // crashing unhandled — logged with the event type/id so it's
+    // traceable from Vercel logs, and Stripe still gets a clean 500 so
+    // it retries automatically rather than silently dropping the event.
+    console.error(`Stripe webhook handler failed for ${event.type} (${event.id}):`, err);
+    return new NextResponse("Webhook handler error", { status: 500 });
   }
 
   return new NextResponse("OK");
