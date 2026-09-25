@@ -122,7 +122,7 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
 
       <TabsContent value="business">
         <Card>
-          <CardHeader><CardTitle>Business profile</CardTitle><CardDescription>Shown to your AI receptionist and used across the dashboard.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Business profile</CardTitle><CardDescription>Shown to your AI order-taker and used across the dashboard.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div><Label>Business name</Label><Input className="mt-1.5" value={name} onChange={(e) => setName(e.target.value)} /></div>
             <div><Label>Description</Label><Textarea rows={3} className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
@@ -141,7 +141,7 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
 
       <TabsContent value="hours">
         <Card>
-          <CardHeader><CardTitle>Business hours</CardTitle><CardDescription>Your AI only offers appointments within these hours.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Business hours</CardTitle><CardDescription>Your AI only takes phone orders within these hours.</CardDescription></CardHeader>
           <CardContent>
             <div className="divide-y divide-border-soft rounded-xl border border-border">
               {hoursDraft.map((day, i) => (
@@ -201,7 +201,7 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
             {[
               { label: "New calls", desc: "Get notified every time a call comes in.", value: notifyCalls, set: setNotifyCalls },
               { label: "Human escalations", desc: "Get notified when the AI needs your help.", value: notifyEscalations, set: setNotifyEscalations },
-              { label: "Weekly digest", desc: "A summary of calls and bookings each week.", value: notifyDigest, set: setNotifyDigest },
+              { label: "Weekly digest", desc: "A summary of calls and orders each week.", value: notifyDigest, set: setNotifyDigest },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between border-b border-border-soft py-3.5 last:border-0">
                 <div><div className="text-[13.5px] font-medium text-text">{row.label}</div><div className="text-[12px] text-text-muted">{row.desc}</div></div>

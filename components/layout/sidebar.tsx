@@ -21,7 +21,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/dashboard/ai-employee", label: "AI Employee", icon: Bot },
       { href: "/dashboard/knowledge", label: "Knowledge", icon: BookOpen },
-      { href: "/dashboard/test-receptionist", label: "Test Receptionist", icon: MessageSquare },
+      { href: "/dashboard/test-receptionist", label: "Test Order-Taker", icon: MessageSquare },
     ],
   },
   {

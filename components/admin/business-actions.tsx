@@ -112,7 +112,7 @@ export function BusinessActions({ businessId, businessName, isSuspended }: Busin
         <DialogContent>
           <DialogTitle className="font-display text-[17px] font-semibold text-danger">Permanently delete {businessName}?</DialogTitle>
           <DialogDescription className="mt-2 text-[13px] text-text-muted">
-            This permanently deletes this business and everything tied to it — calls, transcripts, appointments, and customers. This cannot be undone.
+            This permanently deletes this business and everything tied to it — calls, transcripts, orders, and customers. This cannot be undone.
           </DialogDescription>
           <div className="mt-4">
             <Label>Type <span className="font-mono font-semibold text-text">{businessName}</span> to confirm</Label>

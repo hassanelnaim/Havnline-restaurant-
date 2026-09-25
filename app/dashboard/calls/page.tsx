@@ -17,7 +17,7 @@ export default async function CallsPage() {
 
   return (
     <div>
-      <PageHeader title="Calls" description="Every call your AI receptionist has answered." />
+      <PageHeader title="Calls" description="Every call your AI order-taker has answered." />
       {calls.length === 0 ? (
         <EmptyState icon={Phone} title="No calls yet" description="Calls your AI answers will show up here." />
       ) : (

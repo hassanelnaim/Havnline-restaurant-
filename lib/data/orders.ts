@@ -1,7 +1,9 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { mockOrders } from "@/lib/mock/data";
 import type { OrderWithItems } from "@/lib/database/types";
 
 export async function getOrdersForBusiness(businessId: string, limit = 100): Promise<OrderWithItems[]> {
+  if (!isSupabaseConfigured()) return mockOrders;
   const supabase = createClient();
 
   const { data: orders } = await supabase
@@ -30,6 +32,7 @@ export async function getOrdersForBusiness(businessId: string, limit = 100): Pro
 }
 
 export async function getOrderWithItems(orderId: string): Promise<OrderWithItems | null> {
+  if (!isSupabaseConfigured()) return mockOrders.find((o) => o.id === orderId) || null;
   const supabase = createClient();
   const { data: order } = await supabase.from("orders").select("*").eq("id", orderId).single();
   if (!order) return null;

@@ -71,7 +71,7 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
             <CardDescription>The name and tone {name || ai.name} uses on every call.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div><Label>Receptionist name</Label><Input className="mt-1.5 max-w-xs" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div><Label>Order-taker name</Label><Input className="mt-1.5 max-w-xs" value={name} onChange={(e) => setName(e.target.value)} /></div>
             {customVoiceName && (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">
                 <Mic className="h-3.5 w-3.5 text-brand" /> Voice: <span className="font-medium text-ink">{customVoiceName}</span>

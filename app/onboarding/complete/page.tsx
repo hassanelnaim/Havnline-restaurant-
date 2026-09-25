@@ -46,7 +46,7 @@ export default function CompleteStep() {
         <div className="text-[12px] font-semibold uppercase tracking-wide text-text-faint">Setup summary</div>
         <dl className="mt-3 space-y-2 text-[13px]">
           <div className="flex justify-between"><dt className="text-text-muted">Business</dt><dd className="font-medium text-text">{draft.businessName || "—"}</dd></div>
-          <div className="flex justify-between"><dt className="text-text-muted">Receptionist</dt><dd className="font-medium text-text">{draft.receptionistName || "—"}</dd></div>
+          <div className="flex justify-between"><dt className="text-text-muted">Order-taker</dt><dd className="font-medium text-text">{draft.receptionistName || "—"}</dd></div>
           <div className="flex justify-between"><dt className="text-text-muted">Voice</dt><dd className="font-medium text-text">{draft.customVoiceName || "Default"}</dd></div>
           <div className="flex justify-between"><dt className="text-text-muted">Menu items</dt><dd className="font-medium text-text">{draft.menuItems.length} added</dd></div>
         </dl>

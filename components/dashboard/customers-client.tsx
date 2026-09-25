@@ -130,7 +130,7 @@ function CustomerActionsSheet({ customer, onClose }: { customer: DbCustomer; onC
         ) : (
           <div className="mt-4">
             <p className="text-[13px] text-text-muted">
-              Delete <span className="font-medium text-ink">{customer.name}</span>? This can't be undone. Their past calls and appointments will stay in your history.
+              Delete <span className="font-medium text-ink">{customer.name}</span>? This can't be undone. Their past calls and orders will stay in your history.
             </p>
             <div className="mt-3 flex gap-2">
               <button

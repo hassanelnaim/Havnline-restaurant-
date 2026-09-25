@@ -120,7 +120,38 @@ export const mockVoiceConfig: DbAiVoiceConfig = {
   created_at: new Date().toISOString(),
 };
 
-export const mockCalls: DbCall[] = [];
+export const mockCalls: DbCall[] = [
+  {
+    id: "demo-call-1",
+    business_id: "demo-business",
+    customer_id: "demo-customer-1",
+    customer_name: "Jamie Rivera",
+    phone: "+15555550100",
+    started_at: new Date(Date.now() - 1000 * 60 * 34).toISOString(),
+    duration_seconds: 118,
+    outcome: "order_placed",
+    status: "completed",
+    handled_by: "ai",
+    escalation_reason: null,
+    recording_url: null,
+    created_at: new Date(Date.now() - 1000 * 60 * 34).toISOString(),
+  },
+  {
+    id: "demo-call-2",
+    business_id: "demo-business",
+    customer_id: null,
+    customer_name: "Unknown Caller",
+    phone: "+15555550199",
+    started_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+    duration_seconds: 46,
+    outcome: "escalated",
+    status: "completed",
+    handled_by: "ai",
+    escalation_reason: "Customer asked about a catering order for 50 people — outside standard ordering rules.",
+    recording_url: null,
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+  },
+];
 export const mockCallMessages: DbCallMessage[] = [];
 
 export const mockCustomers: DbCustomer[] = [
@@ -146,4 +177,50 @@ export const mockIntegrations: DbIntegration[] = [
 export const mockKnowledgeItems: DbKnowledgeItem[] = [];
 export const mockPromotions: DbPromotion[] = [];
 
-export const mockOrders: OrderWithItems[] = [];
+export const mockOrders: OrderWithItems[] = [
+  {
+    id: "demo-order-1",
+    business_id: "demo-business",
+    call_id: "demo-call-1",
+    customer_id: "demo-customer-1",
+    customer_name: "Jamie Rivera",
+    phone: "+15555550100",
+    status: "submitted",
+    fulfillment_type: "pickup",
+    subtotal_cents: 1698,
+    tax_cents: 136,
+    total_cents: 1834,
+    special_instructions: null,
+    spoton_order_id: null,
+    submitted_at: new Date(Date.now() - 1000 * 60 * 33).toISOString(),
+    submit_error: null,
+    created_at: new Date(Date.now() - 1000 * 60 * 34).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 33).toISOString(),
+    items: [
+      {
+        id: "demo-order-item-1",
+        order_id: "demo-order-1",
+        menu_item_id: "demo-item-1",
+        item_name: "Cheeseburger",
+        unit_price_cents: 1299,
+        quantity: 1,
+        notes: null,
+        created_at: new Date(Date.now() - 1000 * 60 * 34).toISOString(),
+        modifiers: [
+          { id: "demo-order-mod-1", order_item_id: "demo-order-item-1", modifier_id: "demo-mod-2", modifier_name: "Double", price_delta_cents: 300 },
+        ],
+      },
+      {
+        id: "demo-order-item-2",
+        order_id: "demo-order-1",
+        menu_item_id: "demo-item-2",
+        item_name: "Fries",
+        unit_price_cents: 399,
+        quantity: 1,
+        notes: null,
+        created_at: new Date(Date.now() - 1000 * 60 * 34).toISOString(),
+        modifiers: [],
+      },
+    ],
+  },
+];

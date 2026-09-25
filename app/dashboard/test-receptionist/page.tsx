@@ -8,7 +8,7 @@ export default async function TestReceptionistPage() {
   const business = await getBusiness();
   return (
     <div>
-      <PageHeader title="Test Receptionist" description={`Preview exactly how ${business.name}'s AI will sound to real callers.`} />
+      <PageHeader title="Test Order-Taker" description={`Preview exactly how ${business.name}'s AI will sound to real callers.`} />
       <TestReceptionistClient />
     </div>
   );

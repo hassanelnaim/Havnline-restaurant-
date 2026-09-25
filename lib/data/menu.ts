@@ -1,7 +1,9 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { mockMenuItems } from "@/lib/mock/data";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 
 export async function getMenuForBusiness(businessId: string): Promise<{ categories: DbMenuCategory[]; items: MenuItemWithModifiers[] }> {
+  if (!isSupabaseConfigured()) return { categories: [], items: mockMenuItems };
   const supabase = createClient();
 
   const [categoriesRes, itemsRes, groupsRes, modifiersRes] = await Promise.all([

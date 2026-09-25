@@ -10,7 +10,7 @@ export default async function AiEmployeePage() {
   return (
     <div>
       <h1 className="font-display text-[24px] font-semibold text-ink">AI Employee</h1>
-      <p className="mt-1 text-[13.5px] text-text-muted">The control center for your receptionist — status, voice, personality, and rules.</p>
+      <p className="mt-1 text-[13.5px] text-text-muted">The control center for your AI order-taker — status, voice, personality, and rules.</p>
       <div className="mt-6"><AiEmployeeClient ai={ai} voice={voice} hours={hours} /></div>
     </div>
   );
