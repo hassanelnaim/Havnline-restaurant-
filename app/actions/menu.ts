@@ -160,6 +160,34 @@ export async function extractMenuFromWebsiteAction(url: string): Promise<{ succe
   }
 }
 
+/**
+ * Same extraction as extractMenuFromWebsiteAction, but skips fetching
+ * a URL entirely — takes menu text the owner pasted in directly. This
+ * is the reliable fallback for any menu page that's a JavaScript app
+ * (SpotOn online ordering, Toast, ChowNow, Squarespace/Wix sites, and
+ * plenty of others): a plain server-side fetch only ever sees the
+ * empty page shell before JS renders the real content, so those pages
+ * always fail the URL importer with "no items found" — not a bug in
+ * the fetch, just a fundamental limitation of fetching without
+ * running JavaScript. The owner's own browser *does* run it, so
+ * copy-pasting the rendered text (including into individual items for
+ * modifiers/addons) sidesteps the problem completely.
+ */
+export async function extractMenuFromTextAction(rawText: string): Promise<{ success: boolean; items?: ExtractedMenuItem[]; error?: string }> {
+  const text = rawText.trim();
+  if (text.length < 20) return { success: false, error: "Paste in some menu text first." };
+
+  try {
+    const businessId = await requireBusinessId();
+    const admin = createAdminClient();
+    const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
+    const items = await extractMenuItemsFromText(business?.name || "this restaurant", text.slice(0, 15000));
+    return { success: true, items };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Could not read that text." };
+  }
+}
+
 export async function extractMenuFromImageAction(imageBase64: string, mediaType: "image/jpeg" | "image/png" | "image/webp"): Promise<{ success: boolean; items?: ExtractedMenuItem[]; error?: string }> {
   try {
     const businessId = await requireBusinessId();

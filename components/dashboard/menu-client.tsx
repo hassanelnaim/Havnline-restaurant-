@@ -1,9 +1,9 @@
 "use client";
 import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Globe, Camera, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
-import { addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction, addModifierGroupAction, deleteModifierGroupAction, extractMenuFromWebsiteAction, extractMenuFromImageAction, importMenuItemsAction } from "@/app/actions/menu";
+import { addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction, addModifierGroupAction, deleteModifierGroupAction, extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, importMenuItemsAction } from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
 
 export function MenuClient({ initialCategories, initialItems, spotonConnected }: { initialCategories: DbMenuCategory[]; initialItems: MenuItemWithModifiers[]; spotonConnected: boolean }) {
@@ -201,6 +202,7 @@ function MenuItemRow({ item, spotonConnected, onToggle, onRemove, onRefresh }: {
 function MenuImportPanel({ onImported }: { onImported: () => void }) {
   const [, startTransition] = useTransition();
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [pastedText, setPastedText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [staged, setStaged] = useState<ExtractedMenuItem[] | null>(null);
@@ -226,6 +228,19 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
       const result = await extractMenuFromWebsiteAction(websiteUrl);
       setImporting(false);
       if (!result.success) { setImportError(result.error || "Could not import from that website."); return; }
+      setStaged(result.items || []);
+    });
+  }
+
+  function fromText() {
+    setImporting(true);
+    setImportError(null);
+    setStaged(null);
+    setCommitted(false);
+    startTransition(async () => {
+      const result = await extractMenuFromTextAction(pastedText);
+      setImporting(false);
+      if (!result.success) { setImportError(result.error || "Could not read that text."); return; }
       setStaged(result.items || []);
     });
   }
@@ -278,10 +293,18 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented.</CardDescription></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented. Won't work on an online-ordering page (SpotOn, Toast, ChowNow, etc.) — use "Paste menu text" below for those instead.</CardDescription></CardHeader>
         <CardContent className="flex gap-2">
           <Input placeholder="yourrestaurant.com/menu" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
           <Button variant="brand" onClick={fromWebsite} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardPaste className="h-4 w-4 text-brand" /> Paste menu text</CardTitle><CardDescription>Open your menu page in your own browser (this works for any site, including online-ordering pages that "Import from your website" can't read), select all the text — click into individual items first if you want their addons included — and paste it here.</CardDescription></CardHeader>
+        <CardContent className="space-y-2">
+          <Textarea value={pastedText} onChange={(e) => setPastedText(e.target.value)} placeholder="Paste your menu text here…" className="min-h-[120px]" />
+          <Button variant="brand" size="sm" onClick={fromText} disabled={importing || pastedText.trim().length < 20}>{importing ? "Reading…" : "Import from pasted text"}</Button>
         </CardContent>
       </Card>
 
