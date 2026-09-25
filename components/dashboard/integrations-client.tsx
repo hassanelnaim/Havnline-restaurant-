@@ -35,11 +35,20 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
   const spotonIntegration = integrations.find((i) => i.provider === "spoton");
   const spotonConnected = spotonIntegration?.status === "connected";
 
+  // Requiring a real 3-digit area code here (not just trusting the
+  // input's own digit-only formatting) means "Get a number" stays
+  // disabled rather than silently falling through to `undefined` and
+  // provisioning a number in a random area code the business didn't
+  // choose. The server action enforces this too, so this is purely
+  // about not letting the button be clickable in the first place.
+  const areaCodeValid = /^\d{3}$/.test(areaCode);
+
   function handleGetNumber() {
+    if (!areaCodeValid) { setPhoneError("Enter a 3-digit area code before requesting a number."); return; }
     setProvisioning(true);
     setPhoneError(null);
     startTransition(async () => {
-      const result = await provisionPhoneNumberAction(areaCode.trim() || undefined);
+      const result = await provisionPhoneNumberAction(areaCode);
       setProvisioning(false);
       if (!result.success) { setPhoneError(result.error || "Could not provision a number."); return; }
       setIntegrations((prev) => prev.map((i) => (i.provider === "twilio" ? { ...i, status: "connected", metadata: { phone_number: result.phoneNumber } } : i)));
@@ -47,10 +56,11 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
   }
 
   function handleChangeNumber() {
+    if (!areaCodeValid) { setPhoneError("Enter a 3-digit area code before requesting a new number."); return; }
     setProvisioning(true);
     setPhoneError(null);
     startTransition(async () => {
-      const result = await changePhoneNumberAction(areaCode.trim() || undefined);
+      const result = await changePhoneNumberAction(areaCode);
       setProvisioning(false);
       if (!result.success) { setPhoneError(result.error || "Could not provision a new number."); return; }
       setIntegrations((prev) => prev.map((i) => (i.provider === "twilio" ? { ...i, status: "connected", metadata: { phone_number: result.phoneNumber } } : i)));
@@ -103,7 +113,7 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
           {integration.provider === "twilio" ? (
             <div className="flex flex-wrap items-center gap-2">
               <Input placeholder="Area code" value={areaCode} onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))} className="w-24" />
-              <Button size="sm" variant={twilioConnected ? "outline" : "brand"} onClick={twilioConnected ? handleChangeNumber : handleGetNumber} disabled={provisioning}>
+              <Button size="sm" variant={twilioConnected ? "outline" : "brand"} onClick={twilioConnected ? handleChangeNumber : handleGetNumber} disabled={provisioning || !areaCodeValid} title={areaCodeValid ? undefined : "Enter a 3-digit area code first"}>
                 {provisioning ? "Working…" : twilioConnected ? "New number" : "Get a number"}
               </Button>
             </div>

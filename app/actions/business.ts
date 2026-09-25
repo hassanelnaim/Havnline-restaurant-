@@ -177,7 +177,18 @@ async function getOrCreateSubAccount(businessId: string, businessName: string): 
   return { accountSid: result.accountSid, authToken: result.authToken };
 }
 
+// Enforced here, not just in the UI, so a request that skips the
+// client (or a bug in it) can't slip through and get the business a
+// number in a random, possibly unusable area code.
+function validateAreaCode(areaCode: string | undefined): string | null {
+  if (!areaCode || !/^\d{3}$/.test(areaCode)) return "Enter a 3-digit area code before requesting a number.";
+  return null;
+}
+
 export async function provisionPhoneNumberAction(areaCode?: string): Promise<ProvisionResult> {
+  const areaCodeError = validateAreaCode(areaCode);
+  if (areaCodeError) return { success: false, error: areaCodeError };
+
   let businessId: string;
   try {
     businessId = await requireBusinessId();
@@ -214,6 +225,9 @@ export async function provisionPhoneNumberAction(areaCode?: string): Promise<Pro
 }
 
 export async function changePhoneNumberAction(areaCode?: string): Promise<ProvisionResult> {
+  const areaCodeError = validateAreaCode(areaCode);
+  if (areaCodeError) return { success: false, error: areaCodeError };
+
   let businessId: string;
   try {
     businessId = await requireBusinessId();
@@ -225,6 +239,9 @@ export async function changePhoneNumberAction(areaCode?: string): Promise<Provis
   if (subscriptionError) return { success: false, error: subscriptionError };
 
   const admin = createAdminClient();
+  // Validated above, before any of this function's side effects
+  // (releasing the current number) — an invalid area code must not
+  // reach the point where we've already given up a working number.
   const { data: existing } = await admin.from("integrations").select("metadata").eq("business_id", businessId).eq("provider", "twilio").maybeSingle();
 
   const meta = existing?.metadata as Record<string, unknown> | null;
@@ -270,18 +287,4 @@ export interface NotificationPreferences {
 }
 
 /**
- * Real, persisted notification preferences. Previously these toggles
- * were only ever held in component state — they looked interactive
- * but nothing was ever saved, so they silently reset on every reload.
- */
-export async function updateNotificationPreferencesAction(prefs: NotificationPreferences): Promise<{ success: boolean; error?: string }> {
-  const businessId = await getCurrentBusinessId();
-  if (!businessId) return { success: false, error: "Not authenticated." };
-
-  const supabase = createClient();
-  const { error } = await supabase.from("businesses").update({ notification_preferences: prefs }).eq("id", businessId);
-  if (error) return { success: false, error: error.message };
-
-  revalidatePath("/dashboard/settings");
-  return { success: true };
-}
+ * Real, persisted notification
