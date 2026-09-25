@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
+import { mockTotalSpentThisMonth } from "@/lib/mock/data";
 
 /**
  * Real, honest total — actual AI usage costs (Anthropic + ElevenLabs,
@@ -7,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * month only.
  */
 export async function getTotalSpentThisMonth(): Promise<number> {
+  if (!isSupabaseConfigured()) return mockTotalSpentThisMonth;
   const admin = createAdminClient();
   const startOfMonth = new Date();
   startOfMonth.setDate(1);

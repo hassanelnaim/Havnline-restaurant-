@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
+import { mockCostBreakdown } from "@/lib/mock/data";
 
 const RATE_NOTE_ANTHROPIC_HAIKU = "Claude Haiku 4.5, Sep 2026: $1.00/$5.00 per MTok (in/out)";
 const RATE_NOTE_ANTHROPIC_SONNET = "Claude Sonnet 5, Sep 2026: $3.00/$15.00 per MTok (in/out)";
@@ -59,6 +61,7 @@ export interface BusinessCostBreakdown {
 }
 
 export async function getBusinessCostBreakdown(businessId: string): Promise<BusinessCostBreakdown> {
+  if (!isSupabaseConfigured()) return mockCostBreakdown;
   const admin = createAdminClient();
 
   const [{ data: usageRecords }, { data: calls }] = await Promise.all([

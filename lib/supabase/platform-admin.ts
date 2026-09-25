@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 
 /**
  * Platform-level admin check — completely separate from the per-
@@ -13,6 +13,11 @@ import { createClient } from "@/lib/supabase/server";
  * needed to safely ship a platform overview today.
  */
 export async function isPlatformAdmin(): Promise<boolean> {
+  // Demo mode (no Supabase configured) — same fallback every other
+  // data module uses, so /admin can be previewed without a real
+  // project connected instead of crashing on the auth check.
+  if (!isSupabaseConfigured()) return true;
+
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) return false;

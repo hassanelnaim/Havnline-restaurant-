@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/supabase/platform-admin";
 
 export interface ActionResult {
@@ -10,9 +11,11 @@ export interface ActionResult {
   error?: string;
 }
 
+const DEMO_MODE_ERROR = "This is a preview with demo data — connect Supabase to make real changes.";
+
 /**
- * Suspending actually disables the AI receptionist itself (is_online
- * = false) — not just a billing label. A suspended business's phone
+ * Suspending actually disables the AI order-taker itself (status =
+ * "offline") — not just a billing label. A suspended business's phone
  * calls will no longer be handled by the AI at all. This is a real,
  * meaningful action, matching what "suspend" should actually mean for
  * a phone-answering service.
@@ -20,6 +23,7 @@ export interface ActionResult {
 export async function suspendBusinessAction(businessId: string, reason: string): Promise<ActionResult> {
   const allowed = await isPlatformAdmin();
   if (!allowed) return { success: false, error: "Not authorized." };
+  if (!isSupabaseConfigured()) return { success: false, error: DEMO_MODE_ERROR };
 
   const admin = createAdminClient();
 
@@ -30,8 +34,11 @@ export async function suspendBusinessAction(businessId: string, reason: string):
   if (businessError) return { success: false, error: businessError.message };
 
   // Actually turn the AI off — this is the real, meaningful part of
-  // suspension, not just a status label.
-  await admin.from("ai_receptionists").update({ is_online: false }).eq("business_id", businessId);
+  // suspension, not just a status label. Column is "status"
+  // ("online"/"offline"), matching ai_receptionists everywhere else
+  // in the app (see toggleAiStatusAction) — not "is_online".
+  const { error: aiError } = await admin.from("ai_receptionists").update({ status: "offline" }).eq("business_id", businessId);
+  if (aiError) return { success: false, error: `Business was suspended, but turning off the AI failed: ${aiError.message}` };
 
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);
@@ -41,6 +48,7 @@ export async function suspendBusinessAction(businessId: string, reason: string):
 export async function reactivateBusinessAction(businessId: string): Promise<ActionResult> {
   const allowed = await isPlatformAdmin();
   if (!allowed) return { success: false, error: "Not authorized." };
+  if (!isSupabaseConfigured()) return { success: false, error: DEMO_MODE_ERROR };
 
   const admin = createAdminClient();
 
@@ -73,6 +81,7 @@ export async function reactivateBusinessAction(businessId: string): Promise<Acti
 export async function deleteBusinessAction(businessId: string, typedConfirmationName: string): Promise<ActionResult> {
   const allowed = await isPlatformAdmin();
   if (!allowed) return { success: false, error: "Not authorized." };
+  if (!isSupabaseConfigured()) return { success: false, error: DEMO_MODE_ERROR };
 
   const admin = createAdminClient();
 

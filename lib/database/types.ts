@@ -20,6 +20,13 @@ export interface DbBusiness {
   current_period_end: ISODateTime | null;
   notification_preferences: { calls: boolean; escalations: boolean; digest: boolean } | null;
 
+  // Platform-admin suspension (app/admin) — separate from billing
+  // status above. A suspended business also has its AI order-taker
+  // forced offline; see suspendBusinessAction.
+  is_suspended: boolean;
+  suspended_at: ISODateTime | null;
+  suspended_reason: string | null;
+
   // SpotOn POS connection. A business can take AI phone orders without
   // this connected — orders just sit at status "confirmed" instead of
   // "submitted" until the connection exists, same as any other

@@ -2,6 +2,8 @@ import { getTotalSpentThisMonth } from "@/app/actions/cost-summary";
 import Link from "next/link";
 import { Building2, PhoneCall, ClipboardList, DollarSign, TrendingUp, AlertTriangle, ChevronRight } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
+import { mockAdminBusinesses, mockCalls, mockOrders } from "@/lib/mock/data";
 import { formatDate } from "@/lib/format";
 import { getAllReviewsForModeration } from "@/lib/data/reviews";
 import { ReviewModeration } from "@/components/admin/review-moderation";
@@ -14,17 +16,29 @@ export const dynamic = "force-dynamic";
 const MONTHLY_PRICE = 199;
 
 export default async function PlatformAdminPage() {
-  const admin = createAdminClient();
+  const demoMode = !isSupabaseConfigured();
 
-  const [{ data: businesses }, { count: totalCalls }, { count: totalOrders }, { count: escalatedCalls }, totalSpentThisMonth] = await Promise.all([
-    admin.from("businesses").select("id, name, subscription_status, cancel_at_period_end, current_period_end, created_at, phone").order("created_at", { ascending: false }),
-    admin.from("calls").select("*", { count: "exact", head: true }),
-    admin.from("orders").select("*", { count: "exact", head: true }).neq("status", "building").neq("status", "cancelled"),
-    admin.from("calls").select("*", { count: "exact", head: true }).eq("outcome", "escalated"),
-    getTotalSpentThisMonth(),
-  ]);
+  const [businesses, totalCalls, totalOrders, escalatedCalls, totalSpentThisMonth] = demoMode
+    ? [
+        mockAdminBusinesses,
+        mockCalls.length,
+        mockOrders.filter((o) => o.status !== "cancelled").length,
+        mockCalls.filter((c) => c.outcome === "escalated").length,
+        0,
+      ]
+    : await (async () => {
+        const admin = createAdminClient();
+        const [{ data: biz }, { count: calls }, { count: orders }, { count: escalated }, spent] = await Promise.all([
+          admin.from("businesses").select("id, name, subscription_status, cancel_at_period_end, current_period_end, created_at, phone").order("created_at", { ascending: false }),
+          admin.from("calls").select("*", { count: "exact", head: true }),
+          admin.from("orders").select("*", { count: "exact", head: true }).neq("status", "building").neq("status", "cancelled"),
+          admin.from("calls").select("*", { count: "exact", head: true }).eq("outcome", "escalated"),
+          getTotalSpentThisMonth(),
+        ]);
+        return [biz || [], calls || 0, orders || 0, escalated || 0, spent];
+      })();
 
-  const rows = businesses || [];
+  const rows = businesses;
   const allReviews = await getAllReviewsForModeration();
   const pendingReviews = allReviews.filter((r) => r.status === "pending");
   const active = rows.filter((b) => b.subscription_status === "active").length;

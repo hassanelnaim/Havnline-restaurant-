@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Bot, DollarSign, Phone, ClipboardList } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
+import { mockAdminBusinessDetails, mockCalls, mockOrders, mockAiReceptionist, mockVoiceConfig } from "@/lib/mock/data";
 import { getBusinessCostBreakdown } from "@/lib/usage/tracking";
 import { formatDate, formatDateTime, formatDuration } from "@/lib/format";
 import { StatusEditor } from "@/components/admin/status-editor";
@@ -11,14 +13,27 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 export const dynamic = "force-dynamic";
 
 export default async function PlatformBusinessDetailPage({ params }: { params: { id: string } }) {
-  const admin = createAdminClient();
+  const demoMode = !isSupabaseConfigured();
 
-  const [{ data: business }, { data: calls }, { data: orders }, { data: aiReceptionist }] = await Promise.all([
-    admin.from("businesses").select("*").eq("id", params.id).maybeSingle(),
-    admin.from("calls").select("*").eq("business_id", params.id).order("started_at", { ascending: false }).limit(50),
-    admin.from("orders").select("*").eq("business_id", params.id).neq("status", "building").order("created_at", { ascending: false }).limit(50),
-    admin.from("ai_receptionists").select("*").eq("business_id", params.id).maybeSingle(),
-  ]);
+  const { business, calls, orders, aiReceptionist, voiceConfig } = demoMode
+    ? {
+        business: mockAdminBusinessDetails.find((b) => b.id === params.id) || null,
+        calls: mockCalls,
+        orders: mockOrders,
+        aiReceptionist: mockAiReceptionist,
+        voiceConfig: mockVoiceConfig,
+      }
+    : await (async () => {
+        const admin = createAdminClient();
+        const [{ data: biz }, { data: c }, { data: o }, { data: ai }, { data: vc }] = await Promise.all([
+          admin.from("businesses").select("*").eq("id", params.id).maybeSingle(),
+          admin.from("calls").select("*").eq("business_id", params.id).order("started_at", { ascending: false }).limit(50),
+          admin.from("orders").select("*").eq("business_id", params.id).neq("status", "building").order("created_at", { ascending: false }).limit(50),
+          admin.from("ai_receptionists").select("*").eq("business_id", params.id).maybeSingle(),
+          admin.from("ai_voice_configs").select("*").eq("business_id", params.id).maybeSingle(),
+        ]);
+        return { business: biz, calls: c, orders: o, aiReceptionist: ai, voiceConfig: vc };
+      })();
 
   if (!business) notFound();
 
@@ -152,7 +167,7 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
         <TabsContent value="ai">
           <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
             {!aiReceptionist ? (
-              <div className="text-center text-[13px] text-text-muted">No AI receptionist configured for this business.</div>
+              <div className="text-center text-[13px] text-text-muted">No AI order-taker configured for this business.</div>
             ) : (
               <div className="divide-y divide-border-soft">
                 <div className="flex items-center justify-between py-3">
@@ -161,7 +176,7 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
                 </div>
                 <div className="flex items-center justify-between py-3">
                   <span className="text-[13px] text-text-muted">Status</span>
-                  <span className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${aiReceptionist.is_online ? "bg-success-soft text-success" : "bg-border-soft text-text-muted"}`}>{aiReceptionist.is_online ? "Online" : "Offline"}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${aiReceptionist.status === "online" ? "bg-success-soft text-success" : "bg-border-soft text-text-muted"}`}>{aiReceptionist.status === "online" ? "Online" : "Offline"}</span>
                 </div>
                 <div className="flex items-center justify-between py-3">
                   <span className="text-[13px] text-text-muted">Personality</span>
@@ -169,7 +184,7 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
                 </div>
                 <div className="flex items-center justify-between py-3">
                   <span className="text-[13px] text-text-muted">Voice</span>
-                  <span className="text-[13px] font-medium text-text">{aiReceptionist.voice_id || "—"}</span>
+                  <span className="text-[13px] font-medium text-text">{voiceConfig?.voice_id || "—"}</span>
                 </div>
               </div>
             )}

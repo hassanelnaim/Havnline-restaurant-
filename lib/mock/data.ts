@@ -4,8 +4,30 @@
 // actually connected.
 import type {
   DbBusiness, DbBusinessHours, MenuItemWithModifiers, DbAiReceptionist, DbAiVoiceConfig,
-  DbCall, DbCallMessage, DbCustomer, DbIntegration, DbKnowledgeItem, DbPromotion, OrderWithItems,
+  DbCall, DbCallMessage, DbCustomer, DbIntegration, DbKnowledgeItem, DbPromotion, OrderWithItems, DbReview,
 } from "@/lib/database/types";
+
+// ---- Platform-admin demo data (app/admin) — a small roster of
+// businesses in different states, so the Command Center's stat cards
+// and status filters have something real to show in a preview
+// without a live Supabase project connected. ----
+const ADMIN_BUSINESS_OVERRIDES: (Pick<DbBusiness, "id" | "name" | "subscription_status" | "cancel_at_period_end" | "current_period_end" | "created_at" | "phone"> & { is_suspended?: boolean; suspended_reason?: string | null })[] = [
+  { id: "demo-business", name: "Demo Kitchen", subscription_status: "trialing", cancel_at_period_end: false, current_period_end: null, created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(), phone: "+15555550123" },
+  { id: "demo-business-2", name: "Harbor Slice Pizzeria", subscription_status: "active", cancel_at_period_end: false, current_period_end: null, created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 41).toISOString(), phone: "+15555550187" },
+  { id: "demo-business-3", name: "Bayview Diner", subscription_status: "active", cancel_at_period_end: true, current_period_end: new Date(Date.now() + 1000 * 60 * 60 * 24 * 12).toISOString(), created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 96).toISOString(), phone: "+15555550142" },
+  { id: "demo-business-4", name: "Maple & Vine Bistro", subscription_status: "past_due", cancel_at_period_end: false, current_period_end: null, created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 58).toISOString(), phone: "+15555550199" },
+  { id: "demo-business-5", name: "Corner Noodle House", subscription_status: "canceled", cancel_at_period_end: false, current_period_end: null, created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 130).toISOString(), phone: "+15555550164", is_suspended: true, suspended_reason: "Repeated chargebacks — paused pending a call with the owner." },
+];
+
+// The full roster the Command Center's table reads.
+export const mockAdminBusinesses = ADMIN_BUSINESS_OVERRIDES;
+
+export const mockCostBreakdown = { anthropicCents: 842, elevenLabsCents: 356, twilioCents: 214, totalCents: 1412 };
+export const mockTotalSpentThisMonth = 68.42;
+
+export const mockPendingReviews: DbReview[] = [
+  { id: "demo-review-1", business_name: "Harbor Slice Pizzeria", reviewer_name: "Morgan T.", rating: 5, review_text: "The AI got our whole order right down to the extra napkins request. Wildly better than voicemail.", status: "pending", created_at: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString() },
+];
 
 export const mockBusiness: DbBusiness = {
   id: "demo-business",
@@ -24,6 +46,9 @@ export const mockBusiness: DbBusiness = {
   cancel_at_period_end: false,
   current_period_end: null,
   notification_preferences: { calls: true, escalations: true, digest: true },
+  is_suspended: false,
+  suspended_at: null,
+  suspended_reason: null,
   spoton_location_id: null,
   spoton_access_token: null,
   spoton_refresh_token: null,
@@ -33,6 +58,17 @@ export const mockBusiness: DbBusiness = {
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
+
+// Admin roster, each row filled out to a complete DbBusiness (using
+// mockBusiness as the default for every field the roster above doesn't
+// itself vary), so clicking into any one of them from the demo Command
+// Center opens a real, working business-detail page instead of a 404.
+export const mockAdminBusinessDetails: DbBusiness[] = ADMIN_BUSINESS_OVERRIDES.map((b) => ({
+  ...mockBusiness,
+  ...b,
+  is_suspended: b.is_suspended ?? false,
+  suspended_reason: b.suspended_reason ?? null,
+}));
 
 export const mockBusinessHours: DbBusinessHours[] = [
   { id: "1", business_id: "demo-business", weekday: "monday", is_open: true, open_time: "11:00", close_time: "21:00" },

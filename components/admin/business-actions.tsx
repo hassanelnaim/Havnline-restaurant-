@@ -93,7 +93,7 @@ export function BusinessActions({ businessId, businessName, isSuspended }: Busin
         <DialogContent>
           <DialogTitle className="font-display text-[17px] font-semibold text-ink">Suspend {businessName}?</DialogTitle>
           <DialogDescription className="mt-2 text-[13px] text-text-muted">
-            This immediately turns off their AI receptionist — their phone will stop being answered by AI until you reactivate them. This does not affect their billing.
+            This immediately turns off their AI order-taker — their phone will stop being answered by AI until you reactivate them. This does not affect their billing.
           </DialogDescription>
           <div className="mt-4">
             <Label>Reason (for your own records)</Label>
