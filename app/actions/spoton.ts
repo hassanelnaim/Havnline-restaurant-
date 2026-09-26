@@ -14,7 +14,19 @@ function callbackRedirectUri(): string {
 export async function connectSpotOnAction(): Promise<void> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) redirect("/login");
-  const url = buildSpotOnAuthorizeUrl(businessId, callbackRedirectUri());
+
+  // buildSpotOnAuthorizeUrl throws if SPOTON_CLIENT_ID isn't set yet (no
+  // SpotOn developer credentials configured in Vercel). Previously that
+  // unhandled throw crashed the whole request with Next's generic
+  // "Application error" page. Redirecting back with a query param instead
+  // lets the integrations page show the owner a real explanation.
+  let url: string;
+  try {
+    url = buildSpotOnAuthorizeUrl(businessId, callbackRedirectUri());
+  } catch (err) {
+    console.error("SpotOn connect failed:", err);
+    redirect("/dashboard/integrations?spoton_error=not_configured");
+  }
   redirect(url);
 }
 

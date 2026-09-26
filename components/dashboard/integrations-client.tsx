@@ -17,7 +17,7 @@ const PROVIDER_META: Record<IntegrationProvider, { name: string; description: st
   voice_provider: { name: "Order-taker voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
 };
 
-export function IntegrationsClient({ initialIntegrations }: { initialIntegrations: DbIntegration[] }) {
+export function IntegrationsClient({ initialIntegrations, spotonError }: { initialIntegrations: DbIntegration[]; spotonError?: boolean }) {
   const [integrations, setIntegrations] = useState(initialIntegrations);
   const [areaCode, setAreaCode] = useState("");
   const [provisioning, setProvisioning] = useState(false);
@@ -111,11 +111,25 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
           </div>
 
           {integration.provider === "twilio" ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Input placeholder="Area code" value={areaCode} onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))} className="w-24" />
-              <Button size="sm" variant={twilioConnected ? "outline" : "brand"} onClick={twilioConnected ? handleChangeNumber : handleGetNumber} disabled={provisioning || !areaCodeValid} title={areaCodeValid ? undefined : "Enter a 3-digit area code first"}>
-                {provisioning ? "Working…" : twilioConnected ? "New number" : "Get a number"}
-              </Button>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="area-code-input" className={`text-[11px] font-semibold ${areaCodeValid ? "text-text-muted" : "text-amber-600"}`}>
+                    Area code <span className="text-amber-600">*</span>
+                  </label>
+                  <Input
+                    id="area-code-input"
+                    placeholder="e.g. 313"
+                    value={areaCode}
+                    onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    className={`w-24 ${areaCodeValid ? "" : "border-2 border-amber-400 bg-amber-50 placeholder:text-amber-400 focus-visible:ring-amber-400"}`}
+                  />
+                </div>
+                <Button size="sm" variant={twilioConnected ? "outline" : "brand"} onClick={twilioConnected ? handleChangeNumber : handleGetNumber} disabled={provisioning || !areaCodeValid} title={areaCodeValid ? undefined : "Enter a 3-digit area code first"}>
+                  {provisioning ? "Working…" : twilioConnected ? "New number" : "Get a number"}
+                </Button>
+              </div>
+              {!areaCodeValid && <p className="text-[11px] font-medium text-amber-600">Enter a 3-digit area code first</p>}
             </div>
           ) : integration.provider === "voice_provider" ? (
             <Button size="sm" variant="outline" asChild><Link href="/dashboard/ai-employee">Choose voice</Link></Button>
@@ -130,6 +144,12 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
   return (
     <div className="space-y-6">
       {phoneError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{phoneError}</div>}
+      {spotonError && (
+        <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">
+          SpotOn isn&apos;t set up on this app yet — it needs SpotOn developer API credentials before anyone can connect. Apply for API access at{" "}
+          <a href="https://www.spoton.com/developer-center/" target="_blank" rel="noreferrer" className="underline">spoton.com/developer-center</a>, then add the credentials to get this working.
+        </div>
+      )}
 
       <div>
         <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Point of sale</h3>
