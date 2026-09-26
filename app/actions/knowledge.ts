@@ -8,6 +8,11 @@ import { fetchWebsiteText, extractKnowledgeFromText } from "@/lib/ai/websiteImpo
 import type { ActionResult } from "./business";
 import type { KnowledgeCategory } from "@/lib/database/types";
 
+// See app/actions/menu.ts for why this is needed — rendering a
+// JS-heavy page (with a stealth-proxy retry if the first attempt is
+// blocked) can take well past Vercel's default function timeout.
+export const maxDuration = 60;
+
 async function requireBusinessId(): Promise<string> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();

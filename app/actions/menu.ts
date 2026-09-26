@@ -7,6 +7,14 @@ import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { extractMenuItemsFromImage, extractMenuItemsFromText, fetchWebsiteText } from "@/lib/ai/websiteImport";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 
+// Rendering a JS-heavy page (and retrying once through a stealth proxy
+// if the first attempt is blocked) can take 20-40+ seconds. Vercel's
+// default function timeout is much shorter than that, so without this
+// the import would get cut off mid-request rather than actually fail
+// or succeed. Requires Vercel's Pro plan for the full 60s on some
+// setups — on Hobby it's capped lower, but this still helps.
+export const maxDuration = 60;
+
 export interface ActionResult {
   success: boolean;
   error?: string;

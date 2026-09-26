@@ -29,10 +29,7 @@ export interface ExtractedKnowledgeItem {
 // plain fetch, which still works fine for ordinary static sites.
 // --------------------------------------------------------------------------
 
-async function fetchViaScrapingBee(url: string): Promise<string> {
-  const apiKey = process.env.SCRAPINGBEE_API_KEY;
-  if (!apiKey) throw new Error("SCRAPINGBEE_API_KEY is not configured.");
-
+async function callScrapingBee(url: string, apiKey: string, extraParams: Record<string, string>): Promise<Response> {
   const params = new URLSearchParams({
     api_key: apiKey,
     url,
@@ -42,16 +39,37 @@ async function fetchViaScrapingBee(url: string): Promise<string> {
     // populate their item list within a couple seconds.
     wait: "2500",
     block_ads: "true",
+    // ScrapingBee blocks extra resources (fonts, some scripts) by
+    // default to save bandwidth, but that breaks JS apps whose menu
+    // rendering depends on those finishing first — SpotOn's ordering
+    // pages are one of them. ScrapingBee's own error message for this
+    // exact failure recommends turning it off.
+    block_resources: "false",
+    ...extraParams,
   });
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
-
-  let response: Response;
+  const timeout = setTimeout(() => controller.abort(), 55000);
   try {
-    response = await fetch(`https://app.scrapingbee.com/api/v1/?${params.toString()}`, { signal: controller.signal });
+    return await fetch(`https://app.scrapingbee.com/api/v1/?${params.toString()}`, { signal: controller.signal });
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function fetchViaScrapingBee(url: string): Promise<string> {
+  const apiKey = process.env.SCRAPINGBEE_API_KEY;
+  if (!apiKey) throw new Error("SCRAPINGBEE_API_KEY is not configured.");
+
+  let response = await callScrapingBee(url, apiKey, {});
+
+  // Some ordering platforms run basic bot-detection that a plain
+  // headless render trips. If the first attempt fails, retry once
+  // through ScrapingBee's premium/stealth proxy before giving up — it
+  // costs more of the account's monthly credits, so it's a fallback,
+  // not the default.
+  if (!response.ok) {
+    response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" });
   }
 
   if (!response.ok) {
