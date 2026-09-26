@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { TawkToWidget } from "@/components/layout/tawk-to-widget";
+import { CookieConsentBanner } from "@/components/layout/cookie-consent-banner";
 
 export const metadata: Metadata = {
   title: "HavnLine — AI Phone Order-Taker for Restaurants",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <TawkToWidget />
+        <CookieConsentBanner />
       </body>
     </html>
   );

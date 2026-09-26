@@ -54,9 +54,11 @@ export default function PrivacyPage() {
           <p>Access, correct, or delete your information anytime.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">8. Children's privacy</h2>
           <p>Not directed at children under 13.</p>
-          <h2 className="font-display text-[18px] font-semibold text-ink">9. Changes</h2>
+          <h2 className="font-display text-[18px] font-semibold text-ink">9. Cookies</h2>
+          <p>We use a small session cookie (via Supabase) to keep you signed in — this is strictly necessary for the Service to work and isn't optional. If you accept cookies when asked, we also load Tawk.to to power live chat support, which sets its own cookies; if you decline, live chat stays off and no additional cookies are set. You can change this choice at any time by clearing your browser's site data for this domain.</p>
+          <h2 className="font-display text-[18px] font-semibold text-ink">10. Changes</h2>
           <p>We'll update the date above when this changes.</p>
-          <h2 className="font-display text-[18px] font-semibold text-ink">10. Contact us</h2>
+          <h2 className="font-display text-[18px] font-semibold text-ink">11. Contact us</h2>
           <p><a href="mailto:havnlinesupport@gmail.com" className="font-medium text-brand hover:underline">havnlinesupport@gmail.com</a></p>
         </section>
       </main>
