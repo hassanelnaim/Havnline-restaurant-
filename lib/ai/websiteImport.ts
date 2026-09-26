@@ -12,18 +12,63 @@ export interface ExtractedKnowledgeItem {
   content: string;
 }
 
-export async function fetchWebsiteText(url: string): Promise<string> {
-  let normalizedUrl = url.trim();
-  if (!/^https?:\/\//i.test(normalizedUrl)) {
-    normalizedUrl = `https://${normalizedUrl}`;
+// --------------------------------------------------------------------------
+// Fetching a page's rendered content. A plain fetch() only ever sees the
+// raw HTML a server sends — for any site that builds its content with
+// JavaScript (SpotOn online ordering, Toast, ChowNow, Squarespace, Wix,
+// and plenty of others) that's just an empty page shell, no matter how
+// the fetch itself is tuned. There's no way to "read" those pages without
+// actually running their JavaScript first.
+//
+// ScrapingBee (https://www.scrapingbee.com) does that for us: it loads
+// the URL in a real headless browser on their end and hands back the
+// fully rendered HTML, so this then reads exactly what a person would see
+// in their own browser. Once SCRAPINGBEE_API_KEY is set, both the
+// knowledge importer and the menu importer upgrade automatically — no
+// other code changes needed. Without a key, this falls back to the old
+// plain fetch, which still works fine for ordinary static sites.
+// --------------------------------------------------------------------------
+
+async function fetchViaScrapingBee(url: string): Promise<string> {
+  const apiKey = process.env.SCRAPINGBEE_API_KEY;
+  if (!apiKey) throw new Error("SCRAPINGBEE_API_KEY is not configured.");
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    url,
+    render_js: "true",
+    // Gives the page's own JS time to finish loading the menu/content
+    // after the initial page load — most JS-rendered ordering sites
+    // populate their item list within a couple seconds.
+    wait: "2500",
+    block_ads: "true",
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25000);
+
+  let response: Response;
+  try {
+    response = await fetch(`https://app.scrapingbee.com/api/v1/?${params.toString()}`, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
   }
 
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`The page-rendering service couldn't load that page (HTTP ${response.status}). ${body.slice(0, 200)}`);
+  }
+
+  return response.text();
+}
+
+async function fetchViaPlainRequest(url: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
   let response: Response;
   try {
-    response = await fetch(normalizedUrl, {
+    response = await fetch(url, {
       signal: controller.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -39,14 +84,29 @@ export async function fetchWebsiteText(url: string): Promise<string> {
     throw new Error(`Could not load that website (HTTP ${response.status}).`);
   }
 
-  const html = await response.text();
+  return response.text();
+}
+
+export async function fetchWebsiteText(url: string): Promise<string> {
+  let normalizedUrl = url.trim();
+  if (!/^https?:\/\//i.test(normalizedUrl)) {
+    normalizedUrl = `https://${normalizedUrl}`;
+  }
+
+  const renderingConfigured = Boolean(process.env.SCRAPINGBEE_API_KEY);
+  const html = renderingConfigured ? await fetchViaScrapingBee(normalizedUrl) : await fetchViaPlainRequest(normalizedUrl);
+
   const $ = cheerio.load(html);
   $("script, style, noscript, svg, nav, footer").remove();
 
   const text = $("body").text().replace(/\s+/g, " ").trim();
 
   if (text.length < 50) {
-    throw new Error("Couldn't find enough readable content on that page.");
+    throw new Error(
+      renderingConfigured
+        ? "Couldn't find enough readable content on that page, even after rendering it — try \"Paste text\" instead."
+        : "Couldn't find enough readable content on that page. If this is a JavaScript-based ordering site (SpotOn, Toast, ChowNow, etc.), use \"Paste text\" instead — plain website imports can't read those pages."
+    );
   }
 
   return text.slice(0, MAX_CHARS);

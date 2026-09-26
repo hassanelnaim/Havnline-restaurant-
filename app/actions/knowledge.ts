@@ -119,6 +119,45 @@ export async function importWebsiteKnowledgeAction(url: string): Promise<ImportW
   return { success: true, itemsAdded: items.length };
 }
 
+/**
+ * Same extraction as importWebsiteKnowledgeAction, but skips fetching a
+ * URL entirely — takes text the owner pasted in directly. Reliable
+ * fallback for any page a URL import can't read (JS-rendered sites
+ * without page-rendering configured, pages behind a login, PDFs opened
+ * and copied from, etc.) — the owner's own browser already rendered it,
+ * so pasting sidesteps the problem completely.
+ */
+export async function importPastedKnowledgeAction(rawText: string): Promise<ImportWebsiteResult> {
+  const text = rawText.trim();
+  if (text.length < 20) return { success: false, error: "Paste in some text first." };
+
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+
+  const admin = createAdminClient();
+  const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
+
+  let items;
+  try {
+    items = await extractKnowledgeFromText(business?.name || "this business", text.slice(0, 15000));
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Could not read that text." };
+  }
+
+  if (items.length === 0) return { success: false, error: "Couldn't find any useful content in that text." };
+
+  const rows = items.map((item) => ({ business_id: businessId, category: item.category, question: item.question || null, title: item.title || null, content: item.content }));
+  const { error } = await admin.from("knowledge_items").insert(rows);
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath("/dashboard/knowledge");
+  return { success: true, itemsAdded: items.length };
+}
+
 export async function addPromotionAction(input: { title: string; description: string; appliesTo: string; startDate: string; endDate: string }): Promise<ActionResult> {
   let businessId: string;
   try {

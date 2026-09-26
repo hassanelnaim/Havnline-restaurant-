@@ -1,9 +1,9 @@
 "use client";
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Globe, Tag, Percent, Pencil } from "lucide-react";
+import { Plus, Trash2, Globe, Tag, Percent, Pencil, ClipboardPaste } from "lucide-react";
 import type { DbKnowledgeItem, DbPromotion, KnowledgeCategory } from "@/lib/database/types";
-import { addKnowledgeItemAction, updateKnowledgeItemAction, deleteKnowledgeItemAction, importWebsiteKnowledgeAction, addPromotionAction, togglePromotionAction, deletePromotionAction } from "@/app/actions/knowledge";
+import { addKnowledgeItemAction, updateKnowledgeItemAction, deleteKnowledgeItemAction, importWebsiteKnowledgeAction, importPastedKnowledgeAction, addPromotionAction, togglePromotionAction, deletePromotionAction } from "@/app/actions/knowledge";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -87,6 +87,25 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
       setImporting(false);
       setImportMsg(result.success ? `Added ${result.itemsAdded} items.` : result.error || "Import failed.");
       if (result.success) router.refresh();
+    });
+  }
+
+  // Paste-text import — fallback for pages a URL import can't read
+  // (JavaScript-rendered sites without page-rendering configured, pages
+  // behind a login, etc.). The owner's own browser already rendered the
+  // page, so copy-pasting its text sidesteps the problem entirely.
+  const [pastedKnowledgeText, setPastedKnowledgeText] = useState("");
+  const [importingPasted, setImportingPasted] = useState(false);
+  const [importPastedMsg, setImportPastedMsg] = useState<string | null>(null);
+
+  function handleImportPasted() {
+    setImportingPasted(true);
+    setImportPastedMsg(null);
+    startTransition(async () => {
+      const result = await importPastedKnowledgeAction(pastedKnowledgeText);
+      setImportingPasted(false);
+      setImportPastedMsg(result.success ? `Added ${result.itemsAdded} items.` : result.error || "Import failed.");
+      if (result.success) { setPastedKnowledgeText(""); router.refresh(); }
     });
   }
 
@@ -211,16 +230,27 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
       </TabsContent>
 
       <TabsContent value="import">
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import knowledge from your website</CardTitle><CardDescription>Let HavnLine read your website and automatically pull in FAQs and business info. To import your menu specifically, use the Menu page instead — it has its own website and photo import built for real, orderable items.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {importMsg && <div className="rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">{importMsg}</div>}
-            <div className="flex gap-2">
-              <Input placeholder="yourbusiness.com" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
-              <Button variant="brand" onClick={handleImport} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import knowledge from your website</CardTitle><CardDescription>Let HavnLine read your website and automatically pull in FAQs and business info. To import your menu specifically, use the Menu page instead — it has its own website and photo import built for real, orderable items. If your site is a JavaScript-based app (an online ordering page, a Squarespace/Wix site, etc.) and this comes back empty, use "Paste text" below instead.</CardDescription></CardHeader>
+            <CardContent className="space-y-3">
+              {importMsg && <div className="rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">{importMsg}</div>}
+              <div className="flex gap-2">
+                <Input placeholder="yourbusiness.com" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
+                <Button variant="brand" onClick={handleImport} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardPaste className="h-4 w-4 text-text-faint" /> Paste text</CardTitle><CardDescription>Open the page in your own browser, select and copy the text (FAQs, hours, policies, anything useful), and paste it here. This always works, even on pages the website import above can't read.</CardDescription></CardHeader>
+            <CardContent className="space-y-3">
+              {importPastedMsg && <div className="rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">{importPastedMsg}</div>}
+              <Textarea rows={6} placeholder="Paste text from your website here…" value={pastedKnowledgeText} onChange={(e) => setPastedKnowledgeText(e.target.value)} />
+              <Button variant="brand" onClick={handleImportPasted} disabled={importingPasted || !pastedKnowledgeText.trim()}>{importingPasted ? "Reading…" : "Import from text"}</Button>
+            </CardContent>
+          </Card>
+        </div>
       </TabsContent>
 
       <Dialog open={editingKnowledgeItem !== null} onOpenChange={(open) => !open && setEditingKnowledgeItem(null)}>
