@@ -35,9 +35,11 @@ async function callScrapingBee(url: string, apiKey: string, extraParams: Record<
     url,
     render_js: "true",
     // Gives the page's own JS time to finish loading the menu/content
-    // after the initial page load — most JS-rendered ordering sites
-    // populate their item list within a couple seconds.
-    wait: "2500",
+    // after the initial page load. Ordering apps often show an
+    // intermediate screen first (location/table confirmation, a
+    // cookie banner) before the real menu — 5s gives more room for
+    // that to clear than a bare page load needs.
+    wait: "5000",
     block_ads: "true",
     // ScrapingBee blocks extra resources (fonts, some scripts) by
     // default to save bandwidth, but that breaks JS apps whose menu

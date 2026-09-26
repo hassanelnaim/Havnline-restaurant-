@@ -160,9 +160,18 @@ export async function extractMenuFromWebsiteAction(url: string): Promise<{ succe
     const admin = createAdminClient();
     const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
     const text = await fetchWebsiteText(url);
+    // TEMPORARY diagnostic logging — visible in Vercel's function logs.
+    // A 200-status render that still finds "0 items" could mean either
+    // (a) the page loaded a gate screen (a location/table confirmation,
+    // cookie banner, etc.) instead of the real menu, or (b) it got real
+    // content but the extraction model didn't recognize it as a menu.
+    // This line tells us which, instead of guessing.
+    console.log(`[menu-import] fetched ${text.length} chars from ${url}. Preview: ${text.slice(0, 500)}`);
     const items = await extractMenuItemsFromText(business?.name || "this restaurant", text);
+    console.log(`[menu-import] extraction found ${items.length} items.`);
     return { success: true, items };
   } catch (err) {
+    console.error(`[menu-import] failed for ${url}:`, err);
     return { success: false, error: err instanceof Error ? err.message : "Could not import from that website." };
   }
 }
