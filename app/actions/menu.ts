@@ -7,13 +7,12 @@ import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { extractMenuItemsFromImage, extractMenuItemsFromText, fetchWebsiteText } from "@/lib/ai/websiteImport";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 
-// Rendering a JS-heavy page (and retrying once through a stealth proxy
-// if the first attempt is blocked) can take 20-40+ seconds. Vercel's
-// default function timeout is much shorter than that, so without this
-// the import would get cut off mid-request rather than actually fail
-// or succeed. Requires Vercel's Pro plan for the full 60s on some
-// setups — on Hobby it's capped lower, but this still helps.
-export const maxDuration = 60;
+// NOTE: rendering a JS-heavy page (with a stealth-proxy retry if the
+// first attempt is blocked) can take 20-40+ seconds — well past
+// Vercel's default function timeout. A "use server" file can only
+// export async functions, so the `maxDuration` route config for this
+// has to live on the *page* that calls these actions instead. See
+// app/dashboard/menu/page.tsx.
 
 export interface ActionResult {
   success: boolean;

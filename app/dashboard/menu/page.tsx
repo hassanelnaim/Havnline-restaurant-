@@ -5,6 +5,14 @@ import { MenuClient } from "@/components/dashboard/menu-client";
 
 export const dynamic = "force-dynamic";
 
+// This page's website-import server action can take 20-40+ seconds when
+// it has to render a JavaScript-heavy page (and retry once through a
+// stealth proxy if the site blocks the first attempt) — well past
+// Vercel's default function timeout, which would otherwise cut the
+// import off mid-request. Capped at 60s here; note Vercel's Hobby plan
+// may still enforce a lower cap regardless of this setting.
+export const maxDuration = 60;
+
 export default async function MenuPage() {
   const business = await getBusiness();
   const { categories, items } = await getMenuForBusiness(business.id);

@@ -5,6 +5,11 @@ import { KnowledgeClient } from "@/components/dashboard/knowledge-client";
 
 export const dynamic = "force-dynamic";
 
+// See app/dashboard/menu/page.tsx for why this is needed — the website
+// and paste-text import actions here can take well past Vercel's
+// default function timeout when rendering a JS-heavy page.
+export const maxDuration = 60;
+
 export default async function KnowledgePage() {
   const [items, promotions] = await Promise.all([getKnowledgeItems(), getPromotions()]);
 

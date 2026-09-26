@@ -8,10 +8,9 @@ import { fetchWebsiteText, extractKnowledgeFromText } from "@/lib/ai/websiteImpo
 import type { ActionResult } from "./business";
 import type { KnowledgeCategory } from "@/lib/database/types";
 
-// See app/actions/menu.ts for why this is needed — rendering a
-// JS-heavy page (with a stealth-proxy retry if the first attempt is
-// blocked) can take well past Vercel's default function timeout.
-export const maxDuration = 60;
+// NOTE: see app/actions/menu.ts — the maxDuration route config for
+// slow renders lives on app/dashboard/knowledge/page.tsx instead,
+// since a "use server" file can only export async functions.
 
 async function requireBusinessId(): Promise<string> {
   const supabase = createClient();
