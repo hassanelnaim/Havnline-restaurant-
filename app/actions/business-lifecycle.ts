@@ -18,7 +18,7 @@ const DEMO_MODE_ERROR = "This is a preview with demo data — connect Supabase t
  * "offline") — not just a billing label. A suspended business's phone
  * calls will no longer be handled by the AI at all. This is a real,
  * meaningful action, matching what "suspend" should actually mean for
- * a phone-answering service.
+ * a restaurant's AI order-taker.
  */
 export async function suspendBusinessAction(businessId: string, reason: string): Promise<ActionResult> {
   const allowed = await isPlatformAdmin();

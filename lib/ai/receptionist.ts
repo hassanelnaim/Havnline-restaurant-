@@ -60,13 +60,13 @@ export async function handleTurn(
 
   // Real retry protection. Twilio guarantees "at-least-once" webhook
   // delivery — if our response takes too long (which genuinely
-  // happens on booking turns: availability check, booking, calendar
-  // event, SMS, all in sequence), Twilio assumes the request failed
-  // and retries it, sending the exact same speech text again. Without
-  // this check, that retry would silently reprocess the whole turn —
-  // creating a duplicate appointment, a duplicate confirmation text,
-  // and double AI cost. This is the actual root cause of appointments
-  // "repeating" on the Appointments page.
+  // happens on order turns: menu lookup, adding items, submitting to
+  // SpotOn, confirmation SMS, all in sequence), Twilio assumes the
+  // request failed and retries it, sending the exact same speech text
+  // again. Without this check, that retry would silently reprocess the
+  // whole turn — creating a duplicate order, a duplicate confirmation
+  // text, and double AI cost. This is the actual root cause of an
+  // order "repeating" on the Orders page.
   const { data: recentMessages } = await admin
     .from("call_messages")
     .select("id, role, content, created_at")
@@ -95,7 +95,7 @@ export async function handleTurn(
       if (existingReply) {
         // Already fully processed once — return the cached result
         // instead of doing everything (including side effects like
-        // booking and texting) a second time.
+        // placing the order and texting) a second time.
         return {
           reply: existingReply.content,
           toolCalls: existingReply.tool_call ? JSON.parse(existingReply.tool_call).map((name: string) => ({ name, input: {}, result: {} })) : [],

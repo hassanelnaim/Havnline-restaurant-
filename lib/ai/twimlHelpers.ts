@@ -99,9 +99,10 @@ export async function lastTurnUsedTool(callId: string): Promise<boolean> {
 }
 
 const LIKELY_SLOW_KEYWORDS = [
-  "book", "appointment", "schedule", "reschedule", "cancel",
-  "available", "availability", "price", "cost", "how much",
-  "hours", "open", "closed", "service", "refund", "talk to", "speak to", "human", "person",
+  "order", "menu", "add", "remove", "change my order", "modify",
+  "cancel", "substitute", "instead", "allergen", "gluten", "allergy",
+  "price", "cost", "how much", "hours", "open", "closed", "delivery",
+  "pickup", "takeout", "refund", "talk to", "speak to", "human", "person",
 ];
 
 export function textLikelyNeedsTool(text: string): boolean {
