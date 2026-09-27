@@ -41,7 +41,7 @@ const STEPS = [
 const FAQS = [
   { q: "Will it sound like a robot?", a: "No — natural voices, not an old-school phone tree. Most callers don't realize they're not talking to a person until you tell them." },
   { q: "What if it gets an order wrong?", a: "It only orders off what you've actually loaded into your menu — it can't invent an item, a size, or a price. If it's ever unsure what a caller means, it asks instead of guessing." },
-  { q: "Does it work with my POS?", a: "It connects directly to SpotOn today, sending phone orders straight to your kitchen printer like any other order. More POS integrations are on the way." },
+  { q: "Does it work with my POS?", a: "It prints phone orders straight to your kitchen printer with our tablet app — no POS integration needed, and no per-item mapping to set up first." },
   { q: "What if a customer asks for something off-menu or gets upset?", a: "It hands off to you instead of guessing. It never invents prices, items, or policies it wasn't given." },
   { q: "Do I need to be technical to set this up?", a: "No setup scripts or prompt-writing. You tell us about your restaurant and menu, pick a voice, and forward your line — most owners are live the same day." },
   { q: "Do I need a new phone number?", a: "No. Forward your existing restaurant line, or use a new one we provide." },
@@ -195,7 +195,7 @@ export default async function LandingPage() {
             </div>
 
             <ul className="mx-auto mt-8 grid max-w-2xl gap-2.5 sm:grid-cols-2">
-              {["Connects to your existing SpotOn account", "Order total calculated with your real tax and pricing", "Prints to your kitchen printer automatically", "Shows up on your Orders dashboard either way"].map((item) => (
+              {["Pairs with a tablet in your kitchen in minutes", "No POS account or item mapping required", "Prints to your kitchen printer automatically", "Shows up on your Orders dashboard either way"].map((item) => (
                 <li key={item} className="flex items-center gap-2 text-[13px] text-text">
                   <Check className="h-3.5 w-3.5 shrink-0 text-brand" />
                   {item}

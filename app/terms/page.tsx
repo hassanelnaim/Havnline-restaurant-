@@ -41,7 +41,7 @@ export default function TermsPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">6. Acceptable use</h2>
           <p>No illegal use, spam, impersonation, or reverse-engineering.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">7. Third-party services</h2>
-          <p>HavnLine relies on Twilio, Anthropic, ElevenLabs, SpotOn, Stripe, and Supabase.</p>
+          <p>HavnLine relies on Twilio, Anthropic, ElevenLabs, Stripe, and Supabase.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">8. Disclaimer &amp; limitation of liability</h2>
           <p>The Service is provided "as is." Liability is limited to amounts paid in the preceding three months.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">9. Termination</h2>

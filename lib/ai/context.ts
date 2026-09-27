@@ -36,20 +36,9 @@ export async function loadBusinessContext(businessId: string): Promise<BusinessC
   const groups = groupsRes.data || [];
   const allModifiers = modifiersRes.data || [];
 
-  // A menu item is only something the AI can actually put in an order
-  // once it's mapped to a real SpotOn item (spoton_item_id set) — an
-  // order can't be submitted to SpotOn without that mapping, and the
-  // AI shouldn't promise something it can't actually get to the
-  // kitchen. If the business hasn't connected SpotOn at all yet, there
-  // is no electronic submission possible for ANY item regardless, so
-  // every active item is fair game — the order just lands on the
-  // Orders dashboard for the owner to call/walk in manually.
   const rawItems = itemsRes.data || [];
-  const orderableItems = business.spoton_connected_at
-    ? rawItems.filter((i) => Boolean(i.spoton_item_id))
-    : rawItems;
 
-  const menu: MenuItemWithModifiers[] = orderableItems.map((item) => ({
+  const menu: MenuItemWithModifiers[] = rawItems.map((item) => ({
     ...item,
     modifier_groups: groups
       .filter((g) => g.menu_item_id === item.id)

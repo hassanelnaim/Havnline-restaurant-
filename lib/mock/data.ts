@@ -49,12 +49,6 @@ export const mockBusiness: DbBusiness = {
   is_suspended: false,
   suspended_at: null,
   suspended_reason: null,
-  spoton_location_id: null,
-  spoton_access_token: null,
-  spoton_refresh_token: null,
-  spoton_token_expires_at: null,
-  spoton_connected_at: null,
-  spoton_menu_synced_at: null,
   printer_app_paired_at: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
@@ -93,7 +87,6 @@ export const mockMenuItems: MenuItemWithModifiers[] = [
     is_active: true,
     sort_order: 0,
     source: "manual",
-    spoton_item_id: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     modifier_groups: [
@@ -106,11 +99,10 @@ export const mockMenuItems: MenuItemWithModifiers[] = [
         min_select: 1,
         max_select: 1,
         sort_order: 0,
-        spoton_modifier_group_id: null,
         created_at: new Date().toISOString(),
         modifiers: [
-          { id: "demo-mod-1", business_id: "demo-business", modifier_group_id: "demo-group-1", name: "Regular", price_delta_cents: 0, is_active: true, sort_order: 0, spoton_modifier_id: null, created_at: new Date().toISOString() },
-          { id: "demo-mod-2", business_id: "demo-business", modifier_group_id: "demo-group-1", name: "Double", price_delta_cents: 300, is_active: true, sort_order: 1, spoton_modifier_id: null, created_at: new Date().toISOString() },
+          { id: "demo-mod-1", business_id: "demo-business", modifier_group_id: "demo-group-1", name: "Regular", price_delta_cents: 0, is_active: true, sort_order: 0, created_at: new Date().toISOString() },
+          { id: "demo-mod-2", business_id: "demo-business", modifier_group_id: "demo-group-1", name: "Double", price_delta_cents: 300, is_active: true, sort_order: 1, created_at: new Date().toISOString() },
         ],
       },
     ],
@@ -126,7 +118,6 @@ export const mockMenuItems: MenuItemWithModifiers[] = [
     is_active: true,
     sort_order: 1,
     source: "manual",
-    spoton_item_id: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     modifier_groups: [],
@@ -207,7 +198,6 @@ export const mockCustomers: DbCustomer[] = [
 ];
 
 export const mockIntegrations: DbIntegration[] = [
-  { id: "demo-int-spoton", business_id: "demo-business", provider: "spoton", status: "not_connected", external_account_id: null, connected_at: null, metadata: null },
   { id: "demo-int-twilio", business_id: "demo-business", provider: "twilio", status: "not_connected", external_account_id: null, connected_at: null, metadata: null },
   { id: "demo-int-printer-app", business_id: "demo-business", provider: "printer_app", status: "not_connected", external_account_id: null, connected_at: null, metadata: null },
 ];
@@ -229,7 +219,6 @@ export const mockOrders: OrderWithItems[] = [
     tax_cents: 136,
     total_cents: 1834,
     special_instructions: null,
-    spoton_order_id: null,
     submitted_at: new Date(Date.now() - 1000 * 60 * 33).toISOString(),
     submit_error: null,
     created_at: new Date(Date.now() - 1000 * 60 * 34).toISOString(),

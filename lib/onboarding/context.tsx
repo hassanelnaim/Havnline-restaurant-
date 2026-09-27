@@ -53,11 +53,6 @@ export interface OnboardingDraft {
   voiceId: VoiceId;
   customVoiceRef: string | null;
   customVoiceName: string | null;
-
-  // Set once the owner completes the SpotOn OAuth connect flow on the
-  // spoton onboarding step. Not collected as form input — it's filled
-  // in by the callback route after a real connection succeeds.
-  spotonConnected: boolean;
 }
 
 const WEEKDAYS: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -104,7 +99,6 @@ const defaultDraft: OnboardingDraft = {
   voiceId: "alex_professional",
   customVoiceRef: null,
   customVoiceName: null,
-  spotonConnected: false,
 };
 
 interface OnboardingContextValue {

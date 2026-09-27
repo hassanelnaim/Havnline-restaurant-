@@ -21,13 +21,9 @@ export default async function MenuPage() {
     <div>
       <PageHeader
         title="Menu"
-        description={
-          business.spoton_connected_at
-            ? "Your AI only offers items here that are also mapped to SpotOn — that's what lets an order actually reach your kitchen printer."
-            : "Your AI only offers items and prices listed here — never invented. Connect SpotOn in Integrations to sync your real menu and let orders reach your kitchen printer automatically."
-        }
+        description="Your AI only offers items and prices listed here — never invented."
       />
-      <MenuClient initialCategories={categories} initialItems={items} spotonConnected={Boolean(business.spoton_connected_at)} />
+      <MenuClient initialCategories={categories} initialItems={items} />
     </div>
   );
 }

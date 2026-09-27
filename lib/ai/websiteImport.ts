@@ -15,7 +15,7 @@ export interface ExtractedKnowledgeItem {
 // --------------------------------------------------------------------------
 // Fetching a page's rendered content. A plain fetch() only ever sees the
 // raw HTML a server sends — for any site that builds its content with
-// JavaScript (SpotOn online ordering, Toast, ChowNow, Squarespace, Wix,
+// JavaScript (Toast, ChowNow, Squarespace, Wix,
 // and plenty of others) that's just an empty page shell, no matter how
 // the fetch itself is tuned. There's no way to "read" those pages without
 // actually running their JavaScript first.
@@ -43,9 +43,9 @@ async function callScrapingBee(url: string, apiKey: string, extraParams: Record<
     block_ads: "true",
     // ScrapingBee blocks extra resources (fonts, some scripts) by
     // default to save bandwidth, but that breaks JS apps whose menu
-    // rendering depends on those finishing first — SpotOn's ordering
-    // pages are one of them. ScrapingBee's own error message for this
-    // exact failure recommends turning it off.
+    // rendering depends on those finishing first — some online
+    // ordering pages are among them. ScrapingBee's own error message
+    // for this exact failure recommends turning it off.
     block_resources: "false",
     ...extraParams,
   });
@@ -125,7 +125,7 @@ export async function fetchWebsiteText(url: string): Promise<string> {
     throw new Error(
       renderingConfigured
         ? "Couldn't find enough readable content on that page, even after rendering it — try \"Paste text\" instead."
-        : "Couldn't find enough readable content on that page. If this is a JavaScript-based ordering site (SpotOn, Toast, ChowNow, etc.), use \"Paste text\" instead — plain website imports can't read those pages."
+        : "Couldn't find enough readable content on that page. If this is a JavaScript-based ordering site (Toast, ChowNow, etc.), use \"Paste text\" instead — plain website imports can't read those pages."
     );
   }
 

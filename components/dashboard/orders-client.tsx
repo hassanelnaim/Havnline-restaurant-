@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { formatDateTime } from "@/lib/format";
 
-export function OrdersClient({ initialOrders, timezone, spotonConnected }: { initialOrders: OrderWithItems[]; timezone: string; spotonConnected: boolean }) {
+export function OrdersClient({ initialOrders, timezone, printerAppConnected }: { initialOrders: OrderWithItems[]; timezone: string; printerAppConnected: boolean }) {
   const [orders, setOrders] = useState(initialOrders);
   const [, startTransition] = useTransition();
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export function OrdersClient({ initialOrders, timezone, spotonConnected }: { ini
             )}
 
             <div className="mt-3 flex items-center gap-2">
-              {order.status !== "submitted" && order.status !== "cancelled" && spotonConnected && (
+              {order.status !== "submitted" && order.status !== "cancelled" && printerAppConnected && (
                 <Button size="sm" variant="outline" onClick={() => retry(order.id)} disabled={retryingId === order.id}>
                   <RefreshCw className="h-3.5 w-3.5" /> {retryingId === order.id ? "Sending…" : order.submit_error ? "Retry send" : "Send to kitchen"}
                 </Button>

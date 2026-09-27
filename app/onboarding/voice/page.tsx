@@ -9,7 +9,7 @@ export default function VoiceStep() {
   const { draft, update } = useOnboarding();
 
   return (
-    <StepShell title="Choose a voice" description="Browse real voices and pick how your order-taker sounds on the phone. You can change this anytime." backHref="/onboarding/ai-receptionist" onContinue={() => router.push("/onboarding/spoton")}>
+    <StepShell title="Choose a voice" description="Browse real voices and pick how your order-taker sounds on the phone. You can change this anytime." backHref="/onboarding/ai-receptionist" onContinue={() => router.push("/onboarding/complete")}>
       <ElevenLabsVoiceBrowser selectedVoiceRef={draft.customVoiceRef} onSelect={(id, name) => update({ customVoiceRef: id, customVoiceName: name, voiceId: "custom" })} />
     </StepShell>
   );

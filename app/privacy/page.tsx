@@ -45,7 +45,7 @@ export default function PrivacyPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">3. How we use this information</h2>
           <p>To operate the Service. We do not sell your data.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">4. Who we share it with</h2>
-          <p>Twilio, Anthropic, ElevenLabs, SpotOn (if connected), Stripe, and Supabase — minimum necessary data only. Mobile opt-in/consent data is never shared for marketing purposes.</p>
+          <p>Twilio, Anthropic, ElevenLabs, Stripe, and Supabase — minimum necessary data only. Mobile opt-in/consent data is never shared for marketing purposes.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">5. Data isolation between businesses</h2>
           <p>Each business's data is isolated via database-level access controls.</p>
           <h2 className="font-display text-[18px] font-semibold text-ink">6. Data retention</h2>

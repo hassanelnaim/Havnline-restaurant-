@@ -27,21 +27,11 @@ export interface DbBusiness {
   suspended_at: ISODateTime | null;
   suspended_reason: string | null;
 
-  // SpotOn POS connection. A business can take AI phone orders without
-  // this connected — orders just sit at status "confirmed" instead of
-  // "submitted" until the connection exists, same as any other
-  // integration that hasn't been set up yet.
-  spoton_location_id: string | null;
-  spoton_access_token: string | null;
-  spoton_refresh_token: string | null;
-  spoton_token_expires_at: ISODateTime | null;
-  spoton_connected_at: ISODateTime | null;
-  spoton_menu_synced_at: ISODateTime | null;
-
-  // HavnLine Printer App connection — the universal fallback for a
-  // business with no SpotOn connection. See printer_devices for the
-  // actual paired device/printer IP; this is just the fast,
-  // no-extra-query flag lib/ai/tools.ts checks per turn.
+  // HavnLine Printer App connection. A business can take AI phone
+  // orders without this connected — orders just sit at status
+  // "confirmed" instead of "submitted" until a tablet is paired. See
+  // printer_devices for the actual paired device/printer IP; this is
+  // just the fast, no-extra-query flag lib/ai/tools.ts checks per turn.
   printer_app_paired_at: ISODateTime | null;
 
   created_at: ISODateTime;
@@ -54,7 +44,6 @@ export type OnboardingStep =
   | "menu"
   | "ai_receptionist"
   | "voice"
-  | "spoton"
   | "complete";
 
 export interface DbBusinessMember {
@@ -90,7 +79,7 @@ export interface DbMenuCategory {
   updated_at: ISODateTime;
 }
 
-export type MenuItemSource = "manual" | "import" | "spoton_sync";
+export type MenuItemSource = "manual" | "import";
 
 export interface DbMenuItem {
   id: UUID;
@@ -102,10 +91,7 @@ export interface DbMenuItem {
   image_url: string | null;
   is_active: boolean;
   sort_order: number;
-  // "manual"/"import" items aren't orderable by the AI until
-  // spoton_item_id is set — see the migration comment for why.
   source: MenuItemSource;
-  spoton_item_id: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -119,7 +105,6 @@ export interface DbModifierGroup {
   min_select: number;
   max_select: number;
   sort_order: number;
-  spoton_modifier_group_id: string | null;
   created_at: ISODateTime;
 }
 
@@ -131,7 +116,6 @@ export interface DbModifier {
   price_delta_cents: number;
   is_active: boolean;
   sort_order: number;
-  spoton_modifier_id: string | null;
   created_at: ISODateTime;
 }
 
@@ -160,7 +144,6 @@ export interface DbOrder {
   tax_cents: number;
   total_cents: number;
   special_instructions: string | null;
-  spoton_order_id: string | null;
   submitted_at: ISODateTime | null;
   submit_error: string | null;
   created_at: ISODateTime;
@@ -331,7 +314,6 @@ export interface DbPromotion {
 }
 
 export type IntegrationProvider =
-  | "spoton"
   | "twilio"
   | "sms"
   | "voice_provider"

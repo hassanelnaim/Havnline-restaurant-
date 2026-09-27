@@ -5,8 +5,7 @@ import type { DbBusiness, OrderWithItems } from "@/lib/database/types";
 /**
  * HavnLine Printer App integration.
  *
- * The universal fallback for a restaurant with no SpotOn connection
- * (or that doesn't want one): a tablet running the HavnLine Printer
+ * A tablet running the HavnLine Printer
  * app pairs with a business once, then polls a small API for
  * confirmed orders and prints them directly on the restaurant's own
  * kitchen printer over the local network. HavnLine's backend never
@@ -135,11 +134,8 @@ export async function unpairDevice(businessId: string): Promise<void> {
 
 /**
  * Formats a confirmed order into the exact plain-text ticket a
- * kitchen printer should print — the same information a
- * SpotOn-submitted order shows on its own kitchen ticket, so
- * switching between the two integrations never changes what the
- * kitchen actually sees. The tablet app prints this text as-is; it
- * carries no menu knowledge or formatting logic of its own.
+ * kitchen printer should print. The tablet app prints this text
+ * as-is; it carries no menu knowledge or formatting logic of its own.
  */
 export function buildTicketText(order: OrderWithItems, business: Pick<DbBusiness, "name">): string {
   const lines: string[] = [];
@@ -170,8 +166,7 @@ export interface QueuePrintJobResult {
 /**
  * Queues a confirmed order for the paired tablet to pick up on its
  * next poll. Called from confirm_and_place_order in lib/ai/tools.ts
- * whenever a business has no SpotOn connection — the printer app's
- * whole job is covering the businesses SpotOn doesn't.
+ * whenever a business has a paired printer tablet.
  */
 export async function queuePrintJob(order: OrderWithItems, business: Pick<DbBusiness, "name">): Promise<QueuePrintJobResult> {
   const admin = createAdminClient();

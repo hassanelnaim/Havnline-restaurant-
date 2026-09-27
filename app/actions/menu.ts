@@ -190,7 +190,7 @@ export async function extractMenuFromWebsiteAction(url: string): Promise<{ succe
  * Same extraction as extractMenuFromWebsiteAction, but skips fetching
  * a URL entirely — takes menu text the owner pasted in directly. This
  * is the reliable fallback for any menu page that's a JavaScript app
- * (SpotOn online ordering, Toast, ChowNow, Squarespace/Wix sites, and
+ * (Toast, ChowNow, Squarespace/Wix sites, and
  * plenty of others): a plain server-side fetch only ever sees the
  * empty page shell before JS renders the real content, so those pages
  * always fail the URL importer with "no items found" — not a bug in

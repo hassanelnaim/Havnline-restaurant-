@@ -14,12 +14,12 @@ export default async function OrdersPage() {
       <PageHeader
         title="Orders"
         description={
-          business.spoton_connected_at
-            ? "Every order your AI takes, and whether it made it to your kitchen printer through SpotOn."
-            : "Every order your AI takes. Connect SpotOn in Integrations to send these straight to your kitchen printer — until then, you'll need to ring these in manually."
+          business.printer_app_paired_at
+            ? "Every order your AI takes, and whether it made it to your kitchen printer."
+            : "Every order your AI takes. Pair the kitchen printer app in Integrations to send these straight to your kitchen printer — until then, you'll need to ring these in manually."
         }
       />
-      <OrdersClient initialOrders={orders} timezone={business.timezone} spotonConnected={Boolean(business.spoton_connected_at)} />
+      <OrdersClient initialOrders={orders} timezone={business.timezone} printerAppConnected={Boolean(business.printer_app_paired_at)} />
     </div>
   );
 }

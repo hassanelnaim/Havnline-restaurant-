@@ -1,25 +1,23 @@
 "use client";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { UtensilsCrossed, PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, RefreshCw, Tablet } from "lucide-react";
+import { PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, Tablet } from "lucide-react";
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 import { provisionPhoneNumberAction, changePhoneNumberAction } from "@/app/actions/business";
-import { connectSpotOnAction, disconnectSpotOnAction, syncSpotOnMenuAction } from "@/app/actions/spoton";
 import { generatePrinterAppCodeAction, unpairPrinterAppAction } from "@/app/actions/printer-app";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IntegrationStatusBadge } from "@/components/dashboard/status-badges";
 
-const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof UtensilsCrossed }> = {
-  spoton: { name: "SpotOn POS", description: "Sends orders your AI takes straight to your kitchen printer.", icon: UtensilsCrossed },
+const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof PhoneCall }> = {
   twilio: { name: "Phone (Twilio)", description: "Powers your HavnLine phone number and inbound calls.", icon: PhoneCall },
   sms: { name: "SMS confirmations", description: "Sent automatically from your HavnLine number once you have one.", icon: MessageSquare },
   voice_provider: { name: "Order-taker voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
   printer_app: { name: "HavnLine Printer App", description: "Prints orders straight to your kitchen printer from a tablet.", icon: Tablet },
 };
 
-export function IntegrationsClient({ initialIntegrations, spotonError }: { initialIntegrations: DbIntegration[]; spotonError?: boolean }) {
+export function IntegrationsClient({ initialIntegrations }: { initialIntegrations: DbIntegration[] }) {
   const [integrations, setIntegrations] = useState(initialIntegrations);
   const [areaCode, setAreaCode] = useState("");
   const [provisioning, setProvisioning] = useState(false);
@@ -27,15 +25,9 @@ export function IntegrationsClient({ initialIntegrations, spotonError }: { initi
   const [copied, setCopied] = useState(false);
   const [, startTransition] = useTransition();
 
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
-
   const twilioIntegration = integrations.find((i) => i.provider === "twilio");
   const twilioConnected = twilioIntegration?.status === "connected";
   const phoneNumber = (twilioIntegration?.metadata as Record<string, unknown> | null)?.phone_number as string | undefined;
-
-  const spotonIntegration = integrations.find((i) => i.provider === "spoton");
-  const spotonConnected = spotonIntegration?.status === "connected";
 
   const printerAppIntegration = integrations.find((i) => i.provider === "printer_app");
   const printerAppConnected = printerAppIntegration?.status === "connected";
@@ -100,23 +92,6 @@ export function IntegrationsClient({ initialIntegrations, spotonError }: { initi
     });
   }
 
-  function handleDisconnectSpotOn() {
-    startTransition(async () => {
-      await disconnectSpotOnAction();
-      setIntegrations((prev) => prev.map((i) => (i.provider === "spoton" ? { ...i, status: "not_connected" } : i)));
-    });
-  }
-
-  function handleSyncMenu() {
-    setSyncing(true);
-    setSyncMsg(null);
-    startTransition(async () => {
-      const result = await syncSpotOnMenuAction();
-      setSyncing(false);
-      setSyncMsg(result.success ? `Synced ${result.itemCount} item${result.itemCount === 1 ? "" : "s"} from SpotOn.` : result.error || "Sync failed.");
-    });
-  }
-
   function copyNumber() {
     if (!phoneNumber) return;
     navigator.clipboard.writeText(phoneNumber);
@@ -177,41 +152,6 @@ export function IntegrationsClient({ initialIntegrations, spotonError }: { initi
   return (
     <div className="space-y-6">
       {phoneError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{phoneError}</div>}
-      {spotonError && (
-        <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">
-          SpotOn isn&apos;t set up on this app yet — it needs SpotOn developer API credentials before anyone can connect. Apply for API access at{" "}
-          <a href="https://www.spoton.com/developer-center/" target="_blank" rel="noreferrer" className="underline">spoton.com/developer-center</a>, then add the credentials to get this working.
-        </div>
-      )}
-
-      <div>
-        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Point of sale</h3>
-        <Card>
-          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><UtensilsCrossed className="h-4.5 w-4.5" /></div>
-              <div>
-                <div className="text-[13.5px] font-semibold text-ink">SpotOn POS</div>
-                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">This is what lets an order your AI takes reach your kitchen printer — the same path your existing online orders already take.</p>
-                <div className="mt-2">{spotonIntegration && <IntegrationStatusBadge status={spotonIntegration.status} />}</div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {spotonConnected ? (
-                <>
-                  <Button size="sm" variant="outline" onClick={handleSyncMenu} disabled={syncing}><RefreshCw className="h-3.5 w-3.5" /> {syncing ? "Syncing…" : "Sync menu"}</Button>
-                  <Button size="sm" variant="ghost" onClick={handleDisconnectSpotOn}>Disconnect</Button>
-                </>
-              ) : (
-                <form action={connectSpotOnAction}>
-                  <Button size="sm" variant="brand" type="submit">Connect SpotOn</Button>
-                </form>
-              )}
-            </div>
-          </CardContent>
-          {syncMsg && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">{syncMsg}</CardContent>}
-        </Card>
-      </div>
 
       <div>
         <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Kitchen printer app</h3>
@@ -221,11 +161,7 @@ export function IntegrationsClient({ initialIntegrations, spotonError }: { initi
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><Tablet className="h-4.5 w-4.5" /></div>
               <div>
                 <div className="text-[13.5px] font-semibold text-ink">HavnLine Printer App</div>
-                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">
-                  {spotonConnected
-                    ? "You're connected to SpotOn already, so orders reach your kitchen printer that way. This is only needed if you'd rather print from a tablet instead."
-                    : "No SpotOn connection yet — install the HavnLine app on any Android tablet and it'll print orders straight to your kitchen printer."}
-                </p>
+                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">Install the HavnLine app on any Android tablet and it'll print orders straight to your kitchen printer.</p>
                 <div className="mt-2">{printerAppIntegration && <IntegrationStatusBadge status={printerAppIntegration.status} />}</div>
               </div>
             </div>

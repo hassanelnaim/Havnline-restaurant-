@@ -30,9 +30,9 @@ import { COOKIE_CONSENT_EVENT, getStoredCookieConsent, type CookieConsent } from
  *      chats show up in the Tawk.to app/website — reply from your phone
  *      or desktop, live or later.
  *
- * As more integrations beyond SpotOn get added, this is the one place
- * a customer goes for help regardless of which system is giving them
- * trouble — no code changes needed per integration.
+ * As more integrations get added, this is the one place a customer
+ * goes for help regardless of which system is giving them trouble —
+ * no code changes needed per integration.
  */
 export function TawkToWidget() {
   const propertyId = process.env.NEXT_PUBLIC_TAWK_PROPERTY_ID;

@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
 
-export function MenuClient({ initialCategories, initialItems, spotonConnected }: { initialCategories: DbMenuCategory[]; initialItems: MenuItemWithModifiers[]; spotonConnected: boolean }) {
+export function MenuClient({ initialCategories, initialItems }: { initialCategories: DbMenuCategory[]; initialItems: MenuItemWithModifiers[] }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [categories] = useState(initialCategories);
@@ -76,18 +76,12 @@ export function MenuClient({ initialCategories, initialItems, spotonConnected }:
           </CardContent>
         </Card>
 
-        {!spotonConnected && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-800">
-            SpotOn isn't connected yet, so orders your AI takes will need to be rung in manually. Connect it in Integrations to send orders straight to your kitchen printer.
-          </div>
-        )}
-
         {items.length === 0 ? (
           <EmptyState icon={UtensilsCrossed} title="No menu items yet" description="Add your first item above, or import your whole menu from a website or photo." />
         ) : (
           <div className="space-y-2.5">
             {items.map((item) => (
-              <MenuItemRow key={item.id} item={item} spotonConnected={spotonConnected} onToggle={toggleActive} onRemove={removeItem} onRefresh={() => router.refresh()} />
+              <MenuItemRow key={item.id} item={item} onToggle={toggleActive} onRemove={removeItem} onRefresh={() => router.refresh()} />
             ))}
           </div>
         )}
@@ -100,9 +94,8 @@ export function MenuClient({ initialCategories, initialItems, spotonConnected }:
   );
 }
 
-function MenuItemRow({ item, spotonConnected, onToggle, onRemove, onRefresh }: {
+function MenuItemRow({ item, onToggle, onRemove, onRefresh }: {
   item: MenuItemWithModifiers;
-  spotonConnected: boolean;
   onToggle: (id: string, active: boolean) => void;
   onRemove: (id: string) => void;
   onRefresh: () => void;
@@ -138,8 +131,6 @@ function MenuItemRow({ item, spotonConnected, onToggle, onRemove, onRefresh }: {
     startTransition(async () => { await deleteModifierGroupAction(groupId); onRefresh(); });
   }
 
-  const isOrderable = spotonConnected ? Boolean(item.spoton_item_id) : true;
-
   return (
     <Card>
       <CardContent className="p-4">
@@ -149,7 +140,6 @@ function MenuItemRow({ item, spotonConnected, onToggle, onRemove, onRefresh }: {
             <div>
               <div className="flex items-center gap-2 text-[13.5px] font-medium text-text">
                 {item.name}
-                {!isOrderable && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-medium text-amber-700">Not mapped to SpotOn yet</span>}
               </div>
               <div className="text-[12px] text-text-muted">{item.description}</div>
             </div>
@@ -293,7 +283,7 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented. Won't work on an online-ordering page (SpotOn, Toast, ChowNow, etc.) — use "Paste menu text" below for those instead.</CardDescription></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented. Won't work on an online-ordering page (Toast, ChowNow, etc.) — use "Paste menu text" below for those instead.</CardDescription></CardHeader>
         <CardContent className="flex gap-2">
           <Input placeholder="yourrestaurant.com/menu" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
           <Button variant="brand" onClick={fromWebsite} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>

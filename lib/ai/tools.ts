@@ -1,7 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
-import { submitOrderToSpotOn } from "@/lib/integrations/spoton";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
@@ -234,13 +233,13 @@ async function confirm_and_place_order(
 
   await admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId);
 
-  // Attempt to actually send this to SpotOn so it reaches the kitchen
-  // printer. If this fails (not connected, item mapping issue, SpotOn
-  // is down), the order still exists and shows up on the business's
-  // Orders dashboard with the failure reason — the customer still
-  // hears their order was placed, and the business follows up
-  // manually rather than the customer being told something went wrong
-  // mid-call for a problem that isn't theirs to solve.
+  // Attempt to actually send this to the kitchen printer app. If this
+  // fails (not paired, printer offline), the order still exists and
+  // shows up on the business's Orders dashboard with the failure
+  // reason — the customer still hears their order was placed, and the
+  // business follows up manually rather than the customer being told
+  // something went wrong mid-call for a problem that isn't theirs to
+  // solve.
   const orderWithItemsRes = await admin.from("orders").select("*").eq("id", order.id).single();
   const itemsRes = await admin.from("order_items").select("*").eq("order_id", order.id);
   const itemIds = (itemsRes.data || []).map((i) => i.id);
@@ -253,23 +252,10 @@ async function confirm_and_place_order(
 
   let totalCents = fullOrder.subtotal_cents;
 
-  if (ctx.context.business.spoton_connected_at) {
-    const submission = await submitOrderToSpotOn(fullOrder);
-    if (submission.success) {
-      totalCents = fullOrder.subtotal_cents + submission.taxCents;
-      await admin
-        .from("orders")
-        .update({ status: "submitted", spoton_order_id: submission.spotonOrderId, submitted_at: new Date().toISOString(), tax_cents: submission.taxCents, total_cents: totalCents })
-        .eq("id", order.id);
-    } else {
-      await admin.from("orders").update({ submit_error: submission.error }).eq("id", order.id);
-    }
-  } else if (ctx.context.business.printer_app_paired_at) {
-    // No SpotOn connection — this is exactly the gap the printer app
-    // exists to cover. No tax computation here (unlike SpotOn, nothing
-    // here knows the business's real tax rate), so the ticket and the
-    // order total both stay at subtotal, same limitation this order
-    // already had before either integration existed.
+  if (ctx.context.business.printer_app_paired_at) {
+    // No tax computation here — nothing here knows the business's real
+    // tax rate, so the ticket and the order total both stay at
+    // subtotal.
     const queued = await queuePrintJob({ ...fullOrder, total_cents: totalCents }, ctx.context.business);
     if (queued.success) {
       await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
