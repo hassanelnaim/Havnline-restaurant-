@@ -213,6 +213,14 @@ export interface DbPrinterPrintJob {
   error: string | null;
   created_at: ISODateTime;
   printed_at: ISODateTime | null;
+  // Set the moment a job is handed to the tablet on a poll — not when
+  // it's actually printed. Stops the same still-"pending" job from
+  // being handed out again to an overlapping or retried poll before
+  // its ack has had a chance to arrive. Cleared on a failed ack (or
+  // just ages out after CLAIM_TIMEOUT_MS) so a genuinely stuck job —
+  // tablet crashed, connection dropped — still gets retried instead of
+  // being lost. See app/api/printer-app/orders/route.ts.
+  claimed_at: ISODateTime | null;
 }
 
 // --------------------------------------------------------------------------
