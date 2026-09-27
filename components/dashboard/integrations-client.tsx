@@ -1,10 +1,11 @@
 "use client";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { UtensilsCrossed, PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, RefreshCw } from "lucide-react";
+import { UtensilsCrossed, PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, RefreshCw, Tablet } from "lucide-react";
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 import { provisionPhoneNumberAction, changePhoneNumberAction } from "@/app/actions/business";
 import { connectSpotOnAction, disconnectSpotOnAction, syncSpotOnMenuAction } from "@/app/actions/spoton";
+import { generatePrinterAppCodeAction, unpairPrinterAppAction } from "@/app/actions/printer-app";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ const PROVIDER_META: Record<IntegrationProvider, { name: string; description: st
   twilio: { name: "Phone (Twilio)", description: "Powers your HavnLine phone number and inbound calls.", icon: PhoneCall },
   sms: { name: "SMS confirmations", description: "Sent automatically from your HavnLine number once you have one.", icon: MessageSquare },
   voice_provider: { name: "Order-taker voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
+  printer_app: { name: "HavnLine Printer App", description: "Prints orders straight to your kitchen printer from a tablet.", icon: Tablet },
 };
 
 export function IntegrationsClient({ initialIntegrations, spotonError }: { initialIntegrations: DbIntegration[]; spotonError?: boolean }) {
@@ -34,6 +36,37 @@ export function IntegrationsClient({ initialIntegrations, spotonError }: { initi
 
   const spotonIntegration = integrations.find((i) => i.provider === "spoton");
   const spotonConnected = spotonIntegration?.status === "connected";
+
+  const printerAppIntegration = integrations.find((i) => i.provider === "printer_app");
+  const printerAppConnected = printerAppIntegration?.status === "connected";
+  const printerAppMeta = printerAppIntegration?.metadata as { printer_ip?: string | null; last_seen_at?: string | null } | null;
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
+  const [generatingCode, setGeneratingCode] = useState(false);
+  const [unpairing, setUnpairing] = useState(false);
+  const [printerAppError, setPrinterAppError] = useState<string | null>(null);
+
+  function handleGeneratePrinterAppCode() {
+    setGeneratingCode(true);
+    setPrinterAppError(null);
+    startTransition(async () => {
+      const result = await generatePrinterAppCodeAction();
+      setGeneratingCode(false);
+      if (!result.success) { setPrinterAppError(result.error || "Could not generate a code."); return; }
+      setPairingCode(result.code || null);
+      setPairingExpiresAt(result.expiresAt || null);
+    });
+  }
+
+  function handleUnpairPrinterApp() {
+    setUnpairing(true);
+    startTransition(async () => {
+      await unpairPrinterAppAction();
+      setUnpairing(false);
+      setPairingCode(null);
+      setIntegrations((prev) => prev.map((i) => (i.provider === "printer_app" ? { ...i, status: "not_connected", metadata: null, connected_at: null } : i)));
+    });
+  }
 
   // Requiring a real 3-digit area code here (not just trusting the
   // input's own digit-only formatting) means "Get a number" stays
@@ -177,6 +210,48 @@ export function IntegrationsClient({ initialIntegrations, spotonError }: { initi
             </div>
           </CardContent>
           {syncMsg && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">{syncMsg}</CardContent>}
+        </Card>
+      </div>
+
+      <div>
+        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Kitchen printer app</h3>
+        <Card>
+          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><Tablet className="h-4.5 w-4.5" /></div>
+              <div>
+                <div className="text-[13.5px] font-semibold text-ink">HavnLine Printer App</div>
+                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">
+                  {spotonConnected
+                    ? "You're connected to SpotOn already, so orders reach your kitchen printer that way. This is only needed if you'd rather print from a tablet instead."
+                    : "No SpotOn connection yet — install the HavnLine app on any Android tablet and it'll print orders straight to your kitchen printer."}
+                </p>
+                <div className="mt-2">{printerAppIntegration && <IntegrationStatusBadge status={printerAppIntegration.status} />}</div>
+              </div>
+            </div>
+            {printerAppConnected ? (
+              <Button size="sm" variant="ghost" onClick={handleUnpairPrinterApp} disabled={unpairing}>{unpairing ? "Removing…" : "Unpair tablet"}</Button>
+            ) : (
+              <Button size="sm" variant="brand" onClick={handleGeneratePrinterAppCode} disabled={generatingCode}>{generatingCode ? "Generating…" : "Get pairing code"}</Button>
+            )}
+          </CardContent>
+
+          {printerAppError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{printerAppError}</CardContent>}
+
+          {pairingCode && !printerAppConnected && (
+            <CardContent className="border-t border-border-soft pt-4">
+              <p className="text-[12px] text-text-muted">Open the HavnLine app on your tablet and enter this code — it expires in 15 minutes:</p>
+              <div className="mt-2 inline-block rounded-lg border border-border bg-paper px-4 py-2 font-mono text-[22px] font-semibold tracking-[0.2em] text-ink">{pairingCode}</div>
+              {pairingExpiresAt && <p className="mt-1.5 text-[11px] text-text-faint">Expires at {new Date(pairingExpiresAt).toLocaleTimeString()}</p>}
+            </CardContent>
+          )}
+
+          {printerAppConnected && (
+            <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">
+              {printerAppMeta?.printer_ip ? `Printer: ${printerAppMeta.printer_ip}` : "Waiting for the tablet to report its printer's IP address (set this up in the app)."}
+              {printerAppMeta?.last_seen_at && <span> · Last checked in {new Date(printerAppMeta.last_seen_at).toLocaleString()}</span>}
+            </CardContent>
+          )}
         </Card>
       </div>
 

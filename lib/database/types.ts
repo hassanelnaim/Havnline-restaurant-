@@ -38,6 +38,12 @@ export interface DbBusiness {
   spoton_connected_at: ISODateTime | null;
   spoton_menu_synced_at: ISODateTime | null;
 
+  // HavnLine Printer App connection — the universal fallback for a
+  // business with no SpotOn connection. See printer_devices for the
+  // actual paired device/printer IP; this is just the fast,
+  // no-extra-query flag lib/ai/tools.ts checks per turn.
+  printer_app_paired_at: ISODateTime | null;
+
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -185,6 +191,42 @@ export interface OrderWithItems extends DbOrder {
 }
 
 // --------------------------------------------------------------------------
+// HavnLine Printer App — see lib/database/migrations/011_printer_app.sql
+// and lib/integrations/printer-app.ts.
+// --------------------------------------------------------------------------
+
+export interface DbPrinterPairingCode {
+  id: UUID;
+  business_id: UUID;
+  code: string;
+  expires_at: ISODateTime;
+  claimed_at: ISODateTime | null;
+  created_at: ISODateTime;
+}
+
+export interface DbPrinterDevice {
+  id: UUID;
+  business_id: UUID;
+  device_token: string;
+  printer_ip: string | null;
+  paired_at: ISODateTime;
+  last_seen_at: ISODateTime | null;
+}
+
+export type PrinterPrintJobStatus = "pending" | "printed" | "failed";
+
+export interface DbPrinterPrintJob {
+  id: UUID;
+  business_id: UUID;
+  order_id: UUID;
+  ticket_text: string;
+  status: PrinterPrintJobStatus;
+  error: string | null;
+  created_at: ISODateTime;
+  printed_at: ISODateTime | null;
+}
+
+// --------------------------------------------------------------------------
 // Calls / AI (unchanged from the service-business model — a call is still
 // a call regardless of what the AI does during it)
 // --------------------------------------------------------------------------
@@ -292,7 +334,8 @@ export type IntegrationProvider =
   | "spoton"
   | "twilio"
   | "sms"
-  | "voice_provider";
+  | "voice_provider"
+  | "printer_app";
 
 export type IntegrationStatus = "connected" | "not_connected" | "coming_soon";
 

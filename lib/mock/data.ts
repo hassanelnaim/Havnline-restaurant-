@@ -55,6 +55,7 @@ export const mockBusiness: DbBusiness = {
   spoton_token_expires_at: null,
   spoton_connected_at: null,
   spoton_menu_synced_at: null,
+  printer_app_paired_at: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -208,6 +209,7 @@ export const mockCustomers: DbCustomer[] = [
 export const mockIntegrations: DbIntegration[] = [
   { id: "demo-int-spoton", business_id: "demo-business", provider: "spoton", status: "not_connected", external_account_id: null, connected_at: null, metadata: null },
   { id: "demo-int-twilio", business_id: "demo-business", provider: "twilio", status: "not_connected", external_account_id: null, connected_at: null, metadata: null },
+  { id: "demo-int-printer-app", business_id: "demo-business", provider: "printer_app", status: "not_connected", external_account_id: null, connected_at: null, metadata: null },
 ];
 
 export const mockKnowledgeItems: DbKnowledgeItem[] = [];

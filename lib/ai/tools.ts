@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { submitOrderToSpotOn } from "@/lib/integrations/spoton";
+import { queuePrintJob } from "@/lib/integrations/printer-app";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -262,6 +263,18 @@ async function confirm_and_place_order(
         .eq("id", order.id);
     } else {
       await admin.from("orders").update({ submit_error: submission.error }).eq("id", order.id);
+    }
+  } else if (ctx.context.business.printer_app_paired_at) {
+    // No SpotOn connection — this is exactly the gap the printer app
+    // exists to cover. No tax computation here (unlike SpotOn, nothing
+    // here knows the business's real tax rate), so the ticket and the
+    // order total both stay at subtotal, same limitation this order
+    // already had before either integration existed.
+    const queued = await queuePrintJob({ ...fullOrder, total_cents: totalCents }, ctx.context.business);
+    if (queued.success) {
+      await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
+    } else {
+      await admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id);
     }
   }
 
