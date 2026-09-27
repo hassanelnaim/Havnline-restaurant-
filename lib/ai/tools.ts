@@ -250,13 +250,20 @@ async function confirm_and_place_order(
     items: (itemsRes.data || []).map((i) => ({ ...i, modifiers: (modifiersRes.data || []).filter((m) => m.order_item_id === i.id) })),
   };
 
-  let totalCents = fullOrder.subtotal_cents;
+  // Tax rate lives on the business (basis points — see Settings), so
+  // this works the same whether or not a printer tablet is paired: the
+  // AI always quotes and records the real total, and the order shows
+  // up on the dashboard with the right tax/total even if it just sits
+  // at "confirmed" for the owner to ring in manually.
+  const taxRateBps = ctx.context.business.tax_rate_bps || 0;
+  const taxCents = Math.round((fullOrder.subtotal_cents * taxRateBps) / 10000);
+  const totalCents = fullOrder.subtotal_cents + taxCents;
+  fullOrder.tax_cents = taxCents;
+  fullOrder.total_cents = totalCents;
+  await admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id);
 
   if (ctx.context.business.printer_app_paired_at) {
-    // No tax computation here — nothing here knows the business's real
-    // tax rate, so the ticket and the order total both stay at
-    // subtotal.
-    const queued = await queuePrintJob({ ...fullOrder, total_cents: totalCents }, ctx.context.business);
+    const queued = await queuePrintJob(fullOrder, ctx.context.business);
     if (queued.success) {
       await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
     } else {

@@ -34,6 +34,12 @@ export interface DbBusiness {
   // just the fast, no-extra-query flag lib/ai/tools.ts checks per turn.
   printer_app_paired_at: ISODateTime | null;
 
+  // Sales tax rate applied to every order's subtotal when the AI
+  // confirms it, in basis points (825 = 8.25%). Defaults to 0 — no tax
+  // is added until the owner sets a real rate in Settings. Stored as
+  // an integer (not a float) to avoid rounding drift across orders.
+  tax_rate_bps: number;
+
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

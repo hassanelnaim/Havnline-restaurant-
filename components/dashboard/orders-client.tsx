@@ -1,18 +1,37 @@
 "use client";
-import { useState, useTransition } from "react";
-import { RefreshCw, XCircle, ClipboardList, Printer } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { RefreshCw, XCircle, ClipboardList, Printer, Receipt } from "lucide-react";
 import type { OrderWithItems } from "@/lib/database/types";
 import { retrySubmitOrderAction, cancelOrderAction } from "@/app/actions/orders";
 import { OrderStatusBadge } from "@/components/dashboard/status-badges";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatCents, localDateKey } from "@/lib/format";
+
+// Orders that never actually happened (never confirmed, or called off)
+// shouldn't count toward the day's sales totals.
+const COUNTS_TOWARD_SALES = new Set(["confirmed", "submitted"]);
 
 export function OrdersClient({ initialOrders, timezone, printerAppConnected }: { initialOrders: OrderWithItems[]; timezone: string; printerAppConnected: boolean }) {
   const [orders, setOrders] = useState(initialOrders);
   const [, startTransition] = useTransition();
   const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  // "Today" in the business's own timezone, not the server's — see
+  // localDateKey. Only covers the orders this page already fetched
+  // (getOrdersForBusiness's most recent 100), which is fine for a
+  // same-day summary but won't reach back further than that.
+  const todaysSummary = useMemo(() => {
+    const today = localDateKey(new Date().toISOString(), timezone);
+    const todays = orders.filter((o) => COUNTS_TOWARD_SALES.has(o.status) && localDateKey(o.created_at, timezone) === today);
+    return {
+      orderCount: todays.length,
+      grossCents: todays.reduce((sum, o) => sum + o.total_cents, 0),
+      netCents: todays.reduce((sum, o) => sum + o.subtotal_cents, 0),
+      taxCents: todays.reduce((sum, o) => sum + o.tax_cents, 0),
+    };
+  }, [orders, timezone]);
 
   function retry(orderId: string) {
     setRetryingId(orderId);
@@ -37,7 +56,18 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-6 p-5">
+          <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-text-faint"><Receipt className="h-3.5 w-3.5" /> Today</div>
+          <div><div className="text-[11px] text-text-faint">Orders</div><div className="font-mono text-[15px] font-semibold text-ink">{todaysSummary.orderCount}</div></div>
+          <div><div className="text-[11px] text-text-faint">Gross sales</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.grossCents)}</div></div>
+          <div><div className="text-[11px] text-text-faint">Net sales</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.netCents)}</div></div>
+          <div><div className="text-[11px] text-text-faint">Tax collected</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.taxCents)}</div></div>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-3">
       {orders.map((order) => (
         <Card key={order.id}>
           <CardContent className="p-5">
@@ -101,6 +131,7 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
           </CardContent>
         </Card>
       ))}
+      </div>
     </div>
   );
 }

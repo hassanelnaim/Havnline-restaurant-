@@ -151,6 +151,8 @@ export function buildTicketText(order: OrderWithItems, business: Pick<DbBusiness
     if (item.notes) lines.push(`   note: ${item.notes}`);
   }
   lines.push("--------------------------------");
+  lines.push(`Subtotal: $${(order.subtotal_cents / 100).toFixed(2)}`);
+  if (order.tax_cents > 0) lines.push(`Tax: $${(order.tax_cents / 100).toFixed(2)}`);
   lines.push(`Total: $${(order.total_cents / 100).toFixed(2)}`);
   if (order.customer_name) lines.push(`Customer: ${order.customer_name}`);
   if (order.phone) lines.push(`Phone: ${order.phone}`);

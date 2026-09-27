@@ -56,6 +56,37 @@ export async function updateBusinessProfileAction(input: {
   return { success: true };
 }
 
+/**
+ * Saves the sales tax rate applied to every order's subtotal when the
+ * AI confirms it (see confirm_and_place_order in lib/ai/tools.ts).
+ * Takes a plain percentage (e.g. "8.25") and stores it as basis
+ * points so later math never drifts from float rounding.
+ */
+export async function updateTaxRateAction(input: { taxRatePercent: string }): Promise<ActionResult> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+
+  const trimmed = input.taxRatePercent.trim();
+  const percent = trimmed === "" ? 0 : Number(trimmed);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 25) {
+    return { success: false, error: "Enter a tax rate between 0 and 25%." };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("businesses")
+    .update({ tax_rate_bps: Math.round(percent * 100) })
+    .eq("id", businessId);
+
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}
+
 export interface HoursInput {
   weekday: string;
   isOpen: boolean;

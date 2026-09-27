@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { signOutAction } from "@/app/actions/auth";
-import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction } from "@/app/actions/business";
+import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction, updateTaxRateAction } from "@/app/actions/business";
 import { updateProfileNameAction, updateEmailAction, updatePasswordAction } from "@/app/actions/profile";
 
 const WEEKDAY_LABELS: Record<string, string> = { monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday", thursday: "Thursday", friday: "Friday", saturday: "Saturday", sunday: "Sunday" };
@@ -24,6 +24,9 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
   const [description, setDescription] = useState(business.description || "");
   const [address, setAddress] = useState(business.address || "");
   const [phone, setPhone] = useState(business.phone || "");
+  const [taxRate, setTaxRate] = useState(business.tax_rate_bps ? (business.tax_rate_bps / 100).toString() : "");
+  const [taxRateSaved, setTaxRateSaved] = useState(false);
+  const [taxRateError, setTaxRateError] = useState<string | null>(null);
   const [notifyCalls, setNotifyCalls] = useState(business.notification_preferences?.calls ?? false);
   const [notifyEscalations, setNotifyEscalations] = useState(business.notification_preferences?.escalations ?? true);
   const [notifyDigest, setNotifyDigest] = useState(business.notification_preferences?.digest ?? false);
@@ -70,6 +73,16 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
+    });
+  }
+
+  function handleSaveTaxRate() {
+    setTaxRateError(null);
+    startTransition(async () => {
+      const result = await updateTaxRateAction({ taxRatePercent: taxRate });
+      if (!result.success) { setTaxRateError(result.error || "Could not save the tax rate."); return; }
+      setTaxRateSaved(true);
+      setTimeout(() => setTaxRateSaved(false), 1800);
     });
   }
 
@@ -134,6 +147,22 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
             <div className="flex items-center gap-3">
               <Button variant="brand" size="sm" onClick={handleSaveProfile} disabled={isPending}>{isPending ? "Saving…" : "Save changes"}</Button>
               {saved && <span className="text-[12.5px] font-medium text-success">Saved ✓</span>}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-4">
+          <CardHeader><CardTitle>Sales tax</CardTitle><CardDescription>Added to every order's subtotal when your AI confirms it — shown on the total it quotes and on the kitchen ticket.</CardDescription></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="max-w-[200px]">
+              <Label>Tax rate (%)</Label>
+              <Input className="mt-1.5" type="number" step="0.01" min="0" max="25" placeholder="e.g. 8.25" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
+              <p className="mt-1 text-[11px] text-text-faint">Leave at 0 if the order total shouldn't include tax.</p>
+            </div>
+            {taxRateError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{taxRateError}</div>}
+            <div className="flex items-center gap-3">
+              <Button variant="brand" size="sm" onClick={handleSaveTaxRate} disabled={isPending}>{isPending ? "Saving…" : "Save tax rate"}</Button>
+              {taxRateSaved && <span className="text-[12.5px] font-medium text-success">Saved ✓</span>}
             </div>
           </CardContent>
         </Card>

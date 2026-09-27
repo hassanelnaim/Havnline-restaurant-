@@ -43,6 +43,16 @@ export function formatDateWithWeekday(iso: string): string {
   return `${dd}/${mm}/${yyyy} · ${weekday}`;
 }
 
+/**
+ * The calendar date (YYYY-MM-DD) an ISO timestamp falls on in a given
+ * IANA timezone — used to group/filter orders by "today" in the
+ * business's own local time rather than the server's (UTC on
+ * Vercel), same reasoning as formatDateTime above.
+ */
+export function localDateKey(iso: string, timezone: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: timezone }); // en-CA gives YYYY-MM-DD
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();

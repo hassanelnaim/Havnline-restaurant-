@@ -50,6 +50,7 @@ export const mockBusiness: DbBusiness = {
   suspended_at: null,
   suspended_reason: null,
   printer_app_paired_at: null,
+  tax_rate_bps: 600,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
