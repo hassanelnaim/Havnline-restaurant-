@@ -2,8 +2,18 @@
 // AI receptionist already talk to. One company, one backend, so this
 // is a build-time constant rather than something the restaurant has to
 // type in; change it here (and rebuild) if the production domain ever
-// changes, e.g. once havnline.com is live instead of the Vercel URL.
-export const API_BASE_URL = "https://havnline.com";
+// changes.
+//
+// Must be the exact host that serves the API with no redirect in
+// front of it. The bare apex domain (havnline.com, no "www") 308s to
+// www.havnline.com, and React Native's fetch — like a browser — drops
+// the Authorization header when a redirect crosses to a different
+// host. Every unauthenticated call (pairing) still worked fine
+// through that redirect; every call that needs the device's Bearer
+// token (saving the printer IP, polling for orders) silently lost it
+// and came back "Not paired." Pointing straight at the final host
+// avoids the redirect entirely.
+export const API_BASE_URL = "https://www.havnline.com";
 
 // How often the tablet checks for new orders. This app runs on a
 // tablet that's always plugged in and sitting in the kitchen — not a
