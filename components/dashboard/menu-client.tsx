@@ -200,12 +200,39 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
   const [committed, setCommitted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function fileToBase64(file: File): Promise<string> {
+  // Claude's vision models resize any image down to ~1568px on the
+  // long edge before reading it anyway — sending more than that is
+  // pure wasted upload time and processing time, which is exactly
+  // what pushed a full-resolution phone photo (often 8-12MP) past
+  // Vercel's function timeout. Shrinking to that same size ourselves,
+  // right in the browser, means the request that reaches the server
+  // is a fraction of the size with no loss in what the AI can
+  // actually read.
+  const MAX_MENU_PHOTO_DIMENSION = 1568;
+
+  function resizeImageFile(file: File): Promise<{ base64: string; mediaType: "image/jpeg" }> {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+      const objectUrl = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if (width > MAX_MENU_PHOTO_DIMENSION || height > MAX_MENU_PHOTO_DIMENSION) {
+          const scale = MAX_MENU_PHOTO_DIMENSION / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("This browser can't process images.")); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        resolve({ base64: dataUrl.split(",")[1], mediaType: "image/jpeg" });
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Could not read that photo.")); };
+      img.src = objectUrl;
     });
   }
 
@@ -243,8 +270,7 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
     setStaged(null);
     setCommitted(false);
     try {
-      const base64 = await fileToBase64(file);
-      const mediaType = (file.type === "image/png" ? "image/png" : file.type === "image/webp" ? "image/webp" : "image/jpeg") as "image/jpeg" | "image/png" | "image/webp";
+      const { base64, mediaType } = await resizeImageFile(file);
       const result = await extractMenuFromImageAction(base64, mediaType);
       setImporting(false);
       if (!result.success) { setImportError(result.error || "Could not read that photo."); return; }
