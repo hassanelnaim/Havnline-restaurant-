@@ -9,9 +9,11 @@ export const dynamic = "force-dynamic";
 // it has to render a JavaScript-heavy page (and retry once through a
 // stealth proxy if the site blocks the first attempt) — well past
 // Vercel's default function timeout, which would otherwise cut the
-// import off mid-request. Capped at 60s here; note Vercel's Hobby plan
-// may still enforce a lower cap regardless of this setting.
-export const maxDuration = 60;
+// import off mid-request. Vercel's Fluid Compute (on by default,
+// including on Hobby) actually allows up to 300s here — this just needs
+// to say so, since Vercel enforces whatever this is set to rather than
+// silently re-capping it at some lower platform limit.
+export const maxDuration = 180;
 
 export default async function MenuPage() {
   const business = await getBusiness();
