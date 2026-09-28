@@ -49,6 +49,46 @@ function isKnownBotProtectedHost(url: string): boolean {
   }
 }
 
+// Confirmed by actually loading order.spoton.com's raw HTML: there's no
+// embedded menu JSON anywhere in the initial payload, and the only
+// order-related thing present before JS runs is a "Start order" link —
+// the real menu only appears after a person clicks through it. That's
+// a genuinely different failure mode from slow rendering or bot
+// detection: no amount of waiting gets past a button nobody clicked.
+// ScrapingBee's js_scenario lets us script that click before it hands
+// back the page. Matched by visible text (not a specific class/id,
+// which varies by platform and can change) but restricted to actual
+// clickable elements (button/link/role=button) so it can't match a
+// wrapping container's aggregated text instead of the real control —
+// selectors starting with "/" are XPath per ScrapingBee's docs.
+function startOrderClickXPath(): string {
+  const lower = (expr: string) => `translate(normalize-space(${expr}), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`;
+  const matches = (tag: string) => `//${tag}[contains(${lower(".")}, 'start order') or contains(${lower(".")}, 'order now') or contains(${lower(".")}, 'view menu')]`;
+  return [matches("button"), matches("a"), `//*[@role='button'][contains(${lower(".")}, 'start order')]`].join(" | ");
+}
+
+// Best-effort click-through for ordering platforms that gate their menu
+// behind an initial "Start order"/"Order now" screen rather than just a
+// slow load. If no matching element exists (a platform that doesn't
+// gate this way, or one phrased differently), ScrapingBee simply skips
+// the click and returns the page as-is — this shouldn't make things
+// worse for a host that didn't need it. This is a first pass verified
+// against the raw HTML but not against a live render (no way to test a
+// real ScrapingBee call from here) — if a business's ordering page
+// still comes back mostly empty after this, the next step is finding
+// out what's actually on the page after the click (a second
+// confirmation step, a location/table picker, etc.) and extending the
+// scenario to match.
+function clickThroughScenario(): string {
+  return JSON.stringify({
+    instructions: [
+      { wait: 2000 },
+      { click: startOrderClickXPath() },
+      { wait: 4000 },
+    ],
+  });
+}
+
 async function callScrapingBee(url: string, apiKey: string, extraParams: Record<string, string>, timeoutMs: number): Promise<Response> {
   const params = new URLSearchParams({
     api_key: apiKey,
@@ -83,14 +123,16 @@ async function fetchViaScrapingBee(url: string): Promise<string> {
   const apiKey = process.env.SCRAPINGBEE_API_KEY;
   if (!apiKey) throw new Error("SCRAPINGBEE_API_KEY is not configured.");
 
-  // Vercel's Hobby plan hard-caps this whole request (render + AI
-  // extraction afterward) at 60s no matter what — so every second spent
-  // rendering is a second not available for the AI call that follows.
-  // A known bot-protected host skips the doomed plain attempt entirely
-  // and gets the full budget for one stealth call instead of splitting
-  // it (badly) across two sequential ones.
+  // The website-import pages (app/dashboard/menu/page.tsx,
+  // app/dashboard/knowledge/page.tsx) now allow 180s, not the 60s this
+  // used to be capped at — plenty of budget for one stealth call plus
+  // the click-through scenario below, with room left for the AI
+  // extraction step that follows. A known bot-protected host skips the
+  // doomed plain attempt entirely and gets the full budget for one
+  // stealth call instead of splitting it (badly) across two sequential
+  // ones.
   if (isKnownBotProtectedHost(url)) {
-    const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" }, 40000);
+    const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true", js_scenario: clickThroughScenario() }, 90000);
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new Error(`The page-rendering service couldn't load that page (HTTP ${response.status}). ${body.slice(0, 200)}`);
