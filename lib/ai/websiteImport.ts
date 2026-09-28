@@ -102,24 +102,75 @@ async function callScrapingBee(url: string, apiKey: string, extraParams: Record<
   }
 }
 
+// A real ordering-platform page's visible text runs into the
+// thousands of characters (categories, item names, descriptions,
+// prices). The pre-hydration shell some of these apps show before
+// their JS has actually fetched the menu is a couple hundred
+// characters at most (nav links, "Sign in", a cart placeholder). This
+// is the same test app/actions/menu.ts's "0 items found" check is
+// really getting at, just applied earlier — right after rendering,
+// so a bad render can be retried instead of only being reported as a
+// failure afterward.
+const MIN_RENDERED_TEXT_LENGTH = 400;
+
+function htmlToVisibleText(html: string): string {
+  const $ = cheerio.load(html);
+  $("script, style, noscript, svg, nav, footer").remove();
+  return $("body").text().replace(/\s+/g, " ").trim();
+}
+
 async function fetchViaScrapingBee(url: string): Promise<string> {
   const apiKey = process.env.SCRAPINGBEE_API_KEY;
   if (!apiKey) throw new Error("SCRAPINGBEE_API_KEY is not configured.");
 
   // The website-import pages (app/dashboard/menu/page.tsx,
   // app/dashboard/knowledge/page.tsx) now allow 180s, not the 60s this
-  // used to be capped at — plenty of budget for one stealth call, with
-  // room left for the AI extraction step that follows. A known bot-
-  // protected host skips the doomed plain attempt entirely and gets
-  // the full budget for one stealth call instead of splitting it
-  // (badly) across two sequential ones.
+  // used to be capped at. A known bot-protected host skips the doomed
+  // plain attempt entirely and goes straight to the stealth proxy.
+  //
+  // Real-world evidence (see the comment above this function) showed
+  // that same stealth-proxy call isn't reliably getting past this
+  // site's bot detection — it succeeded once with real menu content,
+  // then failed identically across three later attempts running the
+  // exact same request. That pattern (same call, different outcome)
+  // means the render itself is flaky, not that any particular param
+  // is wrong — so instead of one shot, this retries a few times and
+  // actually checks the rendered text length each time, rather than
+  // trusting a 200 status that a bot-detection stub page can return
+  // just as easily as a real one. Each attempt is a fresh ScrapingBee
+  // request, which gets a fresh proxy IP — a real chance at a
+  // different, better outcome, not a repeat of the same failure.
   if (isKnownBotProtectedHost(url)) {
-    const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" }, 90000);
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(`The page-rendering service couldn't load that page (HTTP ${response.status}). ${body.slice(0, 200)}`);
+    const attempts = 3;
+    let lastHtml = "";
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" }, 40000);
+      const status = response.status;
+      const spbCost = response.headers.get("Spb-cost");
+      const spbInitialStatus = response.headers.get("Spb-initial-status-code");
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.log(`[websiteImport] ScrapingBee attempt ${attempt}/${attempts} for ${url}: HTTP ${status} (Spb-cost=${spbCost}, Spb-initial-status-code=${spbInitialStatus}) — ${body.slice(0, 200)}`);
+        lastHtml = body;
+        continue;
+      }
+
+      const html = await response.text();
+      const visibleText = htmlToVisibleText(html);
+      console.log(`[websiteImport] ScrapingBee attempt ${attempt}/${attempts} for ${url}: HTTP ${status}, ${visibleText.length} visible chars (Spb-cost=${spbCost}, Spb-initial-status-code=${spbInitialStatus})`);
+      lastHtml = html;
+
+      if (visibleText.length >= MIN_RENDERED_TEXT_LENGTH) {
+        return html;
+      }
     }
-    return response.text();
+    // Every attempt came back too thin to be the real page. Return the
+    // last one anyway — fetchWebsiteText's own <50-char check and
+    // app/actions/menu.ts's "0 items found" check will report this as
+    // a failure, but with the actual content visible for debugging,
+    // same as before.
+    return lastHtml;
   }
 
   let response = await callScrapingBee(url, apiKey, {}, 30000);
@@ -177,10 +228,7 @@ export async function fetchWebsiteText(url: string): Promise<string> {
   const renderingConfigured = Boolean(process.env.SCRAPINGBEE_API_KEY);
   const html = renderingConfigured ? await fetchViaScrapingBee(normalizedUrl) : await fetchViaPlainRequest(normalizedUrl);
 
-  const $ = cheerio.load(html);
-  $("script, style, noscript, svg, nav, footer").remove();
-
-  const text = $("body").text().replace(/\s+/g, " ").trim();
+  const text = htmlToVisibleText(html);
 
   if (text.length < 50) {
     throw new Error(
