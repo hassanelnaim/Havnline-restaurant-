@@ -49,44 +49,36 @@ function isKnownBotProtectedHost(url: string): boolean {
   }
 }
 
-// Confirmed by actually loading order.spoton.com's raw HTML: there's no
-// embedded menu JSON anywhere in the initial payload, and the only
-// order-related thing present before JS runs is a "Start order" link —
-// the real menu only appears after a person clicks through it. That's
-// a genuinely different failure mode from slow rendering or bot
-// detection: no amount of waiting gets past a button nobody clicked.
-// ScrapingBee's js_scenario lets us script that click before it hands
-// back the page. Matched by visible text (not a specific class/id,
-// which varies by platform and can change) but restricted to actual
-// clickable elements (button/link/role=button) so it can't match a
-// wrapping container's aggregated text instead of the real control —
-// selectors starting with "/" are XPath per ScrapingBee's docs.
-function startOrderClickXPath(): string {
-  const lower = (expr: string) => `translate(normalize-space(${expr}), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`;
-  const matches = (tag: string) => `//${tag}[contains(${lower(".")}, 'start order') or contains(${lower(".")}, 'order now') or contains(${lower(".")}, 'view menu')]`;
-  return [matches("button"), matches("a"), `//*[@role='button'][contains(${lower(".")}, 'start order')]`].join(" | ");
-}
+// CORRECTION from an earlier version of this file: a static (non-JS)
+// fetch of order.spoton.com's raw HTML showed only "...Start order",
+// which looked like a click-through gate blocking the real menu. It
+// wasn't — that's just this app's pre-hydration loading label on its
+// cart button (it reads "Your order" once real data loads). Loading
+// the actual page in a real, non-automated browser proved there's no
+// button to click at all; the menu renders directly. So the click
+// instruction that used to live here was solving a problem that
+// didn't exist, and worse, risked actually clicking that cart button
+// once hydration did complete, potentially navigating away from the
+// menu entirely. Replaced below with something grounded in what the
+// real DOM actually does: wait for the menu to be genuinely there,
+// not for a fixed number of seconds or a guessed button.
+//
+// Every menu category link on a SpotOn ordering page carries
+// data-testid="menu-item-group" (confirmed by inspecting the live
+// page's DOM directly) — that's Chakra UI test tooling SpotOn ships
+// to every business built on their platform, not something specific
+// to this one restaurant, so it should hold for other SpotOn pages
+// too. ScrapingBee's wait_for pauses until a selector actually shows
+// up in the DOM, which is a real "is the menu here yet" check instead
+// of a guess at how many seconds rendering takes.
+const SPOTON_MENU_LOADED_SELECTOR = "[data-testid='menu-item-group']";
 
-// Best-effort click-through for ordering platforms that gate their menu
-// behind an initial "Start order"/"Order now" screen rather than just a
-// slow load. If no matching element exists (a platform that doesn't
-// gate this way, or one phrased differently), ScrapingBee simply skips
-// the click and returns the page as-is — this shouldn't make things
-// worse for a host that didn't need it. This is a first pass verified
-// against the raw HTML but not against a live render (no way to test a
-// real ScrapingBee call from here) — if a business's ordering page
-// still comes back mostly empty after this, the next step is finding
-// out what's actually on the page after the click (a second
-// confirmation step, a location/table picker, etc.) and extending the
-// scenario to match.
-function clickThroughScenario(): string {
-  return JSON.stringify({
-    instructions: [
-      { wait: 2000 },
-      { click: startOrderClickXPath() },
-      { wait: 4000 },
-    ],
-  });
+function isSpotOnHost(url: string): boolean {
+  try {
+    return /(^|\.)spoton\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
 }
 
 async function callScrapingBee(url: string, apiKey: string, extraParams: Record<string, string>, timeoutMs: number): Promise<Response> {
@@ -125,14 +117,22 @@ async function fetchViaScrapingBee(url: string): Promise<string> {
 
   // The website-import pages (app/dashboard/menu/page.tsx,
   // app/dashboard/knowledge/page.tsx) now allow 180s, not the 60s this
-  // used to be capped at — plenty of budget for one stealth call plus
-  // the click-through scenario below, with room left for the AI
-  // extraction step that follows. A known bot-protected host skips the
-  // doomed plain attempt entirely and gets the full budget for one
-  // stealth call instead of splitting it (badly) across two sequential
-  // ones.
+  // used to be capped at — plenty of budget for one stealth call, with
+  // room left for the AI extraction step that follows. A known bot-
+  // protected host skips the doomed plain attempt entirely and gets
+  // the full budget for one stealth call instead of splitting it
+  // (badly) across two sequential ones.
   if (isKnownBotProtectedHost(url)) {
-    const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true", js_scenario: clickThroughScenario() }, 90000);
+    const extraParams: Record<string, string> = { stealth_proxy: "true" };
+    // Only for SpotOn, and only a real "wait for this to exist"
+    // check — see SPOTON_MENU_LOADED_SELECTOR above. Other bot-
+    // protected platforms in the list below haven't been inspected
+    // live, so they keep the plain fixed wait rather than guessing at
+    // their DOM.
+    if (isSpotOnHost(url)) {
+      extraParams.js_scenario = JSON.stringify({ instructions: [{ wait_for: SPOTON_MENU_LOADED_SELECTOR }] });
+    }
+    const response = await callScrapingBee(url, apiKey, extraParams, 90000);
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new Error(`The page-rendering service couldn't load that page (HTTP ${response.status}). ${body.slice(0, 200)}`);
