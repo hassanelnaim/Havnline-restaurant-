@@ -29,7 +29,27 @@ export interface ExtractedKnowledgeItem {
 // plain fetch, which still works fine for ordinary static sites.
 // --------------------------------------------------------------------------
 
-async function callScrapingBee(url: string, apiKey: string, extraParams: Record<string, string>): Promise<Response> {
+// Ordering platforms known to run bot-detection that trips ScrapingBee's
+// plain headless render — the exact thing that made
+// https://order.spoton.com/... always fail its first attempt and fall
+// through to a slow stealth-proxy retry. Rather than pay for that failed
+// first attempt every time (it doesn't just fail fast — a blocked JS-heavy
+// page still takes several seconds to "finish loading" before ScrapingBee
+// reports the failure), a known-protected host goes straight to the
+// stealth proxy, cutting a guaranteed-slow two-call sequence down to one.
+// Add a hostname here whenever a platform turns out to need this.
+const BOT_PROTECTED_HOSTNAMES = [/(^|\.)spoton\.com$/i, /(^|\.)toasttab\.com$/i, /(^|\.)chownow\.com$/i, /(^|\.)olo\.com$/i];
+
+function isKnownBotProtectedHost(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return BOT_PROTECTED_HOSTNAMES.some((pattern) => pattern.test(hostname));
+  } catch {
+    return false;
+  }
+}
+
+async function callScrapingBee(url: string, apiKey: string, extraParams: Record<string, string>, timeoutMs: number): Promise<Response> {
   const params = new URLSearchParams({
     api_key: apiKey,
     url,
@@ -51,7 +71,7 @@ async function callScrapingBee(url: string, apiKey: string, extraParams: Record<
   });
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 55000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(`https://app.scrapingbee.com/api/v1/?${params.toString()}`, { signal: controller.signal });
   } finally {
@@ -63,15 +83,32 @@ async function fetchViaScrapingBee(url: string): Promise<string> {
   const apiKey = process.env.SCRAPINGBEE_API_KEY;
   if (!apiKey) throw new Error("SCRAPINGBEE_API_KEY is not configured.");
 
-  let response = await callScrapingBee(url, apiKey, {});
+  // Vercel's Hobby plan hard-caps this whole request (render + AI
+  // extraction afterward) at 60s no matter what — so every second spent
+  // rendering is a second not available for the AI call that follows.
+  // A known bot-protected host skips the doomed plain attempt entirely
+  // and gets the full budget for one stealth call instead of splitting
+  // it (badly) across two sequential ones.
+  if (isKnownBotProtectedHost(url)) {
+    const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" }, 40000);
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`The page-rendering service couldn't load that page (HTTP ${response.status}). ${body.slice(0, 200)}`);
+    }
+    return response.text();
+  }
+
+  let response = await callScrapingBee(url, apiKey, {}, 30000);
 
   // Some ordering platforms run basic bot-detection that a plain
   // headless render trips. If the first attempt fails, retry once
   // through ScrapingBee's premium/stealth proxy before giving up — it
   // costs more of the account's monthly credits, so it's a fallback,
-  // not the default.
+  // not the default. Capped tighter than a lone attempt would be so the
+  // two together still leave room for the AI extraction step under
+  // Vercel's 60s ceiling.
   if (!response.ok) {
-    response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" });
+    response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" }, 25000);
   }
 
   if (!response.ok) {
