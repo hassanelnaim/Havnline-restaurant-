@@ -7,11 +7,7 @@ import { StepShell } from "@/components/onboarding/step-shell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-
-// Restaurant sub-types only — HavnLine is restaurant-specific, not a
-// generic "AI receptionist for any business" product. These are real
-// categories a restaurant owner would pick, not filler.
-const BUSINESS_TYPES = ["Quick Service", "Fast Casual", "Casual Dining", "Fine Dining", "Cafe & Bakery", "Bar & Grill", "Food Truck", "Pizzeria", "Other"];
+import { RESTAURANT_TYPES } from "@/lib/restaurant-types";
 
 // Curated rather than the full IANA list — every real timezone a small
 // US-based business is actually in, labeled the way a business owner
@@ -62,7 +58,7 @@ export default function BusinessInfoStep() {
           <Label htmlFor="businessType">Restaurant type</Label>
           <select id="businessType" className="mt-1.5 flex h-9 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30" value={draft.businessType} onChange={(e) => update({ businessType: e.target.value })}>
             <option value="">Select a type…</option>
-            {BUSINESS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {RESTAURANT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div>

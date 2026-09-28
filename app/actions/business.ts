@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { provisionNumber, releaseNumber, createSubAccount } from "@/lib/integrations/telephony/twilioProvider";
+import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { AiResponsibilities, Personality, VoiceId } from "@/lib/database/types";
 
 async function requireBusinessId(): Promise<string> {
@@ -37,6 +38,7 @@ export async function updateBusinessProfileAction(input: {
   description: string;
   address: string;
   phone: string;
+  businessType?: string;
 }): Promise<ActionResult> {
   let businessId: string;
   try {
@@ -48,7 +50,17 @@ export async function updateBusinessProfileAction(input: {
   const admin = createAdminClient();
   const { error } = await admin
     .from("businesses")
-    .update({ name: input.name, description: input.description || null, address: input.address || null, phone: input.phone || null })
+    .update({
+      name: input.name,
+      description: input.description || null,
+      address: input.address || null,
+      phone: input.phone || null,
+      // Feeds lib/ai/systemPrompt.ts directly — the AI's tone/assumptions
+      // shift on this (a food truck's AI shouldn't casually mention "your
+      // table"; fine dining might warrant a more formal tone), so it's
+      // not just a display label.
+      ...(input.businessType !== undefined ? { business_type: input.businessType || null } : {}),
+    })
     .eq("id", businessId);
 
   if (error) return { success: false, error: error.message };
@@ -119,6 +131,10 @@ export async function updateBusinessHoursAction(hours: HoursInput[]): Promise<Ac
   return { success: true };
 }
 
+export interface UpdateAiEmployeeResult extends ActionResult {
+  generatedInstructions?: string;
+}
+
 export async function updateAiEmployeeAction(input: {
   name: string;
   personality: Personality;
@@ -127,7 +143,7 @@ export async function updateAiEmployeeAction(input: {
   orderingRules: string;
   escalationRules: string;
   customVoice?: { providerVoiceRef: string; providerVoiceName: string } | null;
-}): Promise<ActionResult> {
+}): Promise<UpdateAiEmployeeResult> {
   let businessId: string;
   try {
     businessId = await requireBusinessId();
@@ -137,6 +153,25 @@ export async function updateAiEmployeeAction(input: {
 
   const admin = createAdminClient();
 
+  // Regenerated on every save (not just once at onboarding) so the
+  // read-only "AI briefing" shown on the AI Employee page never drifts
+  // out of sync with whatever was just changed here — see
+  // generateInstructions.ts and ai-employee-client.tsx.
+  const [businessRes, hoursRes, menuCountRes] = await Promise.all([
+    admin.from("businesses").select("name, description").eq("id", businessId).single(),
+    admin.from("business_hours").select("weekday, is_open, open_time, close_time").eq("business_id", businessId),
+    admin.from("menu_items").select("id", { count: "exact", head: true }).eq("business_id", businessId).eq("is_active", true),
+  ]);
+
+  const generatedInstructions = generateInstructions({
+    business: { name: businessRes.data?.name || "your restaurant", description: businessRes.data?.description || "" },
+    receptionistName: input.name,
+    personality: input.personality,
+    responsibilities: input.responsibilities,
+    menuItemCount: menuCountRes.count || 0,
+    hours: hoursRes.data || [],
+  });
+
   const { error: aiError } = await admin
     .from("ai_receptionists")
     .update({
@@ -145,6 +180,7 @@ export async function updateAiEmployeeAction(input: {
       responsibilities: input.responsibilities,
       ordering_rules: input.orderingRules || null,
       escalation_rules: input.escalationRules || null,
+      generated_instructions: generatedInstructions,
     })
     .eq("business_id", businessId);
   if (aiError) return { success: false, error: aiError.message };
@@ -164,7 +200,7 @@ export async function updateAiEmployeeAction(input: {
   if (voiceError) return { success: false, error: voiceError.message };
 
   revalidatePath("/dashboard/ai-employee");
-  return { success: true };
+  return { success: true, generatedInstructions };
 }
 
 export async function toggleAiStatusAction(online: boolean): Promise<ActionResult> {

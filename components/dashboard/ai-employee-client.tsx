@@ -30,6 +30,7 @@ const RESPONSIBILITY_ITEMS: { key: keyof AiResponsibilities; label: string }[] =
 ];
 
 export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; voice: DbAiVoiceConfig; hours: DbBusinessHours[] }) {
+  const [generatedInstructions, setGeneratedInstructions] = useState(ai.generated_instructions);
   const [name, setName] = useState(ai.name);
   const [personality, setPersonality] = useState(ai.personality);
   const [responsibilities, setResponsibilities] = useState(ai.responsibilities);
@@ -50,12 +51,26 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
         customVoice: customVoiceRef && customVoiceName ? { providerVoiceRef: customVoiceRef, providerVoiceName: customVoiceName } : null,
       });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
+      if (result.generatedInstructions) setGeneratedInstructions(result.generatedInstructions);
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
     });
   }
 
   return (
+    <div>
+      <Card className="mb-4 border-brand/20 bg-brand-soft/40">
+        <CardContent className="flex items-start gap-3 p-4">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+          <div>
+            <div className="text-[12px] font-semibold uppercase tracking-wide text-brand-dark">AI briefing</div>
+            <p className="mt-1 text-[13px] text-text">
+              {generatedInstructions || "Save your settings below to generate a plain-English summary of what your AI is set up to do."}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
     <Tabs defaultValue="personality">
       <TabsList>
         <TabsTrigger value="personality">Personality</TabsTrigger>
@@ -132,5 +147,6 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
         {error && <span className="text-[12.5px] font-medium text-danger">{error}</span>}
       </div>
     </Tabs>
+    </div>
   );
 }

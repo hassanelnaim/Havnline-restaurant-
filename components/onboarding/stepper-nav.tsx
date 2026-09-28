@@ -2,13 +2,17 @@
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+// Must match the real routes under app/onboarding/ exactly — this list
+// was still describing the old generic-business flow ("Services",
+// "Calendar" — an appointment-booking step) instead of this product's
+// actual restaurant flow, so the progress bar was silently 7 dots for
+// 6 real steps and mis-highlighted the Menu step entirely.
 const STEPS = [
   { path: "/onboarding/business-info", label: "Business" },
   { path: "/onboarding/hours", label: "Hours" },
-  { path: "/onboarding/services", label: "Services" },
+  { path: "/onboarding/menu", label: "Menu" },
   { path: "/onboarding/ai-receptionist", label: "AI" },
   { path: "/onboarding/voice", label: "Voice" },
-  { path: "/onboarding/calendar", label: "Calendar" },
   { path: "/onboarding/complete", label: "Go live" },
 ];
 

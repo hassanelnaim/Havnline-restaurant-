@@ -15,12 +15,14 @@ import { Separator } from "@/components/ui/separator";
 import { signOutAction } from "@/app/actions/auth";
 import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction, updateTaxRateAction } from "@/app/actions/business";
 import { updateProfileNameAction, updateEmailAction, updatePasswordAction } from "@/app/actions/profile";
+import { RESTAURANT_TYPES } from "@/lib/restaurant-types";
 
 const WEEKDAY_LABELS: Record<string, string> = { monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday", thursday: "Thursday", friday: "Friday", saturday: "Saturday", sunday: "Sunday" };
 const WEEKDAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 export function SettingsClient({ business, profile, hours }: { business: DbBusiness; profile: UserProfile; hours: DbBusinessHours[] }) {
   const [name, setName] = useState(business.name);
+  const [businessType, setBusinessType] = useState(business.business_type || "");
   const [description, setDescription] = useState(business.description || "");
   const [address, setAddress] = useState(business.address || "");
   const [phone, setPhone] = useState(business.phone || "");
@@ -69,7 +71,7 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
   function handleSaveProfile() {
     setError(null);
     startTransition(async () => {
-      const result = await updateBusinessProfileAction({ name, description, address, phone });
+      const result = await updateBusinessProfileAction({ name, description, address, phone, businessType });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
@@ -137,7 +139,17 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
         <Card>
           <CardHeader><CardTitle>Business profile</CardTitle><CardDescription>Shown to your AI order-taker and used across the dashboard.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
-            <div><Label>Business name</Label><Input className="mt-1.5" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><Label>Business name</Label><Input className="mt-1.5" value={name} onChange={(e) => setName(e.target.value)} /></div>
+              <div>
+                <Label>Restaurant type</Label>
+                <select className="mt-1.5 flex h-9 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30" value={businessType} onChange={(e) => setBusinessType(e.target.value)}>
+                  <option value="">Select a type…</option>
+                  {RESTAURANT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <p className="mt-1 text-[11px] text-text-faint">Your AI uses this to shape its assumptions on the phone.</p>
+              </div>
+            </div>
             <div><Label>Description</Label><Textarea rows={3} className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div><Label>Address</Label><Input className="mt-1.5" value={address} onChange={(e) => setAddress(e.target.value)} /></div>

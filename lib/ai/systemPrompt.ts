@@ -85,7 +85,7 @@ Right now, this business is ${isOpenRightNow ? "OPEN" : "CLOSED"}. If the busine
 
 Personality: ${PERSONALITY_COPY[ai.personality] || ai.personality}
 
-Business type: Restaurant
+Business type: ${business.business_type || "Restaurant"} — let this shape what you assume: a Food Truck has no tables/dine-in to reference, Fine Dining may call for a more formal tone, a Cafe & Bakery caller may just want a quick grab-and-go pickup.
 Business description: ${business.description || "(no description provided)"}
 Timezone: ${business.timezone}
 
