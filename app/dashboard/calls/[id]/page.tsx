@@ -26,12 +26,13 @@ export default async function CallDetailPage({ params }: { params: { id: string 
     .from("call_messages")
     .select("*")
     .eq("call_id", params.id)
+    .neq("role", "system") // system log lines ("Inbound call from...") aren't part of the conversation
     .order("created_at", { ascending: true });
 
   return (
     <div>
-      <Link href="/dashboard/calls" className="flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-text">
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to Calls
+      <Link href="/dashboard/customers" className="flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-text">
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to Callers
       </Link>
 
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
@@ -57,6 +58,11 @@ export default async function CallDetailPage({ params }: { params: { id: string 
         <CardContent className="space-y-4 p-5">
           {(!messages || messages.length === 0) && (
             <p className="text-[13px] text-text-muted">No transcript available for this call.</p>
+          )}
+          {messages && messages.length > 0 && (
+            <p className="rounded-lg bg-paper px-3 py-2 text-[12px] text-text-faint">
+              Transcripts are generated automatically and may not be fully accurate — background noise, accents, or crosstalk can cause misheard words.
+            </p>
           )}
           {(messages || []).map((msg: any) => (
             <div key={msg.id} className={`flex ${msg.role === "ai" ? "justify-start" : "justify-end"}`}>

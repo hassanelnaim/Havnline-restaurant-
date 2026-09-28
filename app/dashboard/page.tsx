@@ -77,15 +77,15 @@ export default async function OverviewPage() {
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-[15px] font-semibold text-ink">Recent calls</h2>
-            <Link href="/dashboard/calls" className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">View all <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+            <h2 className="font-display text-[15px] font-semibold text-ink">Recent callers</h2>
+            <Link href="/dashboard/customers" className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">View all <ArrowUpRight className="h-3.5 w-3.5" /></Link>
           </div>
           {recentCalls.length === 0 ? (
             <EmptyState icon={PhoneCall} title="No calls yet" description="Calls your AI answers will show up here." />
           ) : (
             <div className="space-y-1">
               {recentCalls.map((call) => (
-                <Link key={call.id} href={`/dashboard/calls/${call.id}`} className="flex items-center justify-between rounded-lg px-2 py-2.5 hover:bg-paper">
+                <Link key={call.id} href="/dashboard/customers" className="flex items-center justify-between rounded-lg px-2 py-2.5 hover:bg-paper">
                   <div className="flex items-center gap-3">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-[11px] font-semibold text-white">PC</div>
                     <div>

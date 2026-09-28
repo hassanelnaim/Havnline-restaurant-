@@ -28,6 +28,22 @@ export async function getCallMessages(callId: string): Promise<DbCallMessage[]> 
 }
 
 /**
+ * All calls for the business, grouped by caller phone number — powers
+ * the "Past calls" list in the Callers page detail sheet. Grouped by
+ * phone (always set from the Twilio caller ID at call start) rather
+ * than the nullable customer_id link, so it also covers calls that
+ * predate a customer record existing.
+ */
+export async function getCallsByPhone(): Promise<Record<string, DbCall[]>> {
+  const calls = await getCalls();
+  const byPhone: Record<string, DbCall[]> = {};
+  for (const call of calls) {
+    (byPhone[call.phone] ||= []).push(call);
+  }
+  return byPhone;
+}
+
+/**
  * All calls that were escalated to a human, most recent first — powers
  * the dedicated Escalations page (and the clickable "Human Escalations"
  * stat on the Overview page that links there).

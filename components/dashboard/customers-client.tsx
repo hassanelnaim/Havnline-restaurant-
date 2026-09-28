@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ban, ShieldCheck, Trash2, X, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { Ban, ShieldCheck, Trash2, X, AlertTriangle, MessagesSquare, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { formatDate } from "@/lib/format";
+import { CallOutcomeBadge } from "@/components/dashboard/status-badges";
+import { formatDate, formatDateTime, formatDuration } from "@/lib/format";
 import { blockCustomerAction, unblockCustomerAction, deleteCustomerAction } from "@/app/actions/customers";
-import type { DbCustomer } from "@/lib/database/types";
+import type { DbCustomer, DbCall } from "@/lib/database/types";
 
-export function CustomersClient({ customers }: { customers: DbCustomer[] }) {
+export function CustomersClient({ customers, callsByPhone, timezone }: { customers: DbCustomer[]; callsByPhone: Record<string, DbCall[]>; timezone: string }) {
   const [active, setActive] = useState<DbCustomer | null>(null);
 
   return (
@@ -56,12 +58,12 @@ export function CustomersClient({ customers }: { customers: DbCustomer[] }) {
         ))}
       </div>
 
-      {active && <CustomerActionsSheet customer={active} onClose={() => setActive(null)} />}
+      {active && <CustomerActionsSheet customer={active} calls={callsByPhone[active.phone] || []} timezone={timezone} onClose={() => setActive(null)} />}
     </>
   );
 }
 
-function CustomerActionsSheet({ customer, onClose }: { customer: DbCustomer; onClose: () => void }) {
+function CustomerActionsSheet({ customer, calls, timezone, onClose }: { customer: DbCustomer; calls: DbCall[]; timezone: string; onClose: () => void }) {
   const [isPending, startTransition] = useTransition();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +122,34 @@ function CustomerActionsSheet({ customer, onClose }: { customer: DbCustomer; onC
             >
               <Trash2 className="h-4 w-4" /> Delete customer
             </button>
+
+            <div className="mt-3 border-t border-border-soft pt-3">
+              <div className="flex items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-wide text-text-faint">
+                <MessagesSquare className="h-3.5 w-3.5" /> Past calls
+              </div>
+              {calls.length === 0 ? (
+                <p className="px-3 py-2 text-[12.5px] text-text-faint">No past calls on file.</p>
+              ) : (
+                <div className="mt-1 max-h-56 space-y-0.5 overflow-y-auto">
+                  {calls.map((call) => (
+                    <Link
+                      key={call.id}
+                      href={`/dashboard/calls/${call.id}`}
+                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-border-soft/60"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-medium text-text">{formatDateTime(call.started_at, timezone)}</div>
+                        <div className="text-[11.5px] text-text-faint">{formatDuration(Math.round((call.duration_seconds || 0) / 60))}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <CallOutcomeBadge outcome={call.outcome} />
+                        <ChevronRight className="h-3.5 w-3.5 text-text-faint" />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="mt-4">
