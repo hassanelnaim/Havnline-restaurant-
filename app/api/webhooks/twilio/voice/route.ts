@@ -55,7 +55,11 @@ export async function POST(request: NextRequest) {
 
   await admin.from("call_messages").insert({ call_id: callId, role: "system", content: `Inbound call from ${callerNumber} to ${dialedNumber}` });
 
-  const greeting = `Thanks for calling ${context.business.name}, this is ${context.ai.name}. Please note there may be a few seconds' delay between questions. How can I help?`;
+  // No AI name in the greeting on purpose — this is an automated
+  // answering service, not a person, and giving it a name only invites
+  // "is this a real person?" confusion. Lead with the business name
+  // itself, same as a human answering the phone would.
+  const greeting = `${context.business.name}. There may be a few seconds' delay between answers, so please be patient. How can I help?`;
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
   const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref };
 
