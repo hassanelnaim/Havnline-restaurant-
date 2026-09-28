@@ -203,6 +203,56 @@ export async function extractKnowledgeFromText(businessName: string, websiteText
   }
 }
 
+// If the model's response is still cut off mid-array even at the raised
+// max_tokens (an unusually huge menu, or a model that's more verbose
+// than expected), this recovers whatever complete items came through
+// before the cutoff instead of throwing the whole extraction away. It
+// walks the raw text tracking brace depth (skipping over quoted
+// strings so a "}" inside a description doesn't confuse it) and
+// remembers the last point where a top-level object fully closed —
+// everything up to there is valid JSON on its own once the array is
+// closed off. Extracted items are staged/review-only data anyway (see
+// the comment above extractMenuItemsFromText), so a partial menu the
+// owner can see and finish manually beats a hard error with nothing.
+function salvageTruncatedJsonArray(text: string): unknown[] | null {
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  let lastCompleteObjectEnd = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escapeNext = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) lastCompleteObjectEnd = i;
+    }
+  }
+
+  if (lastCompleteObjectEnd === -1) return null;
+
+  try {
+    const parsed = JSON.parse(`${text.slice(0, lastCompleteObjectEnd + 1)}]`);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ExtractedMenuItem {
   name: string;
   description: string;
@@ -227,12 +277,17 @@ export async function extractMenuItemsFromText(businessName: string, websiteText
 
   const response = await client.messages.create({
     model: MODEL,
-    // A large, real menu (many categories, modifiers on every item)
-    // can produce a long JSON response. 2048 tokens was cutting that
-    // off mid-array on bigger menus, which produced invalid JSON that
-    // silently parsed to "0 items" with zero indication why. Raised
-    // well above what even a large menu should need.
-    max_tokens: 8192,
+    // A large, real menu (many categories, modifiers on every item) can
+    // produce a long JSON response. 2048, then 8192, both turned out to
+    // still cut off mid-array on a big enough menu (e.g. a full diner
+    // menu with dozens of items across several categories), producing
+    // invalid JSON with no indication why beyond a raw truncated string.
+    // claude-sonnet-5 supports up to 128K output tokens on the standard
+    // API with no special header, so there's no real reason to be this
+    // stingy — 16384 gives a lot of room past anything a restaurant menu
+    // should need, and see the max_tokens salvage logic below for when
+    // even that isn't enough.
+    max_tokens: 16384,
     system: `You extract a restaurant MENU (items customers can order) from raw website text for "${businessName}". Only include items genuinely mentioned in the text — never invent an item, price, or add-on that isn't there. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line, empty string if none), "priceDollars": string (just the number, e.g. "12.99" — empty string "" if no price is stated), "category": string (e.g. "Burgers", "Drinks" — empty string if unclear), "modifierGroups": [{"name": string, "required": boolean, "options": [{"name": string, "priceDeltaDollars": string (e.g. "2.00" or "0" — empty string if none stated)}]}]}. Only include modifierGroups that are genuinely stated (like size or topping choices) — an empty array is fine and expected for most items. Skip navigation text and anything that isn't really a menu item.`,
     messages: [{ role: "user", content: `Extract the menu from this website text:\n\n${websiteText}` }],
   });
@@ -254,8 +309,20 @@ export async function extractMenuItemsFromText(businessName: string, websiteText
       .map((item) => normalizeExtractedMenuItem(item));
   } catch (err) {
     if (err instanceof SyntaxError) {
-      // JSON.parse failed — likely a truncated response on a very
-      // large menu, or the model added stray text despite instructions.
+      // JSON.parse failed — most likely a truncated response (the menu
+      // was bigger than even the raised max_tokens above) or the model
+      // added stray text despite instructions. If it was specifically
+      // cut off mid-array, salvage whatever complete items came through
+      // rather than throwing away a menu that's 90% there.
+      if (response.stop_reason === "max_tokens") {
+        const salvaged = salvageTruncatedJsonArray(cleaned);
+        if (salvaged && salvaged.length > 0) {
+          return salvaged
+            .filter((item): item is Record<string, unknown> => Boolean(item) && typeof (item as any).name === "string" && (item as any).name.trim())
+            .map((item) => normalizeExtractedMenuItem(item));
+        }
+      }
+
       // Surfacing the raw text (instead of silently returning []) is
       // the difference between "0 items found" with no clue why, and
       // actually seeing what went wrong.
