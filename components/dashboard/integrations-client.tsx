@@ -1,13 +1,15 @@
 "use client";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, Tablet } from "lucide-react";
+import { PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, Tablet, CreditCard } from "lucide-react";
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 import { provisionPhoneNumberAction, changePhoneNumberAction } from "@/app/actions/business";
 import { generatePrinterAppCodeAction, unpairPrinterAppAction } from "@/app/actions/printer-app";
+import { startStripeConnectOnboardingAction, setPhonePaymentsEnabledAction } from "@/app/actions/payments";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { IntegrationStatusBadge } from "@/components/dashboard/status-badges";
 
 const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof PhoneCall }> = {
@@ -17,13 +19,54 @@ const PROVIDER_META: Record<IntegrationProvider, { name: string; description: st
   printer_app: { name: "HavnLine Printer App", description: "Prints orders straight to your kitchen printer from a tablet.", icon: Tablet },
 };
 
-export function IntegrationsClient({ initialIntegrations }: { initialIntegrations: DbIntegration[] }) {
+export function IntegrationsClient({
+  initialIntegrations,
+  stripeConnectAccountId,
+  stripeConnectChargesEnabled,
+  phonePaymentsEnabled,
+}: {
+  initialIntegrations: DbIntegration[];
+  stripeConnectAccountId: string | null;
+  stripeConnectChargesEnabled: boolean;
+  phonePaymentsEnabled: boolean;
+}) {
   const [integrations, setIntegrations] = useState(initialIntegrations);
   const [areaCode, setAreaCode] = useState("");
   const [provisioning, setProvisioning] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [, startTransition] = useTransition();
+
+  const [onboarding, setOnboarding] = useState(false);
+  const [togglingPayments, setTogglingPayments] = useState(false);
+  const [paymentsEnabled, setPaymentsEnabled] = useState(phonePaymentsEnabled);
+  const [paymentsError, setPaymentsError] = useState<string | null>(null);
+  const stripeConnected = Boolean(stripeConnectAccountId);
+
+  function handleStartStripeOnboarding() {
+    setOnboarding(true);
+    setPaymentsError(null);
+    startTransition(async () => {
+      const result = await startStripeConnectOnboardingAction();
+      if (!result.url) {
+        setOnboarding(false);
+        setPaymentsError(result.error || "Could not start Stripe onboarding.");
+        return;
+      }
+      window.location.href = result.url;
+    });
+  }
+
+  function handleTogglePhonePayments(checked: boolean) {
+    setTogglingPayments(true);
+    setPaymentsError(null);
+    startTransition(async () => {
+      const result = await setPhonePaymentsEnabledAction(checked);
+      setTogglingPayments(false);
+      if (!result.success) { setPaymentsError(result.error || "Could not update this setting."); return; }
+      setPaymentsEnabled(checked);
+    });
+  }
 
   const twilioIntegration = integrations.find((i) => i.provider === "twilio");
   const twilioConnected = twilioIntegration?.status === "connected";
@@ -194,6 +237,49 @@ export function IntegrationsClient({ initialIntegrations }: { initialIntegration
       <div>
         <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Phone, SMS &amp; Voice</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{commsIntegrations.map(renderCard)}</div>
+      </div>
+
+      <div>
+        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Payments</h3>
+        <Card>
+          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><CreditCard className="h-4.5 w-4.5" /></div>
+              <div>
+                <div className="text-[13.5px] font-semibold text-ink">Stripe Connect</div>
+                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">
+                  {stripeConnectChargesEnabled
+                    ? "Connected — payments from phone orders go straight to your own bank account."
+                    : stripeConnected
+                    ? "Onboarding started but not finished yet — Stripe still needs a bit more from you before you can accept charges."
+                    : "Let customers pay by card over the phone. Money goes directly to your own Stripe account — HavnLine never touches it."}
+                </p>
+                <div className="mt-2">
+                  <IntegrationStatusBadge status={stripeConnectChargesEnabled ? "connected" : "not_connected"} />
+                </div>
+              </div>
+            </div>
+            <Button size="sm" variant={stripeConnectChargesEnabled ? "outline" : "brand"} onClick={handleStartStripeOnboarding} disabled={onboarding}>
+              {onboarding ? "Redirecting…" : stripeConnectChargesEnabled ? "Manage on Stripe" : stripeConnected ? "Finish onboarding" : "Connect Stripe"}
+            </Button>
+          </CardContent>
+
+          {paymentsError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{paymentsError}</CardContent>}
+
+          <CardContent className="border-t border-border-soft pt-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[13px] font-medium text-ink">Take payment over the phone</div>
+                <p className="mt-0.5 text-[12px] text-text-muted">
+                  {stripeConnectChargesEnabled
+                    ? "When this is on, your AI texts a payment link after confirming the order, and the kitchen ticket prints once it's paid."
+                    : "Finish connecting Stripe above to turn this on."}
+                </p>
+              </div>
+              <Switch checked={paymentsEnabled} onCheckedChange={handleTogglePhonePayments} disabled={!stripeConnectChargesEnabled || togglingPayments} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {phoneNumber && (

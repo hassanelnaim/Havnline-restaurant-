@@ -40,6 +40,24 @@ export interface DbBusiness {
   // an integer (not a float) to avoid rounding drift across orders.
   tax_rate_bps: number;
 
+  // Stripe CONNECTED account for customer phone-order payments —
+  // separate from stripe_customer_id/stripe_subscription_id above,
+  // which are the business's OWN subscription billed to HavnLine's
+  // Stripe account. Money charged to a connected account pays out
+  // straight to the restaurant's own bank; HavnLine never holds it.
+  stripe_connect_account_id: string | null;
+  stripe_connect_charges_enabled: boolean;
+  stripe_connect_onboarded_at: ISODateTime | null;
+  // Explicit opt-in, separate from having connected an account at
+  // all — connecting is not itself consent to start charging
+  // customers. Until this is true, phone orders stay pay-at-pickup
+  // exactly as they work today, even if Connect is set up.
+  phone_payments_enabled: boolean;
+  // HavnLine's application fee on each paid phone order, in basis
+  // points. Null = not configured yet (no fee taken), not the same
+  // as 0 (explicitly free).
+  platform_fee_bps: number | null;
+
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -137,6 +155,15 @@ export interface MenuItemWithModifiers extends DbMenuItem {
 
 export type OrderStatus = "building" | "confirmed" | "submitted" | "failed" | "cancelled";
 
+// Independent of OrderStatus above. An order can be status="confirmed"
+// while payment_status="awaiting_payment" — it exists and the total's
+// been read back, but nothing prints to the kitchen and status never
+// reaches "submitted" until this flips to "paid" (see the Stripe
+// Connect webhook). "not_required" is a pay-at-pickup order — either
+// the business hasn't turned on phone payments, or it's an order from
+// before this feature existed.
+export type OrderPaymentStatus = "not_required" | "awaiting_payment" | "paid" | "refunded" | "partially_refunded" | "failed";
+
 export interface DbOrder {
   id: UUID;
   business_id: UUID;
@@ -152,6 +179,15 @@ export interface DbOrder {
   special_instructions: string | null;
   submitted_at: ISODateTime | null;
   submit_error: string | null;
+  payment_status: OrderPaymentStatus;
+  stripe_checkout_session_id: string | null;
+  stripe_payment_intent_id: string | null;
+  amount_refunded_cents: number;
+  refund_reason: string | null;
+  refunded_by: UUID | null;
+  refunded_at: ISODateTime | null;
+  voided_by: UUID | null;
+  voided_at: ISODateTime | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

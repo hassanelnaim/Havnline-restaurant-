@@ -24,6 +24,19 @@ export function OrderStatusBadge({ status }: { status: string }) {
   return <Badge variant={entry.variant}>{entry.label}</Badge>;
 }
 
+export function PaymentStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; variant: "brand" | "success" | "danger" | "neutral" }> = {
+    not_required: { label: "Pay at pickup", variant: "neutral" },
+    awaiting_payment: { label: "Awaiting payment", variant: "brand" },
+    paid: { label: "Paid", variant: "success" },
+    refunded: { label: "Refunded", variant: "danger" },
+    partially_refunded: { label: "Partially refunded", variant: "danger" },
+    failed: { label: "Payment failed", variant: "danger" },
+  };
+  const entry = map[status] || { label: status, variant: "neutral" as const };
+  return <Badge variant={entry.variant}>{entry.label}</Badge>;
+}
+
 export function IntegrationStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: "brand" | "success" | "danger" | "neutral" }> = {
     connected: { label: "Connected", variant: "success" },

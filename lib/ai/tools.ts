@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
+import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
+import { getSiteUrl } from "@/lib/env";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -262,8 +264,55 @@ async function confirm_and_place_order(
   fullOrder.total_cents = totalCents;
   await admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id);
 
-  if (ctx.context.business.printer_app_paired_at) {
-    const queued = await queuePrintJob(fullOrder, ctx.context.business);
+  // Phone payments (Stripe Connect): if this business has opted in AND
+  // is actually ready to accept charges, the order does NOT go to the
+  // kitchen yet — it waits at payment_status "awaiting_payment" until
+  // the customer actually pays the texted link. The Connect webhook
+  // (checkout.session.completed) is what triggers the kitchen print
+  // and the "confirmed" text below. This is deliberate: printing a
+  // ticket for food nobody's paid for yet wastes real food the moment
+  // a customer never completes checkout.
+  const business = ctx.context.business;
+  if (business.phone_payments_enabled && business.stripe_connect_charges_enabled && business.stripe_connect_account_id) {
+    const siteUrl = getSiteUrl();
+    const checkout = await createOrderCheckoutSession({
+      connectedAccountId: business.stripe_connect_account_id,
+      orderId: order.id,
+      businessId: ctx.businessId,
+      businessName: business.name,
+      totalCents,
+      platformFeeBps: business.platform_fee_bps,
+      customerPhone: input.phone,
+      successUrl: `${siteUrl}/order-confirmation?order_id=${order.id}`,
+      cancelUrl: `${siteUrl}/order-confirmation?order_id=${order.id}&cancelled=1`,
+      // Stable per order — a Twilio retry of this same turn (see
+      // handleTurn's dedupe check) must never create a second
+      // Checkout Session, which would be a second real charge attempt.
+      idempotencyKey: `order-checkout:${order.id}`,
+    });
+
+    if (!checkout.url || !checkout.sessionId) {
+      // Payment couldn't even be started — do NOT tell the customer
+      // their order is placed. Fall back to the honest state: the
+      // order exists but is unpaid, and the AI's reply (built from
+      // this tool result) should say payment couldn't be started
+      // right now, not that the order is confirmed.
+      return { success: false, reason: checkout.error || "Could not start payment for this order." };
+    }
+
+    await admin
+      .from("orders")
+      .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId })
+      .eq("id", order.id);
+
+    const paymentSmsBody = `${business.name}: your order total is $${(totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${checkout.url} (link expires in 30 min). Msg&data rates may apply.`;
+    await smsClient.send(ctx.businessId, input.phone, paymentSmsBody);
+
+    return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true };
+  }
+
+  if (business.printer_app_paired_at) {
+    const queued = await queuePrintJob(fullOrder, business);
     if (queued.success) {
       await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
     } else {
@@ -271,7 +320,7 @@ async function confirm_and_place_order(
     }
   }
 
-  const smsBody = `Order confirmed at ${ctx.context.business.name}! Total: $${(totalCents / 100).toFixed(2)}. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
+  const smsBody = `Order confirmed at ${business.name}! Total: $${(totalCents / 100).toFixed(2)}. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
   await smsClient.send(ctx.businessId, input.phone, smsBody);
 
   return { success: true, order_id: order.id, total: totalCents / 100 };
@@ -332,7 +381,7 @@ export const TOOL_DEFINITIONS = [
   { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. Use this to read the order back to the customer before confirming.", input_schema: { type: "object" as const, properties: {} } },
   {
     name: "confirm_and_place_order",
-    description: "Lock in and place the order. Only call this AFTER reading the full order and total back to the customer out loud and getting their explicit confirmation. This is the equivalent of actually placing the order — never claim an order is placed before calling this and getting success back.",
+    description: "Lock in the order. Only call this AFTER reading the full order and total back to the customer out loud and getting their explicit confirmation. For a pay-at-pickup business this actually places the order — never claim it's placed before calling this and getting success back. For a business that collects payment up front, a successful result means a payment link was texted, NOT that the order is placed yet — check the result's payment_link_sent field and respond accordingly.",
     input_schema: {
       type: "object" as const,
       properties: {

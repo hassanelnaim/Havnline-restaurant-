@@ -44,15 +44,8 @@ export async function retrySubmitOrderAction(orderId: string): Promise<ActionRes
   return result.success ? { success: true } : { success: false, error: result.error };
 }
 
-export async function cancelOrderAction(orderId: string): Promise<ActionResult> {
-  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
-  const businessId = await getCurrentBusinessId();
-  if (!businessId) return { success: false, error: "Not signed in." };
-
-  const admin = createAdminClient();
-  const { error } = await admin.from("orders").update({ status: "cancelled" }).eq("id", orderId).eq("business_id", businessId);
-  if (error) return { success: false, error: error.message };
-
-  revalidatePath("/dashboard/orders");
-  return { success: true };
-}
+// Cancelling an order now goes through voidOrderAction (see
+// app/actions/payments.ts) instead of living here — voiding needs to
+// also expire the order's Stripe Checkout Session when one exists, so
+// a customer's payment link can't still be used after the business
+// has already called the order off.
