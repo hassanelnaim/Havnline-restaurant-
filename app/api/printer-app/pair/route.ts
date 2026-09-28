@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { claimPairingCode } from "@/lib/integrations/printer-app";
+import { checkRateLimit, getClientIp } from "@/lib/security/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,21 @@ export const dynamic = "force-dynamic";
  * pairing code shown on their Integrations dashboard. Exchanges that
  * short-lived code for a permanent device_token, which the app then
  * stores and sends as a Bearer token on every other request below.
+ *
+ * The code is only 6 digits (1,000,000 combinations) and, unrated,
+ * could be brute-forced within its 15-minute lifetime by a script
+ * hitting this endpoint — a successful guess would hand a stranger a
+ * permanent token that can read that business's pending orders. This
+ * rate limit doesn't need to be generous: a real owner enters their
+ * own code once, by hand.
  */
 export async function POST(request: NextRequest) {
+  const ip = getClientIp();
+  const ipOk = await checkRateLimit(`printer_pair_ip:${ip}`, 10, 15);
+  if (!ipOk) {
+    return NextResponse.json({ success: false, error: "Too many attempts. Please wait a few minutes and try again." }, { status: 429 });
+  }
+
   const body = await request.json().catch(() => null);
   const code = typeof body?.code === "string" ? body.code : "";
   if (!code.trim()) return NextResponse.json({ success: false, error: "Enter the pairing code first." }, { status: 400 });
