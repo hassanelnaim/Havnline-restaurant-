@@ -197,123 +197,114 @@ export function IntegrationsClient({
       {phoneError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{phoneError}</div>}
 
       <div>
-        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Kitchen printer app</h3>
-        <Card>
-          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><Tablet className="h-4.5 w-4.5" /></div>
-              <div>
-                <div className="text-[13.5px] font-semibold text-ink">HavnLine Printer App</div>
-                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">Install the HavnLine app on any Android tablet and it'll print orders straight to your kitchen printer.</p>
-                <div className="mt-2">{printerAppIntegration && <IntegrationStatusBadge status={printerAppIntegration.status} />}</div>
-              </div>
-            </div>
-            {printerAppConnected ? (
-              <Button size="sm" variant="ghost" onClick={handleUnpairPrinterApp} disabled={unpairing}>{unpairing ? "Removing…" : "Unpair tablet"}</Button>
-            ) : (
-              <Button size="sm" variant="brand" onClick={handleGeneratePrinterAppCode} disabled={generatingCode}>{generatingCode ? "Generating…" : "Get pairing code"}</Button>
-            )}
-          </CardContent>
-
-          {printerAppError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{printerAppError}</CardContent>}
-
-          {pairingCode && !printerAppConnected && (
-            <CardContent className="border-t border-border-soft pt-4">
-              <p className="text-[12px] text-text-muted">Open the HavnLine app on your tablet and enter this code — it expires in 15 minutes:</p>
-              <div className="mt-2 inline-block rounded-lg border border-border bg-paper px-4 py-2 font-mono text-[22px] font-semibold tracking-[0.2em] text-ink">{pairingCode}</div>
-              {pairingExpiresAt && <p className="mt-1.5 text-[11px] text-text-faint">Expires at {new Date(pairingExpiresAt).toLocaleTimeString()}</p>}
-            </CardContent>
-          )}
-
-          {printerAppConnected && (
-            <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">
-              {printerAppMeta?.printer_ip ? `Printer: ${printerAppMeta.printer_ip}` : "Waiting for the tablet to report its printer's IP address (set this up in the app)."}
-              {printerAppMeta?.last_seen_at && <span> · Last checked in {new Date(printerAppMeta.last_seen_at).toLocaleString()}</span>}
-            </CardContent>
-          )}
-        </Card>
-      </div>
-
-      <div>
-        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Phone, SMS &amp; Voice</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{commsIntegrations.map(renderCard)}</div>
-      </div>
-
-      <div>
-        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Payments</h3>
-        <Card>
-          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><CreditCard className="h-4.5 w-4.5" /></div>
-              <div>
-                <div className="text-[13.5px] font-semibold text-ink">Stripe Connect</div>
-                <p className="mt-0.5 max-w-md text-[12px] text-text-muted">
-                  {stripeConnectChargesEnabled
-                    ? "Connected — payments from phone orders go straight to your own bank account."
-                    : stripeConnected
-                    ? "Onboarding started but not finished yet — Stripe still needs a bit more from you before you can accept charges."
-                    : "Let customers pay by card over the phone. Money goes directly to your own Stripe account — HavnLine never touches it."}
-                </p>
-                <div className="mt-2">
-                  <IntegrationStatusBadge status={stripeConnectChargesEnabled ? "connected" : "not_connected"} />
+        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Kitchen &amp; payments</h3>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Card>
+            <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><Tablet className="h-4.5 w-4.5" /></div>
+                <div>
+                  <div className="text-[13.5px] font-semibold text-ink">HavnLine Printer App</div>
+                  <p className="mt-0.5 max-w-md text-[12px] text-text-muted">Install the HavnLine app on any Android tablet and it'll print orders straight to your kitchen printer.</p>
+                  <div className="mt-2">{printerAppIntegration && <IntegrationStatusBadge status={printerAppIntegration.status} />}</div>
                 </div>
               </div>
-            </div>
-            <Button size="sm" variant={stripeConnectChargesEnabled ? "outline" : "brand"} onClick={handleStartStripeOnboarding} disabled={onboarding}>
-              {onboarding ? "Redirecting…" : stripeConnectChargesEnabled ? "Manage on Stripe" : stripeConnected ? "Finish onboarding" : "Connect Stripe"}
-            </Button>
-          </CardContent>
+              {printerAppConnected ? (
+                <Button size="sm" variant="ghost" onClick={handleUnpairPrinterApp} disabled={unpairing}>{unpairing ? "Removing…" : "Unpair tablet"}</Button>
+              ) : (
+                <Button size="sm" variant="brand" onClick={handleGeneratePrinterAppCode} disabled={generatingCode}>{generatingCode ? "Generating…" : "Get pairing code"}</Button>
+              )}
+            </CardContent>
 
-          {paymentsError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{paymentsError}</CardContent>}
+            {printerAppError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{printerAppError}</CardContent>}
 
-          <CardContent className="border-t border-border-soft pt-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-[13px] font-medium text-ink">Take payment over the phone</div>
-                <p className="mt-0.5 text-[12px] text-text-muted">
-                  {stripeConnectChargesEnabled
-                    ? "When this is on, your AI texts a payment link after confirming the order, and the kitchen ticket prints once it's paid."
-                    : "Finish connecting Stripe above to turn this on."}
-                </p>
+            {pairingCode && !printerAppConnected && (
+              <CardContent className="border-t border-border-soft pt-4">
+                <p className="text-[12px] text-text-muted">Open the HavnLine app on your tablet and enter this code — it expires in 15 minutes:</p>
+                <div className="mt-2 inline-block rounded-lg border border-border bg-paper px-4 py-2 font-mono text-[22px] font-semibold tracking-[0.2em] text-ink">{pairingCode}</div>
+                {pairingExpiresAt && <p className="mt-1.5 text-[11px] text-text-faint">Expires at {new Date(pairingExpiresAt).toLocaleTimeString()}</p>}
+              </CardContent>
+            )}
+
+            {printerAppConnected && (
+              <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">
+                {printerAppMeta?.printer_ip ? `Printer: ${printerAppMeta.printer_ip}` : "Waiting for the tablet to report its printer's IP address (set this up in the app)."}
+                {printerAppMeta?.last_seen_at && <span> · Last checked in {new Date(printerAppMeta.last_seen_at).toLocaleString()}</span>}
+              </CardContent>
+            )}
+          </Card>
+
+          <Card>
+            <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><CreditCard className="h-4.5 w-4.5" /></div>
+                <div>
+                  <div className="text-[13.5px] font-semibold text-ink">Stripe Connect</div>
+                  <p className="mt-0.5 max-w-md text-[12px] text-text-muted">
+                    {stripeConnectChargesEnabled
+                      ? "Connected — payments from phone orders go straight to your own bank account."
+                      : stripeConnected
+                      ? "Onboarding started but not finished yet — Stripe still needs a bit more from you before you can accept charges."
+                      : "Let customers pay by card over the phone. Money goes directly to your own Stripe account — HavnLine never touches it."}
+                  </p>
+                  <div className="mt-2">
+                    <IntegrationStatusBadge status={stripeConnectChargesEnabled ? "connected" : "not_connected"} />
+                  </div>
+                </div>
               </div>
-              <Switch checked={paymentsEnabled} onCheckedChange={handleTogglePhonePayments} disabled={!stripeConnectChargesEnabled || togglingPayments} />
-            </div>
-          </CardContent>
-        </Card>
+              <Button size="sm" variant={stripeConnectChargesEnabled ? "outline" : "brand"} onClick={handleStartStripeOnboarding} disabled={onboarding}>
+                {onboarding ? "Redirecting…" : stripeConnectChargesEnabled ? "Manage on Stripe" : stripeConnected ? "Finish onboarding" : "Connect Stripe"}
+              </Button>
+            </CardContent>
+
+            {paymentsError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{paymentsError}</CardContent>}
+
+            <CardContent className="border-t border-border-soft pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-[13px] font-medium text-ink">Take payment over the phone</div>
+                  <p className="mt-0.5 text-[12px] text-text-muted">
+                    {stripeConnectChargesEnabled
+                      ? "AI texts a payment link after confirming the order; the kitchen ticket prints once it's paid."
+                      : "Finish connecting Stripe to turn this on."}
+                  </p>
+                </div>
+                <Switch checked={paymentsEnabled} onCheckedChange={handleTogglePhonePayments} disabled={!stripeConnectChargesEnabled || togglingPayments} />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {phoneNumber && (
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center gap-2 text-[13.5px] font-semibold text-ink"><Globe className="h-4 w-4 text-text-faint" /> Keep your current business number</div>
-            <p className="mt-2 text-[13px] leading-relaxed text-text">Customers can keep calling the number they already know — just forward it to your HavnLine number.</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
-              <span>Forward calls to</span>
-              <button onClick={copyNumber} className="flex items-center gap-1.5 rounded-lg border border-border bg-paper px-2.5 py-1 font-mono text-[12.5px]">
-                {phoneNumber} {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3 text-text-faint" />}
-              </button>
-            </div>
-            <div className="mt-4 rounded-lg border border-border bg-paper px-4 py-3 text-[13px] leading-relaxed text-text">
-              <div className="mb-2 font-semibold text-text">How to set up forwarding</div>
-              <p>This is a setting on your <em>existing</em> phone line — every carrier does it slightly differently. Find yours below:</p>
-              <ul className="mt-3 space-y-3 text-[13px] leading-relaxed text-text">
-                <li><span className="font-semibold">- Verizon or US Cellular:</span> dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">*72</code> followed by your HavnLine number, then call. To turn off, dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">*73</code>.</li>
-                <li><span className="font-semibold">- AT&amp;T:</span> dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">*21*</code> + number + <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">#</code>, then call. Off: <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">##21#</code>.</li>
-                <li><span className="font-semibold">- T-Mobile:</span> dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">**21*</code> + number + <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">#</code>. Off: <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">##21#</code>.</li>
-                <li><span className="font-semibold">- Landline/business system:</span> use your provider's call forwarding settings.</li>
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <div>
+        <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-faint">Phone</h3>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{commsIntegrations.map(renderCard)}</div>
 
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex items-center gap-2 text-[13.5px] font-semibold text-ink"><Globe className="h-4 w-4 text-text-faint" /> Import knowledge from your website</div>
-          <p className="mt-2 text-[13px] text-text-muted">Manage this from Knowledge → Import. For your menu specifically, use the Menu page.</p>
-          <Button size="sm" variant="outline" className="mt-3" asChild><Link href="/dashboard/knowledge">Go to Knowledge → Import</Link></Button>
-        </CardContent>
-      </Card>
+        {phoneNumber && (
+          <Card className="mt-3">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 text-[13.5px] font-semibold text-ink"><Globe className="h-4 w-4 text-text-faint" /> Keep your current business number</div>
+              <p className="mt-2 text-[13px] leading-relaxed text-text">Customers can keep calling the number they already know — just forward it to your HavnLine number.</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
+                <span>Forward calls to</span>
+                <button onClick={copyNumber} className="flex items-center gap-1.5 rounded-lg border border-border bg-paper px-2.5 py-1 font-mono text-[12.5px]">
+                  {phoneNumber} {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3 text-text-faint" />}
+                </button>
+              </div>
+              <div className="mt-4 rounded-lg border border-border bg-paper px-4 py-3 text-[13px] leading-relaxed text-text">
+                <div className="mb-2 font-semibold text-text">How to set up forwarding</div>
+                <p>This is a setting on your <em>existing</em> phone line — every carrier does it slightly differently. Find yours below:</p>
+                <ul className="mt-3 space-y-3 text-[13px] leading-relaxed text-text">
+                  <li><span className="font-semibold">- Verizon or US Cellular:</span> dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">*72</code> followed by your HavnLine number, then call. To turn off, dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">*73</code>.</li>
+                  <li><span className="font-semibold">- AT&amp;T:</span> dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">*21*</code> + number + <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">#</code>, then call. Off: <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">##21#</code>.</li>
+                  <li><span className="font-semibold">- T-Mobile:</span> dial <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">**21*</code> + number + <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">#</code>. Off: <code className="rounded bg-border-soft px-1.5 py-0.5 font-mono text-[12px]">##21#</code>.</li>
+                  <li><span className="font-semibold">- Landline/business system:</span> use your provider's call forwarding settings.</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

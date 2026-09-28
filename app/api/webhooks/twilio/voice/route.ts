@@ -18,6 +18,25 @@ function escapeXml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// Reads Twilio's optional spam/fraud Voice Add-ons (Nomorobo Spam Score,
+// Marchex Clean Call), attached to the inbound call request as a JSON
+// "AddOns" param IF the business has enabled one on their Twilio number
+// (Console -> Marketplace -> search "spam"). Nothing to enable yet? This
+// just quietly returns false — no add-on means no AddOns param (or an
+// empty/errored one), never a false positive.
+function isCallFlaggedAsSpam(addOnsRaw: string | undefined): boolean {
+  if (!addOnsRaw) return false;
+  try {
+    const parsed = JSON.parse(addOnsRaw);
+    const results = parsed?.results || {};
+    if (results.nomorobo_spamscore?.status === "successful" && results.nomorobo_spamscore?.result?.score === 1) return true;
+    if (results.marchex_cleancall?.status === "successful" && results.marchex_cleancall?.result?.result?.recommendation === "BLOCK") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const params: Record<string, string> = {};
@@ -49,6 +68,23 @@ export async function POST(request: NextRequest) {
 
   if (!isOperational || context.ai.status !== "online") {
     return twiml(`<Response><Say>Thanks for calling ${escapeXml(context.business.name)}. We're currently unable to take your call — please try again later.</Say><Hangup/></Response>`);
+  }
+
+  // Silently reject a number this business has blocked (see Callers page)
+  // or one Twilio's own spam/fraud add-on flags — no ring, no AI, no
+  // record of a real call. Matches on the raw caller ID, so it only
+  // catches a caller once their number itself has been blocked or is
+  // recognized as spam, not a name/number they only spoke mid-order.
+  const { data: blockedCaller } = await admin
+    .from("customers")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("phone", callerNumber)
+    .eq("is_blocked", true)
+    .maybeSingle();
+
+  if (blockedCaller || isCallFlaggedAsSpam(params.AddOns)) {
+    return twiml(`<Response><Reject reason="rejected"/></Response>`);
   }
 
   const callId = await startCall(businessId, callerNumber, dialedNumber);

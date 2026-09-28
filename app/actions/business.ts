@@ -136,7 +136,6 @@ export interface UpdateAiEmployeeResult extends ActionResult {
 }
 
 export async function updateAiEmployeeAction(input: {
-  name: string;
   personality: Personality;
   responsibilities: AiResponsibilities;
   voiceId: VoiceId;
@@ -165,7 +164,6 @@ export async function updateAiEmployeeAction(input: {
 
   const generatedInstructions = generateInstructions({
     business: { name: businessRes.data?.name || "your restaurant", description: businessRes.data?.description || "" },
-    receptionistName: input.name,
     personality: input.personality,
     responsibilities: input.responsibilities,
     menuItemCount: menuCountRes.count || 0,
@@ -175,7 +173,6 @@ export async function updateAiEmployeeAction(input: {
   const { error: aiError } = await admin
     .from("ai_receptionists")
     .update({
-      name: input.name,
       personality: input.personality,
       responsibilities: input.responsibilities,
       ordering_rules: input.orderingRules || null,

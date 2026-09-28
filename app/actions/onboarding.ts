@@ -153,7 +153,6 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
 
   const generatedInstructions = generateInstructions({
     business: { name: draft.businessName, description: draft.description },
-    receptionistName,
     personality,
     responsibilities: draft.responsibilities,
     menuItemCount: draft.menuItems.filter((m) => m.name.trim()).length,

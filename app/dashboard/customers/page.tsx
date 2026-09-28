@@ -11,9 +11,9 @@ export default async function CustomersPage() {
 
   return (
     <div>
-      <PageHeader title="Customers" description="Everyone your AI order-taker has talked to." />
+      <PageHeader title="Callers" description="Everyone who's called in — block a number here if it's spam or a nuisance caller." />
       {customers.length === 0 ? (
-        <EmptyState icon={Users} title="No customers yet" description="Customers your AI talks to will show up here." />
+        <EmptyState icon={Users} title="No callers yet" description="People who call in will show up here." />
       ) : (
         <CustomersClient customers={customers} />
       )}

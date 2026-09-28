@@ -19,7 +19,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const [business, ai, profile] = await Promise.all([getBusiness(), getAiReceptionist(), getCurrentUserProfile()]);
 
   return (
-    <DashboardShell businessName={business.name} employeeName={ai.name} initialStatus={ai.status} userFullName={profile.fullName}>
+    <DashboardShell businessName={business.name} initialStatus={ai.status} userFullName={profile.fullName}>
       {children}
     </DashboardShell>
   );

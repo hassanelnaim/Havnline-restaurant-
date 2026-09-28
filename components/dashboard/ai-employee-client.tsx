@@ -6,7 +6,6 @@ import { updateAiEmployeeAction } from "@/app/actions/business";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -31,7 +30,6 @@ const RESPONSIBILITY_ITEMS: { key: keyof AiResponsibilities; label: string }[] =
 
 export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; voice: DbAiVoiceConfig; hours: DbBusinessHours[] }) {
   const [generatedInstructions, setGeneratedInstructions] = useState(ai.generated_instructions);
-  const [name, setName] = useState(ai.name);
   const [personality, setPersonality] = useState(ai.personality);
   const [responsibilities, setResponsibilities] = useState(ai.responsibilities);
   const [orderingRules, setOrderingRules] = useState(ai.ordering_rules || "");
@@ -47,7 +45,7 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
     setError(null);
     startTransition(async () => {
       const result = await updateAiEmployeeAction({
-        name, personality, responsibilities, voiceId, orderingRules, escalationRules,
+        personality, responsibilities, voiceId, orderingRules, escalationRules,
         customVoice: customVoiceRef && customVoiceName ? { providerVoiceRef: customVoiceRef, providerVoiceName: customVoiceName } : null,
       });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
@@ -82,11 +80,10 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
       <TabsContent value="personality">
         <Card>
           <CardHeader>
-            <CardTitle>Identity &amp; personality</CardTitle>
-            <CardDescription>The name and tone {name || ai.name} uses on every call.</CardDescription>
+            <CardTitle>Personality</CardTitle>
+            <CardDescription>The tone your AI uses on every call. It never gives itself a name — it identifies as your business's automated order-taker, not a person.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div><Label>Order-taker name</Label><Input className="mt-1.5 max-w-xs" value={name} onChange={(e) => setName(e.target.value)} /></div>
             {customVoiceName && (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">
                 <Mic className="h-3.5 w-3.5 text-brand" /> Voice: <span className="font-medium text-ink">{customVoiceName}</span>
@@ -119,7 +116,7 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
 
       <TabsContent value="responsibilities">
         <Card>
-          <CardHeader><CardTitle>Responsibilities</CardTitle><CardDescription>What {name || ai.name} is allowed to do on its own.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Responsibilities</CardTitle><CardDescription>What your AI is allowed to do on its own.</CardDescription></CardHeader>
           <CardContent className="divide-y divide-border-soft">
             {RESPONSIBILITY_ITEMS.map((item) => (
               <div key={item.key} className="flex items-center justify-between py-3">

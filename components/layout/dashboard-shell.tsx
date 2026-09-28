@@ -10,10 +10,9 @@ import { LogoMark, LogoWordmark } from "@/components/brand/logo";
 import { initials } from "@/lib/format";
 
 export function DashboardShell({
-  businessName, employeeName, initialStatus, userFullName, children,
+  businessName, initialStatus, userFullName, children,
 }: {
   businessName: string;
-  employeeName: string;
   initialStatus: "online" | "offline";
   userFullName: string;
   children: React.ReactNode;
@@ -41,8 +40,8 @@ export function DashboardShell({
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-dark"><ChefHat className="h-4 w-4" /></div>
               <div className="min-w-0">
-                <div className="text-[10.5px] uppercase tracking-wide text-[#8A90A0]">Order-taker</div>
-                <div className="truncate text-[13px] font-medium text-white">{employeeName}</div>
+                <div className="truncate text-[13px] font-medium text-white">AI order-taker</div>
+                <div className="text-[10.5px] text-[#8A90A0]">Answers your phone</div>
               </div>
             </div>
             <div className="mt-2.5"><AiStatusToggle initialStatus={initialStatus} tone="light" /></div>

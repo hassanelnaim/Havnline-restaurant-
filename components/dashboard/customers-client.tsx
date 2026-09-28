@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MessageSquare, Ban, ShieldCheck, Trash2, X, AlertTriangle } from "lucide-react";
+import { Ban, ShieldCheck, Trash2, X, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatDate } from "@/lib/format";
@@ -105,12 +105,6 @@ function CustomerActionsSheet({ customer, onClose }: { customer: DbCustomer; onC
 
         {!confirmingDelete ? (
           <div className="mt-4 space-y-1">
-            <a
-              href={`sms:${customer.phone}`}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-medium text-text hover:bg-border-soft/60"
-            >
-              <MessageSquare className="h-4 w-4 text-brand" /> Text {customer.name}
-            </a>
             <button
               onClick={handleBlockToggle}
               disabled={isPending}

@@ -13,7 +13,7 @@ const NAV_GROUPS = [
       { href: "/dashboard/orders", label: "Orders", icon: ClipboardList },
       { href: "/dashboard/end-of-day", label: "End of Day", icon: Receipt },
       { href: "/dashboard/menu", label: "Menu", icon: UtensilsCrossed },
-      { href: "/dashboard/customers", label: "Customers", icon: Users },
+      { href: "/dashboard/customers", label: "Callers", icon: Users },
       { href: "/dashboard/escalations", label: "Escalations", icon: AlertTriangle },
     ],
   },
