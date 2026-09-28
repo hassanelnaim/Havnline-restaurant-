@@ -49,37 +49,28 @@ function isKnownBotProtectedHost(url: string): boolean {
   }
 }
 
-// CORRECTION from an earlier version of this file: a static (non-JS)
-// fetch of order.spoton.com's raw HTML showed only "...Start order",
-// which looked like a click-through gate blocking the real menu. It
-// wasn't — that's just this app's pre-hydration loading label on its
-// cart button (it reads "Your order" once real data loads). Loading
-// the actual page in a real, non-automated browser proved there's no
-// button to click at all; the menu renders directly. So the click
-// instruction that used to live here was solving a problem that
-// didn't exist, and worse, risked actually clicking that cart button
-// once hydration did complete, potentially navigating away from the
-// menu entirely. Replaced below with something grounded in what the
-// real DOM actually does: wait for the menu to be genuinely there,
-// not for a fixed number of seconds or a guessed button.
-//
-// Every menu category link on a SpotOn ordering page carries
-// data-testid="menu-item-group" (confirmed by inspecting the live
-// page's DOM directly) — that's Chakra UI test tooling SpotOn ships
-// to every business built on their platform, not something specific
-// to this one restaurant, so it should hold for other SpotOn pages
-// too. ScrapingBee's wait_for pauses until a selector actually shows
-// up in the DOM, which is a real "is the menu here yet" check instead
-// of a guess at how many seconds rendering takes.
-const SPOTON_MENU_LOADED_SELECTOR = "[data-testid='menu-item-group']";
-
-function isSpotOnHost(url: string): boolean {
-  try {
-    return /(^|\.)spoton\.com$/i.test(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-}
+// SECOND CORRECTION, learned by actually testing against production:
+// two earlier versions of this file both tried adding a ScrapingBee
+// js_scenario here — first a click on a (nonexistent) "Start order"
+// gate, then a wait_for on a real DOM marker
+// ([data-testid="menu-item-group"], confirmed present on SpotOn's
+// live page). Both failed identically: the exact same ~72-character
+// pre-hydration shell every time, byte-for-byte. But the version
+// BEFORE any js_scenario existed — plain stealth_proxy, nothing else —
+// is on record actually working: it's what fetched the real, full
+// menu that later hit the max_tokens truncation bug (see the "Fix
+// menu-import truncation" commit) — real "Breakfast Special", "Hungry
+// Man's Breakfast" items, not a shell. So js_scenario itself, not the
+// specific instruction inside it, is what breaks this call — most
+// likely because supplying it changes how/when ScrapingBee decides
+// the page is "done" and captures it, overriding the plain `wait`
+// governed render-completion behavior that was working. Given that
+// evidence, this goes back to exactly the plain stealth_proxy call
+// that's actually on record succeeding, with no js_scenario at all.
+// If a future menu import comes back empty again, resist the urge to
+// reach for js_scenario before checking Vercel's logs for what
+// fetchWebsiteText actually received — the diagnostic log in
+// app/actions/menu.ts already prints it.
 
 async function callScrapingBee(url: string, apiKey: string, extraParams: Record<string, string>, timeoutMs: number): Promise<Response> {
   const params = new URLSearchParams({
@@ -123,16 +114,7 @@ async function fetchViaScrapingBee(url: string): Promise<string> {
   // the full budget for one stealth call instead of splitting it
   // (badly) across two sequential ones.
   if (isKnownBotProtectedHost(url)) {
-    const extraParams: Record<string, string> = { stealth_proxy: "true" };
-    // Only for SpotOn, and only a real "wait for this to exist"
-    // check — see SPOTON_MENU_LOADED_SELECTOR above. Other bot-
-    // protected platforms in the list below haven't been inspected
-    // live, so they keep the plain fixed wait rather than guessing at
-    // their DOM.
-    if (isSpotOnHost(url)) {
-      extraParams.js_scenario = JSON.stringify({ instructions: [{ wait_for: SPOTON_MENU_LOADED_SELECTOR }] });
-    }
-    const response = await callScrapingBee(url, apiKey, extraParams, 90000);
+    const response = await callScrapingBee(url, apiKey, { stealth_proxy: "true" }, 90000);
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new Error(`The page-rendering service couldn't load that page (HTTP ${response.status}). ${body.slice(0, 200)}`);
