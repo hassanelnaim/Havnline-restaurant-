@@ -1,6 +1,7 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockOrders } from "@/lib/mock/data";
 import type { OrderWithItems } from "@/lib/database/types";
+import { localDateKey, localDayBoundsUtc } from "@/lib/format";
 
 export async function getOrdersForBusiness(businessId: string, limit = 100): Promise<OrderWithItems[]> {
   if (!isSupabaseConfigured()) return mockOrders;
@@ -13,6 +14,49 @@ export async function getOrdersForBusiness(businessId: string, limit = 100): Pro
     .neq("status", "building") // building = still in progress on a live call, not a real order yet
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  if (!orders || orders.length === 0) return [];
+
+  const orderIds = orders.map((o) => o.id);
+  const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
+  const itemIds = (items || []).map((i) => i.id);
+  const { data: modifiers } = itemIds.length
+    ? await supabase.from("order_item_modifiers").select("*").in("order_item_id", itemIds)
+    : { data: [] };
+
+  return orders.map((order) => ({
+    ...order,
+    items: (items || [])
+      .filter((i) => i.order_id === order.id)
+      .map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
+  }));
+}
+
+/**
+ * All of a business's orders for one calendar day, in the business's
+ * own timezone — for an end-of-day report on any past day, not just
+ * "today." getOrdersForBusiness above only ever sees its most recent
+ * 100 orders, so filtering that in memory silently gives wrong/empty
+ * results for a day further back than that — this queries the actual
+ * date range in the DB instead, using localDayBoundsUtc to convert
+ * the business's local calendar day into the right UTC instant range.
+ */
+export async function getOrdersForDate(businessId: string, dateKey: string, timezone: string): Promise<OrderWithItems[]> {
+  if (!isSupabaseConfigured()) {
+    return mockOrders.filter((o) => localDateKey(o.created_at, timezone) === dateKey);
+  }
+
+  const supabase = createClient();
+  const { startIso, endIso } = localDayBoundsUtc(dateKey, timezone);
+
+  const { data: orders } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("business_id", businessId)
+    .neq("status", "building") // building = still in progress on a live call, not a real order yet
+    .gte("created_at", startIso)
+    .lt("created_at", endIso)
+    .order("created_at", { ascending: true });
 
   if (!orders || orders.length === 0) return [];
 

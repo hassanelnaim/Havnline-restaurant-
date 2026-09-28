@@ -53,6 +53,53 @@ export function localDateKey(iso: string, timezone: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: timezone }); // en-CA gives YYYY-MM-DD
 }
 
+/**
+ * The UTC instant range [startIso, endIso) that covers a given
+ * calendar day (e.g. "2026-09-27") in a business's own timezone — for
+ * querying orders by "that day" server-side, not just filtering
+ * whatever's already been fetched into memory (see getOrdersForDate).
+ *
+ * No timezone library available, so this finds the boundary by binary
+ * search rather than computing a UTC offset directly: dateKey strings
+ * from localDateKey are lexically ordered the same as chronological
+ * order (YYYY-MM-DD), so bisecting a ±36h window around the naive UTC
+ * midnight for "when does the local date match/stop matching dateKey"
+ * gives an exact answer for any IANA zone, including ones with
+ * half-hour offsets or DST transitions, without needing to reason
+ * about the offset itself.
+ */
+export function localDayBoundsUtc(dateKey: string, timezone: string): { startIso: string; endIso: string } {
+  const naiveMidnightMs = new Date(`${dateKey}T00:00:00Z`).getTime();
+  const windowMs = 48 * 60 * 60 * 1000; // real UTC offsets run -12h..+14h; 48h leaves margin on both boundaries
+
+  const dateKeyAt = (ms: number) => localDateKey(new Date(ms).toISOString(), timezone);
+
+  // First ms whose local date is >= dateKey (the day's start).
+  function bisectStart(lo: number, hi: number): number {
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (dateKeyAt(mid) >= dateKey) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  }
+
+  // First ms whose local date is > dateKey (the day's end, exclusive).
+  function bisectEnd(lo: number, hi: number): number {
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (dateKeyAt(mid) > dateKey) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  }
+
+  const startMs = bisectStart(naiveMidnightMs - windowMs, naiveMidnightMs + windowMs);
+  const endMs = bisectEnd(naiveMidnightMs - windowMs, naiveMidnightMs + windowMs);
+
+  return { startIso: new Date(startMs).toISOString(), endIso: new Date(endMs).toISOString() };
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();

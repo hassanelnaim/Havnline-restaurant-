@@ -22,8 +22,12 @@ export function DashboardShell({
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-paper">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-ink py-6 lg:flex">
+    <div className="min-h-screen bg-paper print:bg-white">
+      {/* Printing a report (see app/dashboard/end-of-day) should produce a
+          plain page of that report, not the sidebar/header chrome around
+          it — print:hidden here, and print:pl-0/print:p-0 below, strip
+          the dashboard shell down to just the page content on paper. */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-ink py-6 lg:flex print:hidden">
         <Link href="/dashboard" className="mb-6 flex items-center gap-2.5 px-4">
           <LogoMark className="h-8 w-8" />
           <div>
@@ -62,8 +66,8 @@ export function DashboardShell({
         </div>
       )}
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card px-4 py-3 lg:px-6">
+      <div className="lg:pl-64 print:pl-0">
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card px-4 py-3 lg:px-6 print:hidden">
           <div className="flex items-center gap-3">
             <button onClick={() => setMobileOpen(true)} className="text-text-muted lg:hidden"><Menu className="h-5 w-5" /></button>
             <AiStatusToggle initialStatus={initialStatus} />
@@ -84,7 +88,7 @@ export function DashboardShell({
             )}
           </div>
         </header>
-        <main className="p-4 lg:p-8">{children}</main>
+        <main className="p-4 lg:p-8 print:p-0">{children}</main>
       </div>
     </div>
   );
