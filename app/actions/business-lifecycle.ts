@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/supabase/platform-admin";
+import { sendBusinessSuspendedEmail, sendBusinessReactivatedEmail } from "@/lib/notifications/account-email";
 
 export interface ActionResult {
   success: boolean;
@@ -40,6 +41,8 @@ export async function suspendBusinessAction(businessId: string, reason: string):
   const { error: aiError } = await admin.from("ai_receptionists").update({ status: "offline" }).eq("business_id", businessId);
   if (aiError) return { success: false, error: `Business was suspended, but turning off the AI failed: ${aiError.message}` };
 
+  sendBusinessSuspendedEmail(businessId, reason).catch((err) => console.error("Business-suspended email failed:", err));
+
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);
   return { success: true };
@@ -62,6 +65,8 @@ export async function reactivateBusinessAction(businessId: string): Promise<Acti
   // online — that's a separate, real decision the business owner (or
   // admin) should make explicitly, not something that silently
   // re-activates on its own.
+
+  sendBusinessReactivatedEmail(businessId).catch((err) => console.error("Business-reactivated email failed:", err));
 
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);

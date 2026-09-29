@@ -3,6 +3,7 @@ import { endCall } from "@/lib/ai/receptionist";
 import { resolveBusinessFromPhoneNumber } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { sendCallNotificationEmail } from "@/lib/notifications/call-email";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,13 @@ export async function POST(request: NextRequest) {
 
   if (callId && TERMINAL_STATUSES.includes(callStatus)) {
     await endCall(callId, duration);
+
+    // Fire-and-forget: don't hold up Twilio's webhook response on an
+    // email send. sendCallNotificationEmail no-ops on its own if the
+    // business hasn't turned call notifications on.
+    if (resolved) {
+      sendCallNotificationEmail(resolved.businessId, callId).catch((err) => console.error("Call notification email failed:", err));
+    }
   }
 
   return new NextResponse("OK");

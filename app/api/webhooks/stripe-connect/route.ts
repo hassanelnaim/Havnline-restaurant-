@@ -4,6 +4,7 @@ import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { smsClient } from "@/lib/integrations/sms";
+import { sendPaymentsLiveEmail } from "@/lib/notifications/account-email";
 import type { OrderWithItems } from "@/lib/database/types";
 
 /**
@@ -124,6 +125,13 @@ export async function POST(request: NextRequest) {
 
       case "account.updated": {
         const account = event.data.object as Stripe.Account;
+
+        const { data: before } = await admin
+          .from("businesses")
+          .select("id, stripe_connect_charges_enabled")
+          .eq("stripe_connect_account_id", account.id)
+          .maybeSingle();
+
         await admin
           .from("businesses")
           .update({
@@ -131,6 +139,14 @@ export async function POST(request: NextRequest) {
             stripe_connect_onboarded_at: account.charges_enabled ? new Date().toISOString() : null,
           })
           .eq("stripe_connect_account_id", account.id);
+
+        // Only the first true flip is "you're set up now" news — every
+        // later account.updated (Stripe fires these often, for all
+        // kinds of minor account changes) would otherwise re-send this
+        // same email over and over.
+        if (before && !before.stripe_connect_charges_enabled && account.charges_enabled) {
+          sendPaymentsLiveEmail(before.id).catch((err) => console.error("Payments-live email failed:", err));
+        }
         break;
       }
     }
