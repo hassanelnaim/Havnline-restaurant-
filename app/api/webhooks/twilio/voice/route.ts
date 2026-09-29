@@ -6,6 +6,7 @@ import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProv
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { getSiteUrl } from "@/lib/env";
+import { normalizePhoneDigits } from "@/lib/phone-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -72,18 +73,20 @@ export async function POST(request: NextRequest) {
 
   // Silently reject a number this business has blocked (see Callers page)
   // or one Twilio's own spam/fraud add-on flags — no ring, no AI, no
-  // record of a real call. Matches on the raw caller ID, so it only
-  // catches a caller once their number itself has been blocked or is
-  // recognized as spam, not a name/number they only spoke mid-order.
-  const { data: blockedCaller } = await admin
+  // record of a real call. Compares last-10-digits (see phone-utils.ts)
+  // rather than an exact string match, since the caller ID Twilio gives
+  // us here (E.164) rarely matches the free-text phone number format
+  // the AI wrote down from a customer saying it out loud mid-order.
+  const { data: blockedCustomers } = await admin
     .from("customers")
-    .select("id")
+    .select("phone")
     .eq("business_id", businessId)
-    .eq("phone", callerNumber)
-    .eq("is_blocked", true)
-    .maybeSingle();
+    .eq("is_blocked", true);
 
-  if (blockedCaller || isCallFlaggedAsSpam(params.AddOns)) {
+  const normalizedCallerNumber = normalizePhoneDigits(callerNumber);
+  const isBlocked = (blockedCustomers || []).some((c) => normalizePhoneDigits(c.phone) === normalizedCallerNumber);
+
+  if (isBlocked || isCallFlaggedAsSpam(params.AddOns)) {
     return twiml(`<Response><Reject reason="rejected"/></Response>`);
   }
 

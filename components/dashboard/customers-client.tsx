@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { CallOutcomeBadge } from "@/components/dashboard/status-badges";
 import { formatDate, formatDateTime, formatDuration } from "@/lib/format";
+import { normalizePhoneDigits } from "@/lib/phone-utils";
 import { blockCustomerAction, unblockCustomerAction, deleteCustomerAction } from "@/app/actions/customers";
 import type { DbCustomer, DbCall } from "@/lib/database/types";
 
@@ -58,7 +59,7 @@ export function CustomersClient({ customers, callsByPhone, timezone }: { custome
         ))}
       </div>
 
-      {active && <CustomerActionsSheet customer={active} calls={callsByPhone[active.phone] || []} timezone={timezone} onClose={() => setActive(null)} />}
+      {active && <CustomerActionsSheet customer={active} calls={callsByPhone[normalizePhoneDigits(active.phone)] || []} timezone={timezone} onClose={() => setActive(null)} />}
     </>
   );
 }

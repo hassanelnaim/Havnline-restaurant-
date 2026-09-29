@@ -1,6 +1,7 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { mockCalls, mockCallMessages } from "@/lib/mock/data";
+import { normalizePhoneDigits } from "@/lib/phone-utils";
 import type { DbCall, DbCallMessage } from "@/lib/database/types";
 
 export async function getCalls(): Promise<DbCall[]> {
@@ -28,17 +29,20 @@ export async function getCallMessages(callId: string): Promise<DbCallMessage[]> 
 }
 
 /**
- * All calls for the business, grouped by caller phone number — powers
- * the "Past calls" list in the Callers page detail sheet. Grouped by
- * phone (always set from the Twilio caller ID at call start) rather
- * than the nullable customer_id link, so it also covers calls that
- * predate a customer record existing.
+ * All calls for the business, grouped by caller phone number (last-10-
+ * digits normalized — see lib/phone-utils.ts, since calls.phone is
+ * Twilio's E.164 caller ID while customers.phone is whatever format the
+ * caller spoke it in) — powers the "Past calls" list in the Callers
+ * page detail sheet. Grouped by phone rather than the nullable
+ * customer_id link, so it also covers calls that predate a customer
+ * record existing.
  */
 export async function getCallsByPhone(): Promise<Record<string, DbCall[]>> {
   const calls = await getCalls();
   const byPhone: Record<string, DbCall[]> = {};
   for (const call of calls) {
-    (byPhone[call.phone] ||= []).push(call);
+    const key = normalizePhoneDigits(call.phone);
+    (byPhone[key] ||= []).push(call);
   }
   return byPhone;
 }
