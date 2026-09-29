@@ -59,6 +59,51 @@ export interface ProvisionNumberResult {
   reason?: string;
 }
 
+// The Nomorobo Spam Score Voice Add-on's catalog SID — same for every
+// Twilio account, confirmed live in the Twilio Console Marketplace
+// (Explore Add-ons -> Nomorobo Spam Score). Installing it costs
+// $0.0035/call; the voice webhook (isCallFlaggedAsSpam in
+// app/api/webhooks/twilio/voice/route.ts) already knows how to read its
+// result once it's installed+enabled here, so no other code needs to
+// change when a new restaurant gets this automatically.
+const NOMOROBO_SPAM_SCORE_ADDON_SID = "XB06d5274893cc9af4198667d2f7d74d09";
+const NOMOROBO_UNIQUE_NAME = "nomorobo_spamscore";
+
+/**
+ * Installs the Nomorobo Spam Score add-on on a restaurant's Twilio
+ * sub-account and enables it on inbound voice calls, so every new
+ * restaurant gets spam/scam-call detection automatically instead of
+ * someone doing this by hand in the Twilio Console per restaurant (as
+ * was done for the pilot restaurant). Best-effort: any failure here is
+ * logged and swallowed rather than thrown, since a restaurant should
+ * still get a working phone number even if this optional add-on can't
+ * be installed (e.g. add-on unavailable in that Twilio region, or it's
+ * already installed on this sub-account from a previous provisioning
+ * attempt).
+ */
+async function installSpamScoreAddOn(client: ReturnType<typeof twilio>): Promise<void> {
+  try {
+    const existing = await client.marketplace.v1.installedAddOns.list();
+    let installed = existing.find((a) => a.uniqueName === NOMOROBO_UNIQUE_NAME);
+
+    if (!installed) {
+      installed = await client.marketplace.v1.installedAddOns.create({
+        availableAddOnSid: NOMOROBO_SPAM_SCORE_ADDON_SID,
+        acceptTermsOfService: true,
+        uniqueName: NOMOROBO_UNIQUE_NAME,
+      });
+    }
+
+    const extensions = await installed.extensions().list();
+    const voiceExtension = extensions.find((e) => e.productName === "Incoming Voice Call");
+    if (voiceExtension && !voiceExtension.enabled) {
+      await voiceExtension.update({ enabled: true });
+    }
+  } catch (err) {
+    console.error("Nomorobo Spam Score add-on install/enable failed (non-fatal):", err);
+  }
+}
+
 export async function provisionNumber(
   subAccountCreds: TwilioCredentials,
   areaCode?: string
@@ -86,6 +131,9 @@ export async function provisionNumber(
       statusCallback: `${siteUrl}/api/webhooks/twilio/status`,
       statusCallbackMethod: "POST",
     });
+
+    // Best-effort — never blocks handing back the purchased number.
+    await installSpamScoreAddOn(client);
 
     return { success: true, phoneNumber: purchased.phoneNumber };
   } catch (err) {
