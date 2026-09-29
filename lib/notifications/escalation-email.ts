@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { renderEmailLayout } from "@/lib/email/templates";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -46,18 +47,31 @@ export async function sendEscalationEmail(businessId: string, callId: string): P
   const phone = call?.phone || "unknown number";
   const reason = call?.escalation_reason || "No reason was logged.";
 
+  const html = renderEmailLayout({
+    preheader: `${customerName} needs a callback — your AI receptionist couldn't fully resolve their call.`,
+    heading: "A caller needs your attention",
+    intro: `Your AI receptionist at <strong>${escapeHtml(business.name)}</strong> escalated a call it couldn't fully resolve on its own.`,
+    rows: [
+      { label: "Caller", value: escapeHtml(customerName) },
+      { label: "Phone", value: `<span style="font-family: 'IBM Plex Mono', Menlo, Consolas, monospace; font-size: 13px;">${escapeHtml(phone)}</span>` },
+      { label: "Reason", value: escapeHtml(reason) },
+    ],
+    cta: { label: "View in your dashboard", url: `${APP_URL}/dashboard/escalations` },
+    footerNote: `You're getting this because escalation notifications are turned on for ${escapeHtml(business.name)} on HavnLine. <a href="${APP_URL}/dashboard/settings" style="color: #5B6472;">Manage notification settings</a>.`,
+  });
+
   try {
     await resend.emails.send({
       from: "HavnLine Notifications <notifications@havnline.com>",
       to: recipients,
       subject: `${business.name}: a call needs your attention`,
-      html: `
-        <p><strong>${customerName}</strong> (${phone}) was escalated to you by your AI receptionist.</p>
-        <p><strong>Reason:</strong> ${reason}</p>
-        <p><a href="${APP_URL}/dashboard/escalations">View in your HavnLine dashboard →</a></p>
-      `,
+      html,
     });
   } catch (err) {
     console.error("Failed to send escalation email:", err);
   }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
