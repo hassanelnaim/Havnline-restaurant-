@@ -24,12 +24,15 @@ export function IntegrationsClient({
   stripeConnectAccountId,
   stripeConnectChargesEnabled,
   phonePaymentsEnabled,
+  platformFeeBps,
 }: {
   initialIntegrations: DbIntegration[];
   stripeConnectAccountId: string | null;
   stripeConnectChargesEnabled: boolean;
   phonePaymentsEnabled: boolean;
+  platformFeeBps: number | null;
 }) {
+  const feePercent = platformFeeBps ? platformFeeBps / 100 : 0;
   const [integrations, setIntegrations] = useState(initialIntegrations);
   const [areaCode, setAreaCode] = useState("");
   const [provisioning, setProvisioning] = useState(false);
@@ -242,10 +245,12 @@ export function IntegrationsClient({
                   <div className="text-[13.5px] font-semibold text-ink">Stripe Connect</div>
                   <p className="mt-0.5 max-w-md text-[12px] text-text-muted">
                     {stripeConnectChargesEnabled
-                      ? "Connected — payments from phone orders go straight to your own bank account."
+                      ? feePercent > 0
+                        ? "Connected — payments from phone orders go to your own bank account, minus HavnLine's fee below."
+                        : "Connected — payments from phone orders go straight to your own bank account."
                       : stripeConnected
                       ? "Onboarding started but not finished yet — Stripe still needs a bit more from you before you can accept charges."
-                      : "Let customers pay by card over the phone. Money goes directly to your own Stripe account — HavnLine never touches it."}
+                      : "Let customers pay by card over the phone. Money goes directly to your own Stripe account."}
                   </p>
                   <div className="mt-2">
                     <IntegrationStatusBadge status={stripeConnectChargesEnabled ? "connected" : "not_connected"} />
@@ -256,6 +261,17 @@ export function IntegrationsClient({
                 {onboarding ? "Redirecting…" : stripeConnectChargesEnabled ? "Manage on Stripe" : stripeConnected ? "Finish onboarding" : "Connect Stripe"}
               </Button>
             </CardContent>
+
+            {feePercent > 0 && (
+              <CardContent className="border-t border-border-soft pt-4">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-brand/20 bg-brand-soft px-4 py-3">
+                  <div>
+                    <div className="text-[13.5px] font-semibold text-ink">HavnLine takes {feePercent}% of every phone-order payment</div>
+                    <p className="mt-0.5 text-[12px] text-text-muted">Deducted automatically at checkout — you never get billed separately for it. A $50 order pays you ${(50 - 50 * (feePercent / 100)).toFixed(2)}.</p>
+                  </div>
+                </div>
+              </CardContent>
+            )}
 
             {paymentsError && <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-danger">{paymentsError}</CardContent>}
 

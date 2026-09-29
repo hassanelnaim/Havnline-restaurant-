@@ -1,13 +1,14 @@
 import { BusinessActions } from "@/components/admin/business-actions";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bot, DollarSign, Phone, ClipboardList } from "lucide-react";
+import { ArrowLeft, Bot, DollarSign, Phone, ClipboardList, CreditCard } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockAdminBusinessDetails, mockCalls, mockOrders, mockAiReceptionist, mockVoiceConfig } from "@/lib/mock/data";
 import { getBusinessCostBreakdown } from "@/lib/usage/tracking";
 import { formatDate, formatDateTime, formatDuration } from "@/lib/format";
 import { StatusEditor } from "@/components/admin/status-editor";
+import { FeeEditor } from "@/components/admin/fee-editor";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +83,33 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
             <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
               <div className="text-[12.5px] text-text-muted">Orders placed</div>
               <div className="mt-2 font-display text-[26px] font-semibold text-ink">{orderCount}</div>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-card">
+            <div className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-brand" />
+              <h2 className="font-display text-[15px] font-semibold text-ink">Payments</h2>
+            </div>
+            <p className="mt-1 text-[12px] text-text-faint">
+              What HavnLine keeps from this business's phone-order payments (Stripe Connect application fee). There's no Stripe dashboard setting for this — it's entirely controlled by this field, applied to every paid phone order.
+            </p>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-border-soft pt-4">
+              <div>
+                <div className="text-[13px] font-medium text-text">Stripe Connect</div>
+                <div className="mt-0.5 text-[12px] text-text-muted">
+                  {business.stripe_connect_charges_enabled
+                    ? "Connected and able to accept phone payments."
+                    : business.stripe_connect_account_id
+                    ? "Account created, onboarding not finished."
+                    : "Not connected yet."}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-faint">Platform fee</div>
+                <FeeEditor businessId={business.id} currentFeeBps={business.platform_fee_bps} />
+              </div>
             </div>
           </div>
 
