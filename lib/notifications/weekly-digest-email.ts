@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { renderEmailLayout } from "@/lib/email/templates";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { formatCents } from "@/lib/format";
+import { countsTowardSales } from "@/lib/orders/sales";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://havnline.com";
@@ -63,9 +64,8 @@ export async function sendWeeklyDigestEmails(): Promise<DigestResult> {
         admin.from("calls").select("outcome").eq("business_id", business.id).gte("started_at", startIso).lt("started_at", endIso),
         admin
           .from("orders")
-          .select("total_cents")
+          .select("total_cents, status, payment_status")
           .eq("business_id", business.id)
-          .neq("status", "building")
           .gte("created_at", startIso)
           .lt("created_at", endIso),
         admin.from("business_members").select("user_id").eq("business_id", business.id),
@@ -80,8 +80,14 @@ export async function sendWeeklyDigestEmails(): Promise<DigestResult> {
 
       const callsCount = (calls || []).length;
       const escalationsCount = (calls || []).filter((c) => c.outcome === "escalated").length;
-      const ordersCount = (orders || []).length;
-      const salesCents = (orders || []).reduce((sum, o) => sum + (o.total_cents || 0), 0);
+      // "Orders" = real order attempts (same rule as the dashboard's
+      // "Orders today": excludes still-building and cancelled, but
+      // does include ones still awaiting payment). "Sales" is the
+      // stricter subset that actually counts as money collected — see
+      // lib/orders/sales.ts.
+      const realOrders = (orders || []).filter((o) => o.status !== "building" && o.status !== "cancelled");
+      const ordersCount = realOrders.length;
+      const salesCents = realOrders.filter(countsTowardSales).reduce((sum, o) => sum + (o.total_cents || 0), 0);
 
       const html = renderEmailLayout({
         preheader: `${callsCount} calls, ${ordersCount} orders, ${formatCents(salesCents)} in sales over the past 7 days at ${business.name}.`,

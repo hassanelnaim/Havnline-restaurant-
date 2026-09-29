@@ -11,10 +11,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { formatDateTime, formatCents, localDateKey } from "@/lib/format";
-
-// Orders that never actually happened (never confirmed, or called off)
-// shouldn't count toward the day's sales totals.
-const COUNTS_TOWARD_SALES = new Set(["confirmed", "submitted"]);
+import { countsTowardSales } from "@/lib/orders/sales";
 
 export function OrdersClient({ initialOrders, timezone, printerAppConnected }: { initialOrders: OrderWithItems[]; timezone: string; printerAppConnected: boolean }) {
   const [orders, setOrders] = useState(initialOrders);
@@ -32,7 +29,7 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
   // same-day summary but won't reach back further than that.
   const todaysSummary = useMemo(() => {
     const today = localDateKey(new Date().toISOString(), timezone);
-    const todays = orders.filter((o) => COUNTS_TOWARD_SALES.has(o.status) && localDateKey(o.created_at, timezone) === today);
+    const todays = orders.filter((o) => countsTowardSales(o) && localDateKey(o.created_at, timezone) === today);
     return {
       orderCount: todays.length,
       grossCents: todays.reduce((sum, o) => sum + o.total_cents, 0),

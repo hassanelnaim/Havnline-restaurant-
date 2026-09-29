@@ -3,6 +3,7 @@ import { PhoneCall, ClipboardList, AlertTriangle, ArrowUpRight, DollarSign } fro
 import { getBusiness } from "@/lib/data/business";
 import { getCalls } from "@/lib/data/calls";
 import { getOrdersForBusiness } from "@/lib/data/orders";
+import { countsTowardSales } from "@/lib/orders/sales";
 import { CallOutcomeBadge, OrderStatusBadge } from "@/components/dashboard/status-badges";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { formatDateTime } from "@/lib/format";
@@ -25,7 +26,11 @@ export default async function OverviewPage() {
   const ordersTodayList = orders.filter((o) => toBizDateString(o.created_at, timezone) === todayInBizTz && o.status !== "cancelled");
   const callsToday = calls.filter((c) => toBizDateString(c.started_at, timezone) === todayInBizTz).length;
   const ordersToday = ordersTodayList.length;
-  const salesTodayCents = ordersTodayList.reduce((sum, o) => sum + o.total_cents, 0);
+  // Sales specifically only counts money actually collected — see
+  // lib/orders/sales.ts for why this needs its own check beyond just
+  // "not cancelled" (an order can be today's and not cancelled while
+  // still waiting on an unpaid phone-payments link).
+  const salesTodayCents = ordersTodayList.filter(countsTowardSales).reduce((sum, o) => sum + o.total_cents, 0);
   const escalationsToday = calls.filter((c) => c.outcome === "escalated" && toBizDateString(c.started_at, timezone) === todayInBizTz).length;
 
   const recentCalls = calls.slice(0, 5);

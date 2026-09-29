@@ -1,22 +1,18 @@
 import { getBusiness } from "@/lib/data/business";
 import { getOrdersForDate } from "@/lib/data/orders";
 import { localDateKey } from "@/lib/format";
+import { countsTowardSales } from "@/lib/orders/sales";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EndOfDayClient } from "@/components/dashboard/end-of-day-client";
 
 export const dynamic = "force-dynamic";
-
-// Orders that never actually happened shouldn't count toward the
-// day's sales totals — same rule used everywhere else this math
-// happens (orders-client.tsx, app/actions/reports.ts).
-const COUNTS_TOWARD_SALES = new Set(["confirmed", "submitted"]);
 
 export default async function EndOfDayPage() {
   const business = await getBusiness();
   const today = localDateKey(new Date().toISOString(), business.timezone);
 
   const orders = await getOrdersForDate(business.id, today, business.timezone);
-  const salesOrders = orders.filter((o) => COUNTS_TOWARD_SALES.has(o.status));
+  const salesOrders = orders.filter(countsTowardSales);
 
   return (
     <div>

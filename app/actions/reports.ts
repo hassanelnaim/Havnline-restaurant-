@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { getOrdersForDate } from "@/lib/data/orders";
 import { localDateKey } from "@/lib/format";
+import { countsTowardSales } from "@/lib/orders/sales";
 import type { OrderWithItems } from "@/lib/database/types";
 
 async function requireBusinessId(): Promise<string> {
@@ -15,11 +16,6 @@ async function requireBusinessId(): Promise<string> {
   if (!businessId) throw new Error("No business found for this account.");
   return businessId;
 }
-
-// Orders that never actually happened (never confirmed, or called off)
-// shouldn't count toward the day's sales totals — same rule as the
-// live "Today" summary on the Orders page (see orders-client.tsx).
-const COUNTS_TOWARD_SALES = new Set(["confirmed", "submitted"]);
 
 export interface EndOfDaySummary {
   dateKey: string;
@@ -40,10 +36,13 @@ export interface EndOfDayResult {
 /**
  * The end-of-day reconciliation report: one calendar day's orders in
  * the business's own timezone, plus the same sales math the AI used
- * when it confirmed each order. HavnLine never touches the customer's
- * money (no payments, no POS) — this is purely for an owner to check
- * "does this match what came in on the register/deposits tonight,"
- * not a payments close-out.
+ * when it confirmed each order. For a pay-at-pickup business, this is
+ * purely for an owner to check "does this match what came in on the
+ * register/deposits tonight" — HavnLine itself never touched the
+ * money. A business with phone payments turned on DOES have real
+ * money moving through Stripe Connect, and this report's gross/net/tax
+ * only ever counts orders that were actually paid (or never required
+ * payment up front) — see lib/orders/sales.ts.
  */
 export async function getEndOfDaySummaryAction(dateKey: string): Promise<EndOfDayResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
@@ -67,7 +66,7 @@ export async function getEndOfDaySummaryAction(dateKey: string): Promise<EndOfDa
   const effectiveDateKey = dateKey > today ? today : dateKey;
 
   const orders = await getOrdersForDate(businessId, effectiveDateKey, timezone);
-  const salesOrders = orders.filter((o) => COUNTS_TOWARD_SALES.has(o.status));
+  const salesOrders = orders.filter(countsTowardSales);
   const cancelledCount = orders.filter((o) => o.status === "cancelled").length;
 
   const summary: EndOfDaySummary = {
