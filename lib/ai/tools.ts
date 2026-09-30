@@ -4,6 +4,7 @@ import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
 import { getSiteUrl } from "@/lib/env";
+import { isBusinessOpenNow } from "@/lib/business/hours";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -108,6 +109,14 @@ async function add_item_to_order(
 ): Promise<ToolResult> {
   const admin = createAdminClient();
 
+  // Hard server-side cutoff — the AI is also told this in the system
+  // prompt, but that's just an instruction it could fail to follow. A
+  // closed business cannot have an order built or placed, period,
+  // regardless of what the model does or says.
+  if (!isBusinessOpenNow(ctx.context.business, ctx.context.hours)) {
+    return { success: false, reason: "This business is currently closed and can't accept orders right now. Tell the customer you're closed rather than adding this item." };
+  }
+
   // Never invent a menu item or its price — only match against the real
   // menu loaded for this business.
   const menuItem = ctx.context.menu.find((m) => m.name.toLowerCase() === input.item_name.toLowerCase());
@@ -208,6 +217,13 @@ async function confirm_and_place_order(
   ctx: ToolContext
 ): Promise<ToolResult> {
   const admin = createAdminClient();
+
+  // Same hard cutoff as add_item_to_order. Checked again here (not just
+  // when items were added) because a call can sit in progress across
+  // the exact moment a business's closing time passes.
+  if (!isBusinessOpenNow(ctx.context.business, ctx.context.hours)) {
+    return { success: false, reason: "This business is currently closed and can't accept orders right now. Tell the customer you're closed rather than placing this order." };
+  }
 
   const { data: order } = await admin.from("orders").select("*").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
   if (!order) return { success: false, reason: "No order to confirm — add items first." };

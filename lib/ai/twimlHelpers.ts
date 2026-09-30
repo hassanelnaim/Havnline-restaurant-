@@ -98,16 +98,66 @@ export async function lastTurnUsedTool(callId: string): Promise<boolean> {
   return Boolean(data?.tool_call);
 }
 
-const LIKELY_SLOW_KEYWORDS = [
-  "order", "menu", "add", "remove", "change my order", "modify",
-  "cancel", "substitute", "instead", "allergen", "gluten", "allergy",
-  "price", "cost", "how much", "hours", "open", "closed", "delivery",
-  "pickup", "takeout", "refund", "talk to", "speak to", "human", "person",
+// Previously this matched on a very broad keyword list ("menu", "price",
+// "hours", "open", "pickup", ...) that fires on almost any food-related
+// sentence, even ones the AI answers instantly from the system prompt
+// with no tool call at all (the menu and hours are already right there
+// in its instructions). That made the filler line play constantly and
+// for the wrong reason — the caller hears "let me check that" before a
+// question that needed no checking.
+//
+// This now only matches turns that actually trigger a real, slower tool
+// round-trip — a DB write, a Stripe Checkout Session, an SMS send, a
+// live transfer — and picks a filler that's actually about what's
+// happening, instead of one random generic line every time.
+const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
+  {
+    // add_item_to_order / remove_item_from_order — a real DB write per
+    // item, plus a menu/modifier lookup.
+    keywords: [
+      "add", "remove", "instead", "substitute", "change my order", "change that",
+      "make that", "make it", "actually", "no onions", "extra", "swap", "cancel that",
+      "different", "another one", "one more",
+    ],
+    fillers: ["Sure, updating that now.", "Got it, one sec.", "Okay, making that change."],
+  },
+  {
+    // confirm_and_place_order — genuinely the slowest path: a Checkout
+    // Session with a payment-enabled business, a kitchen print job, and
+    // a confirmation text all happen here.
+    keywords: [
+      "that's it", "that's all", "that's everything", "place my order", "place the order",
+      "go ahead and order", "sounds good, order", "yes, place", "checkout", "ready to order",
+      "that's my order", "that should do it",
+    ],
+    fillers: ["Great, placing that order now.", "Perfect, locking that in.", "Okay, sending that through."],
+  },
+  {
+    // escalate_to_human / transfer_call — a DB write and (for a
+    // transfer) a live outbound call setup.
+    keywords: [
+      "speak to", "talk to", "a real person", "a human", "a manager", "refund",
+      "complaint", "already placed", "change my order i already", "cancel my order",
+    ],
+    fillers: ["Okay, let me get that handled.", "Sure, one moment."],
+  },
 ];
 
-export function textLikelyNeedsTool(text: string): boolean {
+/**
+ * Returns a filler line to say before the slower work happens, or null
+ * if this turn is likely fast enough to just answer directly. Checking
+ * whether the *previous* turn used a tool still matters on its own —
+ * mid-order-building conversations often continue across several fast
+ * back-and-forth turns where only some invoke a tool.
+ */
+export function getContextualFiller(text: string, previousTurnUsedTool: boolean): string | null {
   const lower = text.toLowerCase();
-  return LIKELY_SLOW_KEYWORDS.some((kw) => lower.includes(kw));
+  for (const category of FILLER_CATEGORIES) {
+    if (category.keywords.some((kw) => lower.includes(kw))) {
+      return category.fillers[Math.floor(Math.random() * category.fillers.length)];
+    }
+  }
+  return previousTurnUsedTool ? "Sure, one moment." : null;
 }
 
 export { resolveTwilioVoice };

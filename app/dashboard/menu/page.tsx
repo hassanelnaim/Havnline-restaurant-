@@ -17,7 +17,7 @@ export const maxDuration = 180;
 
 export default async function MenuPage() {
   const business = await getBusiness();
-  const { categories, items } = await getMenuForBusiness(business.id);
+  const { categories, items, addonTemplates } = await getMenuForBusiness(business.id);
 
   return (
     <div>
@@ -25,7 +25,7 @@ export default async function MenuPage() {
         title="Menu"
         description="Your AI only offers items and prices listed here — never invented."
       />
-      <MenuClient initialCategories={categories} initialItems={items} />
+      <MenuClient initialCategories={categories} initialItems={items} initialAddonTemplates={addonTemplates} />
     </div>
   );
 }

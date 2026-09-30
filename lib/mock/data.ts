@@ -105,6 +105,7 @@ export const mockMenuItems: MenuItemWithModifiers[] = [
         min_select: 1,
         max_select: 1,
         sort_order: 0,
+        is_template: false,
         created_at: new Date().toISOString(),
         modifiers: [
           { id: "demo-mod-1", business_id: "demo-business", modifier_group_id: "demo-group-1", name: "Regular", price_delta_cents: 0, is_active: true, sort_order: 0, created_at: new Date().toISOString() },

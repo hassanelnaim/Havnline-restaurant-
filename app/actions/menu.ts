@@ -147,6 +147,132 @@ export async function deleteModifierGroupAction(groupId: string): Promise<Action
 }
 
 // --------------------------------------------------------------------------
+// Shared add-on library. A template is a modifier_groups row with
+// menu_item_id: null, is_template: true — same table as the existing
+// per-item ("one-off") groups above, just not tied to any single item.
+// Attaching one to an item writes a row in menu_item_modifier_groups
+// (migration 017) instead of duplicating the group; editing a
+// template's name/options here updates it everywhere it's attached.
+// --------------------------------------------------------------------------
+
+export async function createAddonTemplateAction(input: ModifierGroupInput): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+
+  const { data: group, error: groupError } = await admin
+    .from("modifier_groups")
+    .insert({ business_id: businessId, menu_item_id: null, is_template: true, name: input.name, is_required: input.required, min_select: input.minSelect, max_select: input.maxSelect })
+    .select("id")
+    .single();
+  if (groupError || !group) return { success: false, error: groupError?.message || "Could not create add-on group." };
+
+  const optionRows = input.options.filter((o) => o.name.trim()).map((o) => ({
+    business_id: businessId,
+    modifier_group_id: group.id,
+    name: o.name,
+    price_delta_cents: Math.round((parseFloat(o.priceDelta) || 0) * 100),
+  }));
+  if (optionRows.length > 0) {
+    const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
+    if (optionsError) return { success: false, error: optionsError.message };
+  }
+
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+export async function renameAddonTemplateAction(templateId: string, name: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+  const { error } = await admin.from("modifier_groups").update({ name }).eq("id", templateId).eq("business_id", businessId).eq("is_template", true);
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+export async function addAddonTemplateOptionAction(templateId: string, name: string, priceDelta: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+  if (!name.trim()) return { success: false, error: "Option name is required." };
+
+  // Confirm this template actually belongs to this business before
+  // attaching an option to it — modifiers rows aren't otherwise scoped
+  // by anything the client passed.
+  const { data: template } = await admin.from("modifier_groups").select("id").eq("id", templateId).eq("business_id", businessId).eq("is_template", true).maybeSingle();
+  if (!template) return { success: false, error: "That add-on group doesn't exist." };
+
+  const { error } = await admin.from("modifiers").insert({
+    business_id: businessId,
+    modifier_group_id: templateId,
+    name,
+    price_delta_cents: Math.round((parseFloat(priceDelta) || 0) * 100),
+  });
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+export async function deleteAddonOptionAction(modifierId: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+  const { error } = await admin.from("modifiers").delete().eq("id", modifierId).eq("business_id", businessId);
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+export async function deleteAddonTemplateAction(templateId: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+  const { error } = await admin.from("modifier_groups").delete().eq("id", templateId).eq("business_id", businessId).eq("is_template", true);
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+export async function attachAddonTemplateAction(menuItemId: string, templateId: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+
+  // Both rows must actually belong to this business — neither id is
+  // trustworthy on its own coming from the client.
+  const [{ data: item }, { data: template }] = await Promise.all([
+    admin.from("menu_items").select("id").eq("id", menuItemId).eq("business_id", businessId).maybeSingle(),
+    admin.from("modifier_groups").select("id").eq("id", templateId).eq("business_id", businessId).eq("is_template", true).maybeSingle(),
+  ]);
+  if (!item || !template) return { success: false, error: "Could not find that item or add-on group." };
+
+  const { error } = await admin.from("menu_item_modifier_groups").upsert(
+    { business_id: businessId, menu_item_id: menuItemId, modifier_group_id: templateId },
+    { onConflict: "menu_item_id,modifier_group_id", ignoreDuplicates: true }
+  );
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+export async function detachAddonTemplateAction(menuItemId: string, templateId: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("menu_item_modifier_groups")
+    .delete()
+    .eq("business_id", businessId)
+    .eq("menu_item_id", menuItemId)
+    .eq("modifier_group_id", templateId);
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
+// --------------------------------------------------------------------------
 // Menu import — website text or a photo. Both return STAGED items only;
 // nothing here writes to menu_items directly. The caller (a client
 // component) shows these to the owner to review, edit, and confirm

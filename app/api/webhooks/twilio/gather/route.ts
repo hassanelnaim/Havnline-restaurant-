@@ -3,20 +3,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, lastTurnUsedTool, textLikelyNeedsTool, sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, lastTurnUsedTool, getContextualFiller, sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
 const SITE_URL = getSiteUrl();
-
-const FILLERS = [
-  "Sure, let me check that for you.",
-  "Great, one moment.",
-  "Okay, let's see here.",
-  "Got it, give me a second.",
-  "Sure thing, one sec.",
-];
 
 export async function POST(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
@@ -53,14 +45,13 @@ export async function POST(request: NextRequest) {
 </Response>`);
   }
 
-  const likelySlow = (await lastTurnUsedTool(callId)) || textLikelyNeedsTool(speechResult);
+  const filler = getContextualFiller(speechResult, await lastTurnUsedTool(callId));
 
-  if (!likelySlow) {
+  if (!filler) {
     const result = await handleTurn(call.business_id, callId, speechResult, "phone");
     return buildTurnResponseTwiml(call.business_id, callId, result, voice);
   }
 
-  const filler = FILLERS[Math.floor(Math.random() * FILLERS.length)];
   const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}`;
 
   return twiml(`<Response>

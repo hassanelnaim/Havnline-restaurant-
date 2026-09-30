@@ -17,12 +17,13 @@ export interface BusinessContext {
 export async function loadBusinessContext(businessId: string): Promise<BusinessContext | null> {
   const admin = createAdminClient();
 
-  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, aiRes, voiceRes, knowledgeRes, promotionsRes] = await Promise.all([
+  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voiceRes, knowledgeRes, promotionsRes] = await Promise.all([
     admin.from("businesses").select("*").eq("id", businessId).single(),
     admin.from("business_hours").select("*").eq("business_id", businessId),
     admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
     admin.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order"),
     admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
+    admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId),
     admin.from("ai_receptionists").select("*").eq("business_id", businessId).single(),
     admin.from("ai_voice_configs").select("*").eq("business_id", businessId).maybeSingle(),
     admin.from("knowledge_items").select("*").eq("business_id", businessId),
@@ -35,15 +36,27 @@ export async function loadBusinessContext(businessId: string): Promise<BusinessC
   const business = businessRes.data as DbBusiness;
   const groups = groupsRes.data || [];
   const allModifiers = modifiersRes.data || [];
+  const attachments = attachmentsRes.data || [];
+
+  const templateGroups = groups.filter((g) => g.is_template);
+  const oneOffGroups = groups.filter((g) => !g.is_template);
 
   const rawItems = itemsRes.data || [];
 
-  const menu: MenuItemWithModifiers[] = rawItems.map((item) => ({
-    ...item,
-    modifier_groups: groups
-      .filter((g) => g.menu_item_id === item.id)
-      .map((g) => ({ ...g, modifiers: allModifiers.filter((m) => m.modifier_group_id === g.id) })),
-  }));
+  // Every item's modifier_groups is the merge of its own one-off groups
+  // (menu_item_id set directly, unchanged from before) plus any shared
+  // add-on templates attached to it via menu_item_modifier_groups — see
+  // migration 017. The AI sees one combined list either way and never
+  // needs to know which mechanism a given group came from.
+  const menu: MenuItemWithModifiers[] = rawItems.map((item) => {
+    const ownGroups = oneOffGroups.filter((g) => g.menu_item_id === item.id);
+    const attachedTemplateIds = attachments.filter((a) => a.menu_item_id === item.id).map((a) => a.modifier_group_id);
+    const attachedTemplates = templateGroups.filter((g) => attachedTemplateIds.includes(g.id));
+    return {
+      ...item,
+      modifier_groups: [...ownGroups, ...attachedTemplates].map((g) => ({ ...g, modifiers: allModifiers.filter((m) => m.modifier_group_id === g.id) })),
+    };
+  });
 
   const todayInBusinessTz = new Intl.DateTimeFormat("en-CA", {
     timeZone: business.timezone,

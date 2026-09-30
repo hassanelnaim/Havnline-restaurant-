@@ -123,12 +123,27 @@ export interface DbMenuItem {
 export interface DbModifierGroup {
   id: UUID;
   business_id: UUID;
-  menu_item_id: UUID;
+  // Null when is_template is true — a shared, business-wide add-on
+  // group (e.g. "Toppings") isn't tied to any single item. Set when
+  // is_template is false — the original one-off-per-item model, unchanged.
+  menu_item_id: UUID | null;
   name: string;
   is_required: boolean;
   min_select: number;
   max_select: number;
   sort_order: number;
+  is_template: boolean;
+  created_at: ISODateTime;
+}
+
+// Attaches a shared template group (DbModifierGroup with is_template:
+// true) to a menu item. A one-off group's link is still just its own
+// menu_item_id column — this table only ever links templates.
+export interface DbMenuItemModifierGroup {
+  id: UUID;
+  business_id: UUID;
+  menu_item_id: UUID;
+  modifier_group_id: UUID;
   created_at: ISODateTime;
 }
 

@@ -1,9 +1,16 @@
 "use client";
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
-import { addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction, addModifierGroupAction, deleteModifierGroupAction, extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, importMenuItemsAction } from "@/app/actions/menu";
+import type { AddonTemplate } from "@/lib/data/menu";
+import {
+  addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction,
+  addModifierGroupAction, deleteModifierGroupAction,
+  createAddonTemplateAction, renameAddonTemplateAction, addAddonTemplateOptionAction, deleteAddonOptionAction, deleteAddonTemplateAction,
+  attachAddonTemplateAction, detachAddonTemplateAction,
+  extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, importMenuItemsAction,
+} from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,11 +21,23 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
 
-export function MenuClient({ initialCategories, initialItems }: { initialCategories: DbMenuCategory[]; initialItems: MenuItemWithModifiers[] }) {
+const UNCATEGORIZED = "__uncategorized__";
+
+export function MenuClient({
+  initialCategories,
+  initialItems,
+  initialAddonTemplates,
+}: {
+  initialCategories: DbMenuCategory[];
+  initialItems: MenuItemWithModifiers[];
+  initialAddonTemplates: AddonTemplate[];
+}) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [categories] = useState(initialCategories);
+  const [addonTemplates, setAddonTemplates] = useState(initialAddonTemplates);
   const [, startTransition] = useTransition();
+  const [search, setSearch] = useState("");
 
   // Add item form
   const [name, setName] = useState("");
@@ -27,6 +46,10 @@ export function MenuClient({ initialCategories, initialItems }: { initialCategor
   const [category, setCategory] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  function refresh() {
+    router.refresh();
+  }
 
   function addItem() {
     if (!name.trim() || !price.trim()) { setError("Name and price are required."); return; }
@@ -38,7 +61,7 @@ export function MenuClient({ initialCategories, initialItems }: { initialCategor
       setSaving(false);
       if (!result.success) { setError(result.error || "Could not add item."); return; }
       setName(""); setDescription(""); setPrice("");
-      router.refresh();
+      refresh();
     });
   }
 
@@ -52,10 +75,37 @@ export function MenuClient({ initialCategories, initialItems }: { initialCategor
     startTransition(async () => { await deleteMenuItemAction(itemId); });
   }
 
+  // Group items by category, like a real printed menu, filtered by search.
+  const groupedItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const visible = q
+      ? items.filter((i) => i.name.toLowerCase().includes(q) || (i.description || "").toLowerCase().includes(q))
+      : items;
+
+    const byCategory = new Map<string, MenuItemWithModifiers[]>();
+    for (const item of visible) {
+      const key = item.category_id || UNCATEGORIZED;
+      if (!byCategory.has(key)) byCategory.set(key, []);
+      byCategory.get(key)!.push(item);
+    }
+
+    const groups: { key: string; name: string; items: MenuItemWithModifiers[] }[] = [];
+    for (const cat of categories) {
+      const catItems = byCategory.get(cat.id);
+      if (catItems && catItems.length > 0) groups.push({ key: cat.id, name: cat.name, items: catItems });
+    }
+    const uncategorized = byCategory.get(UNCATEGORIZED);
+    if (uncategorized && uncategorized.length > 0) groups.push({ key: UNCATEGORIZED, name: "Uncategorized", items: uncategorized });
+    return groups;
+  }, [items, categories, search]);
+
+  const totalVisible = groupedItems.reduce((sum, g) => sum + g.items.length, 0);
+
   return (
     <Tabs defaultValue="items">
       <TabsList>
         <TabsTrigger value="items">Menu items</TabsTrigger>
+        <TabsTrigger value="addons"><Tags className="h-3.5 w-3.5" /> Add-ons library</TabsTrigger>
         <TabsTrigger value="import"><Globe className="h-3.5 w-3.5" /> Import</TabsTrigger>
       </TabsList>
 
@@ -79,23 +129,59 @@ export function MenuClient({ initialCategories, initialItems }: { initialCategor
         {items.length === 0 ? (
           <EmptyState icon={UtensilsCrossed} title="No menu items yet" description="Add your first item above, or import your whole menu from a website or photo." />
         ) : (
-          <div className="space-y-2.5">
-            {items.map((item) => (
-              <MenuItemRow key={item.id} item={item} onToggle={toggleActive} onRemove={removeItem} onRefresh={() => router.refresh()} />
-            ))}
-          </div>
+          <>
+            <div className="relative mb-4 max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-faint" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search the menu…"
+                className="h-9 w-full rounded-lg border border-border bg-paper pl-8 pr-3 text-[13px]"
+              />
+            </div>
+
+            {totalVisible === 0 ? (
+              <p className="py-8 text-center text-[13px] text-text-muted">No items match "{search}".</p>
+            ) : (
+              <div className="space-y-6">
+                {groupedItems.map((group) => (
+                  <div key={group.key}>
+                    <h3 className="mb-2 font-display text-[14px] font-semibold text-ink">{group.name}</h3>
+                    <div className="space-y-2.5">
+                      {group.items.map((item) => (
+                        <MenuItemRow
+                          key={item.id}
+                          item={item}
+                          addonTemplates={addonTemplates}
+                          onToggle={toggleActive}
+                          onRemove={removeItem}
+                          onRefresh={refresh}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </TabsContent>
 
+      <TabsContent value="addons">
+        <AddonLibraryPanel templates={addonTemplates} setTemplates={setAddonTemplates} onRefresh={refresh} />
+      </TabsContent>
+
       <TabsContent value="import">
-        <MenuImportPanel onImported={() => router.refresh()} />
+        <MenuImportPanel onImported={refresh} />
       </TabsContent>
     </Tabs>
   );
 }
 
-function MenuItemRow({ item, onToggle, onRemove, onRefresh }: {
+function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
   item: MenuItemWithModifiers;
+  addonTemplates: AddonTemplate[];
   onToggle: (id: string, active: boolean) => void;
   onRemove: (id: string) => void;
   onRefresh: () => void;
@@ -103,12 +189,20 @@ function MenuItemRow({ item, onToggle, onRemove, onRefresh }: {
   const [expanded, setExpanded] = useState(false);
   const [, startTransition] = useTransition();
 
-  // Add modifier group form
+  // Attach an existing shared add-on
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [attaching, setAttaching] = useState(false);
+
+  // One-off group form (for an add-on that's only ever used on this one item)
+  const [showOneOffForm, setShowOneOffForm] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [required, setRequired] = useState(false);
   const [options, setOptions] = useState([{ name: "", priceDelta: "" }]);
   const [groupError, setGroupError] = useState<string | null>(null);
   const [savingGroup, setSavingGroup] = useState(false);
+
+  const attachedTemplateIds = new Set(item.modifier_groups.filter((g) => g.is_template).map((g) => g.id));
+  const availableTemplates = addonTemplates.filter((t) => !attachedTemplateIds.has(t.id));
 
   function addOptionRow() {
     setOptions((prev) => [...prev, { name: "", priceDelta: "" }]);
@@ -122,13 +216,28 @@ function MenuItemRow({ item, onToggle, onRemove, onRefresh }: {
       const result = await addModifierGroupAction(item.id, { name: groupName, required, minSelect: required ? 1 : 0, maxSelect: 1, options });
       setSavingGroup(false);
       if (!result.success) { setGroupError(result.error || "Could not add group."); return; }
-      setGroupName(""); setRequired(false); setOptions([{ name: "", priceDelta: "" }]);
+      setGroupName(""); setRequired(false); setOptions([{ name: "", priceDelta: "" }]); setShowOneOffForm(false);
       onRefresh();
     });
   }
 
   function removeGroup(groupId: string) {
     startTransition(async () => { await deleteModifierGroupAction(groupId); onRefresh(); });
+  }
+
+  function attachTemplate() {
+    if (!selectedTemplateId) return;
+    setAttaching(true);
+    startTransition(async () => {
+      await attachAddonTemplateAction(item.id, selectedTemplateId);
+      setAttaching(false);
+      setSelectedTemplateId("");
+      onRefresh();
+    });
+  }
+
+  function detachTemplate(templateId: string) {
+    startTransition(async () => { await detachAddonTemplateAction(item.id, templateId); onRefresh(); });
   }
 
   return (
@@ -140,6 +249,9 @@ function MenuItemRow({ item, onToggle, onRemove, onRefresh }: {
             <div>
               <div className="flex items-center gap-2 text-[13.5px] font-medium text-text">
                 {item.name}
+                {item.modifier_groups.length > 0 && (
+                  <span className="rounded-full bg-paper px-1.5 py-0.5 text-[10px] font-medium text-text-faint">{item.modifier_groups.length} add-on{item.modifier_groups.length === 1 ? "" : "s"}</span>
+                )}
               </div>
               <div className="text-[12px] text-text-muted">{item.description}</div>
             </div>
@@ -156,34 +268,214 @@ function MenuItemRow({ item, onToggle, onRemove, onRefresh }: {
             {item.modifier_groups.map((group) => (
               <div key={group.id} className="flex items-center justify-between rounded-lg bg-paper px-3 py-2">
                 <div className="text-[12.5px] text-text">
-                  <span className="font-medium">{group.name}</span>{group.is_required ? " (required)" : ""}: {group.modifiers.map((m) => `${m.name}${m.price_delta_cents ? ` (+$${(m.price_delta_cents / 100).toFixed(2)})` : ""}`).join(", ")}
+                  <span className="font-medium">{group.name}</span>
+                  {group.is_template && <span className="ml-1.5 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand-dark">Shared</span>}
+                  {group.is_required ? " (required)" : ""}: {group.modifiers.map((m) => `${m.name}${m.price_delta_cents ? ` (+$${(m.price_delta_cents / 100).toFixed(2)})` : ""}`).join(", ")}
                 </div>
-                <button onClick={() => removeGroup(group.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+                <button
+                  onClick={() => (group.is_template ? detachTemplate(group.id) : removeGroup(group.id))}
+                  className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"
+                  aria-label={group.is_template ? "Remove from this item" : "Delete group"}
+                  title={group.is_template ? "Remove from this item (the shared add-on itself isn't deleted)" : "Delete this one-off add-on"}
+                >
+                  {group.is_template ? <Unlink className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
               </div>
             ))}
 
             <div className="rounded-lg border border-border p-3">
-              <div className="text-[12.5px] font-medium text-text">Add an add-on group</div>
-              {groupError && <div className="mt-2 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-[12px] text-danger">{groupError}</div>}
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <Input placeholder="Group name, e.g. Size" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
-                <label className="flex items-center gap-2 text-[12.5px] text-text-muted"><Switch checked={required} onCheckedChange={setRequired} /> Required</label>
-              </div>
-              <div className="mt-2 space-y-1.5">
-                {options.map((opt, i) => (
-                  <div key={i} className="flex gap-2">
-                    <Input placeholder="Option name" value={opt.name} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, name: e.target.value } : o)))} />
-                    <Input placeholder="+$ (optional)" className="w-28" value={opt.priceDelta} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, priceDelta: e.target.value } : o)))} />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 flex gap-2">
-                <Button size="sm" variant="ghost" onClick={addOptionRow}><Plus className="h-3.5 w-3.5" /> Add option</Button>
-                <Button size="sm" variant="outline" onClick={saveGroup} disabled={savingGroup}>{savingGroup ? "Saving…" : "Save group"}</Button>
-              </div>
+              <div className="text-[12.5px] font-medium text-text">Attach a shared add-on</div>
+              <p className="mt-0.5 text-[11.5px] text-text-faint">From your add-ons library — edit it once there and it updates on every item using it.</p>
+              {availableTemplates.length === 0 ? (
+                <p className="mt-2 text-[12px] text-text-faint">
+                  {addonTemplates.length === 0 ? "You haven't created any add-on groups yet — do that in the Add-ons library tab." : "Every add-on group is already attached to this item."}
+                </p>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                    className="h-9 flex-1 rounded-lg border border-border bg-paper px-2.5 text-[13px]"
+                  >
+                    <option value="">Choose an add-on group…</option>
+                    {availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <Button size="sm" variant="outline" onClick={attachTemplate} disabled={!selectedTemplateId || attaching}>{attaching ? "Attaching…" : "Attach"}</Button>
+                </div>
+              )}
             </div>
+
+            {!showOneOffForm ? (
+              <button className="text-[12px] font-medium text-text-muted hover:text-text" onClick={() => setShowOneOffForm(true)}>
+                + Create a one-off add-on just for this item
+              </button>
+            ) : (
+              <div className="rounded-lg border border-border p-3">
+                <div className="text-[12.5px] font-medium text-text">One-off add-on for this item only</div>
+                {groupError && <div className="mt-2 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-[12px] text-danger">{groupError}</div>}
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <Input placeholder="Group name, e.g. Size" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
+                  <label className="flex items-center gap-2 text-[12.5px] text-text-muted"><Switch checked={required} onCheckedChange={setRequired} /> Required</label>
+                </div>
+                <div className="mt-2 space-y-1.5">
+                  {options.map((opt, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input placeholder="Option name" value={opt.name} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, name: e.target.value } : o)))} />
+                      <Input placeholder="+$ (optional)" className="w-28" value={opt.priceDelta} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, priceDelta: e.target.value } : o)))} />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={addOptionRow}><Plus className="h-3.5 w-3.5" /> Add option</Button>
+                  <Button size="sm" variant="outline" onClick={saveGroup} disabled={savingGroup}>{savingGroup ? "Saving…" : "Save group"}</Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AddonLibraryPanel({ templates, setTemplates, onRefresh }: {
+  templates: AddonTemplate[];
+  setTemplates: (updater: (prev: AddonTemplate[]) => AddonTemplate[]) => void;
+  onRefresh: () => void;
+}) {
+  const [, startTransition] = useTransition();
+
+  // New template form
+  const [name, setName] = useState("");
+  const [required, setRequired] = useState(false);
+  const [options, setOptions] = useState([{ name: "", priceDelta: "" }]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function addOptionRow() {
+    setOptions((prev) => [...prev, { name: "", priceDelta: "" }]);
+  }
+
+  function createTemplate() {
+    if (!name.trim()) { setError("Name is required."); return; }
+    setSaving(true);
+    setError(null);
+    startTransition(async () => {
+      const result = await createAddonTemplateAction({ name, required, minSelect: required ? 1 : 0, maxSelect: 1, options });
+      setSaving(false);
+      if (!result.success) { setError(result.error || "Could not create add-on group."); return; }
+      setName(""); setRequired(false); setOptions([{ name: "", priceDelta: "" }]);
+      onRefresh();
+    });
+  }
+
+  function removeTemplate(templateId: string) {
+    setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+    startTransition(async () => { await deleteAddonTemplateAction(templateId); onRefresh(); });
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Your add-on groups</CardTitle>
+          <CardDescription>Reusable add-ons like "Size" or "Toppings" — attach any of these to as many menu items as you want from the Menu items tab. Edit one here and it updates everywhere it's attached.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><Label>Name</Label><Input className="mt-1.5" placeholder="e.g. Toppings" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <label className="mt-6 flex items-center gap-2 text-[12.5px] text-text-muted"><Switch checked={required} onCheckedChange={setRequired} /> Required when attached</label>
+          </div>
+          <div className="space-y-1.5">
+            {options.map((opt, i) => (
+              <div key={i} className="flex gap-2">
+                <Input placeholder="Option name, e.g. Cheese" value={opt.name} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, name: e.target.value } : o)))} />
+                <Input placeholder="+$ (optional)" className="w-28" value={opt.priceDelta} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, priceDelta: e.target.value } : o)))} />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={addOptionRow}><Plus className="h-3.5 w-3.5" /> Add option</Button>
+            <Button variant="brand" size="sm" onClick={createTemplate} disabled={saving}>{saving ? "Creating…" : "Create add-on group"}</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {templates.length === 0 ? (
+        <EmptyState icon={Tags} title="No add-on groups yet" description="Create one above — then attach it to any menu item from the Menu items tab." />
+      ) : (
+        <div className="space-y-2.5">
+          {templates.map((template) => (
+            <AddonTemplateRow key={template.id} template={template} onRemove={removeTemplate} onRefresh={onRefresh} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddonTemplateRow({ template, onRemove, onRefresh }: {
+  template: AddonTemplate;
+  onRemove: (id: string) => void;
+  onRefresh: () => void;
+}) {
+  const [, startTransition] = useTransition();
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(template.name);
+  const [newOptionName, setNewOptionName] = useState("");
+  const [newOptionPrice, setNewOptionPrice] = useState("");
+
+  function saveRename() {
+    if (!nameDraft.trim() || nameDraft === template.name) { setRenaming(false); return; }
+    startTransition(async () => { await renameAddonTemplateAction(template.id, nameDraft); setRenaming(false); onRefresh(); });
+  }
+
+  function addOption() {
+    if (!newOptionName.trim()) return;
+    startTransition(async () => {
+      await addAddonTemplateOptionAction(template.id, newOptionName, newOptionPrice);
+      setNewOptionName(""); setNewOptionPrice("");
+      onRefresh();
+    });
+  }
+
+  function removeOption(modifierId: string) {
+    startTransition(async () => { await deleteAddonOptionAction(modifierId); onRefresh(); });
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-4">
+          {renaming ? (
+            <div className="flex flex-1 items-center gap-2">
+              <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 max-w-xs" autoFocus />
+              <Button size="sm" variant="outline" onClick={saveRename}>Save</Button>
+            </div>
+          ) : (
+            <button className="flex items-center gap-1.5 text-[13.5px] font-medium text-text hover:text-brand-dark" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>
+              {template.name}{template.is_required ? <span className="text-[11px] font-normal text-text-faint">(required)</span> : null}
+              <Pencil className="h-3 w-3 text-text-faint" />
+            </button>
+          )}
+          <button onClick={() => onRemove(template.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete add-on group"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+
+        <div className="mt-3 space-y-1.5">
+          {template.modifiers.map((m) => (
+            <div key={m.id} className="flex items-center justify-between rounded-lg bg-paper px-3 py-1.5 text-[12.5px] text-text">
+              <span>{m.name}{m.price_delta_cents ? ` (+$${(m.price_delta_cents / 100).toFixed(2)})` : ""}</span>
+              <button onClick={() => removeOption(m.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3 w-3" /></button>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 flex gap-2">
+          <Input placeholder="Add an option, e.g. Bacon" className="h-8" value={newOptionName} onChange={(e) => setNewOptionName(e.target.value)} />
+          <Input placeholder="+$" className="h-8 w-24" value={newOptionPrice} onChange={(e) => setNewOptionPrice(e.target.value)} />
+          <Button size="sm" variant="ghost" onClick={addOption}><Plus className="h-3.5 w-3.5" /></Button>
+        </div>
       </CardContent>
     </Card>
   );
