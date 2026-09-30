@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { OnboardingDraft } from "@/lib/onboarding/context";
+import { dbErrorResult } from "@/lib/errors";
 
 export interface CompleteOnboardingResult {
   success: boolean;
@@ -53,7 +54,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
       })
       .eq("id", businessId);
 
-    if (updateError) return { success: false, error: updateError.message };
+    if (updateError) return dbErrorResult(updateError, "completeOnboardingAction:update", "Could not save your business.");
   } else {
     const { data: business, error: businessError } = await admin
       .from("businesses")
@@ -70,13 +71,13 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
       .select()
       .single();
 
-    if (businessError || !business) return { success: false, error: businessError?.message || "Could not create business." };
+    if (businessError || !business) return dbErrorResult(businessError, "completeOnboardingAction:insert", "Could not create business.");
     businessId = business.id as string;
 
     await admin.from("users").upsert({ id: user.id, email: user.email || "" }, { onConflict: "id" });
 
     const { error: memberError } = await admin.from("business_members").insert({ business_id: businessId, user_id: user.id, role: "owner" });
-    if (memberError) return { success: false, error: memberError.message };
+    if (memberError) return dbErrorResult(memberError, "completeOnboardingAction:member", "Could not finish setting up your account.");
   }
 
   const hoursRows = draft.hours.map((h) => ({
@@ -87,7 +88,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
     close_time: h.isOpen ? h.closeTime : null,
   }));
   const { error: hoursError } = await admin.from("business_hours").upsert(hoursRows, { onConflict: "business_id,weekday" });
-  if (hoursError) return { success: false, error: hoursError.message };
+  if (hoursError) return dbErrorResult(hoursError, "completeOnboardingAction:hours", "Could not save your hours.");
 
   const categoryIdByName = new Map<string, string>();
 
@@ -105,7 +106,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
           .insert({ business_id: businessId, name: categoryName })
           .select("id")
           .single();
-        if (categoryError) return { success: false, error: categoryError.message };
+        if (categoryError) return dbErrorResult(categoryError, "completeOnboardingAction:category", "Could not save your menu.");
         categoryId = category.id;
         categoryIdByName.set(categoryName, categoryId!);
       }
@@ -123,7 +124,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
       })
       .select("id")
       .single();
-    if (itemError) return { success: false, error: itemError.message };
+    if (itemError) return dbErrorResult(itemError, "completeOnboardingAction:item", "Could not save your menu.");
 
     for (const group of item.modifierGroups) {
       if (!group.name.trim()) continue;
@@ -139,7 +140,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
         })
         .select("id")
         .single();
-      if (groupError) return { success: false, error: groupError.message };
+      if (groupError) return dbErrorResult(groupError, "completeOnboardingAction:group", "Could not save your menu.");
 
       const optionRows = group.options
         .filter((o) => o.name.trim())
@@ -151,7 +152,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
         }));
       if (optionRows.length > 0) {
         const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
-        if (optionsError) return { success: false, error: optionsError.message };
+        if (optionsError) return dbErrorResult(optionsError, "completeOnboardingAction:options", "Could not save your menu.");
       }
     }
   }
@@ -171,7 +172,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
     { business_id: businessId, name: receptionistName, personality, responsibilities: draft.responsibilities, status: "offline", generated_instructions: generatedInstructions },
     { onConflict: "business_id" }
   );
-  if (aiError) return { success: false, error: aiError.message };
+  if (aiError) return dbErrorResult(aiError, "completeOnboardingAction:ai", "Could not set up your AI receptionist.");
 
   const { error: voiceError } = await admin.from("ai_voice_configs").upsert(
     draft.customVoiceRef
@@ -179,7 +180,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
       : { business_id: businessId, voice_id: draft.voiceId },
     { onConflict: "business_id" }
   );
-  if (voiceError) return { success: false, error: voiceError.message };
+  if (voiceError) return dbErrorResult(voiceError, "completeOnboardingAction:voice", "Could not save the selected voice.");
 
   return { success: true };
 }

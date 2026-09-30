@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbBusiness, OrderWithItems } from "@/lib/database/types";
+import { dbErrorResult } from "@/lib/errors";
 
 /**
  * HavnLine Printer App integration.
@@ -95,7 +96,7 @@ export async function claimPairingCode(code: string): Promise<ClaimPairingCodeRe
       { business_id: pairing.business_id, device_token: deviceToken, paired_at: new Date().toISOString(), last_seen_at: null },
       { onConflict: "business_id" }
     );
-  if (upsertError) return { success: false, error: upsertError.message };
+  if (upsertError) return dbErrorResult(upsertError, "pairPrinterDevice", "Could not pair this device.");
 
   await admin.from("printer_pairing_codes").update({ claimed_at: new Date().toISOString() }).eq("id", pairing.id);
   await admin.from("businesses").update({ printer_app_paired_at: new Date().toISOString() }).eq("id", pairing.business_id);
@@ -180,6 +181,6 @@ export async function queuePrintJob(order: OrderWithItems, business: Pick<DbBusi
   const { error } = await admin
     .from("printer_print_jobs")
     .insert({ business_id: order.business_id, order_id: order.id, ticket_text: ticketText });
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "queuePrintJob", "Could not queue the print job.");
   return { success: true };
 }

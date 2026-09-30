@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
+import { dbErrorResult } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
     .select("id, ticket_text, created_at")
     .order("created_at", { ascending: true });
 
-  if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  if (error) return NextResponse.json(dbErrorResult(error, "printer-app/orders GET", "Could not fetch print jobs."), { status: 500 });
 
   return NextResponse.json({ success: true, jobs: jobs || [] });
 }

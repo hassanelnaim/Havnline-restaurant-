@@ -12,6 +12,7 @@ import {
   voidOrderCheckout,
   refundOrderPayment,
 } from "@/lib/billing/stripeConnect";
+import { dbErrorResult } from "@/lib/errors";
 
 export interface ActionResult {
   success: boolean;
@@ -82,7 +83,7 @@ export async function setPhonePaymentsEnabledAction(enabled: boolean): Promise<A
   }
 
   const { error } = await admin.from("businesses").update({ phone_payments_enabled: enabled }).eq("id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "setPhonePaymentsEnabledAction", "Could not update phone payments setting.");
 
   revalidatePath("/dashboard/integrations");
   return { success: true };
@@ -113,7 +114,7 @@ export async function voidOrderAction(orderId: string): Promise<ActionResult> {
     .from("orders")
     .update({ status: "cancelled", payment_status: order.payment_status === "awaiting_payment" ? "failed" : order.payment_status, voided_by: user?.id || null, voided_at: new Date().toISOString() })
     .eq("id", orderId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "voidOrderAction", "Could not void that order.");
 
   revalidatePath("/dashboard/orders");
   return { success: true };
@@ -171,7 +172,7 @@ export async function refundOrderAction(orderId: string, amountCents: number | u
     .eq("amount_refunded_cents", order.amount_refunded_cents)
     .select("id")
     .maybeSingle();
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "refundOrderAction", "Could not record the refund.");
   if (!updatedOrder) {
     // Stripe's own idempotency already prevented a double charge (see
     // above) — this just means another request recorded the result

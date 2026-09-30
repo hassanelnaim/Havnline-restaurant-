@@ -7,6 +7,7 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { fetchWebsiteText, extractKnowledgeFromText } from "@/lib/ai/websiteImport";
 import type { ActionResult } from "./business";
 import type { KnowledgeCategory } from "@/lib/database/types";
+import { dbErrorResult } from "@/lib/errors";
 
 // NOTE: see app/actions/menu.ts — the maxDuration route config for
 // slow renders lives on app/dashboard/knowledge/page.tsx instead,
@@ -39,7 +40,7 @@ export async function addKnowledgeItemAction(input: { category: KnowledgeCategor
     content: input.content,
   });
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "addKnowledgeItemAction", "Could not save that.");
   revalidatePath("/dashboard/knowledge");
   return { success: true };
 }
@@ -63,7 +64,7 @@ export async function updateKnowledgeItemAction(id: string, input: { title?: str
     .eq("id", id)
     .eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateKnowledgeItemAction", "Could not save that.");
   revalidatePath("/dashboard/knowledge");
   return { success: true };
 }
@@ -79,7 +80,7 @@ export async function deleteKnowledgeItemAction(id: string): Promise<ActionResul
   const admin = createAdminClient();
   const { error } = await admin.from("knowledge_items").delete().eq("id", id).eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deleteKnowledgeItemAction", "Could not delete that.");
   revalidatePath("/dashboard/knowledge");
   return { success: true };
 }
@@ -117,7 +118,7 @@ export async function importWebsiteKnowledgeAction(url: string): Promise<ImportW
 
   const rows = items.map((item) => ({ business_id: businessId, category: item.category, question: item.question || null, title: item.title || null, content: item.content }));
   const { error } = await admin.from("knowledge_items").insert(rows);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "importWebsiteKnowledgeAction", "Could not save the imported items.");
 
   revalidatePath("/dashboard/knowledge");
   return { success: true, itemsAdded: items.length };
@@ -156,7 +157,7 @@ export async function importPastedKnowledgeAction(rawText: string): Promise<Impo
 
   const rows = items.map((item) => ({ business_id: businessId, category: item.category, question: item.question || null, title: item.title || null, content: item.content }));
   const { error } = await admin.from("knowledge_items").insert(rows);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "importPastedKnowledgeAction", "Could not save the imported items.");
 
   revalidatePath("/dashboard/knowledge");
   return { success: true, itemsAdded: items.length };
@@ -181,7 +182,7 @@ export async function addPromotionAction(input: { title: string; description: st
     is_active: true,
   });
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "addPromotionAction", "Could not add that promotion.");
   revalidatePath("/dashboard/knowledge");
   return { success: true };
 }
@@ -197,7 +198,7 @@ export async function togglePromotionAction(id: string, isActive: boolean): Prom
   const admin = createAdminClient();
   const { error } = await admin.from("promotions").update({ is_active: isActive }).eq("id", id).eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "togglePromotionAction", "Could not update that promotion.");
   revalidatePath("/dashboard/knowledge");
   return { success: true };
 }
@@ -213,7 +214,7 @@ export async function deletePromotionAction(id: string): Promise<ActionResult> {
   const admin = createAdminClient();
   const { error } = await admin.from("promotions").delete().eq("id", id).eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deletePromotionAction", "Could not delete that promotion.");
   revalidatePath("/dashboard/knowledge");
   return { success: true };
 }

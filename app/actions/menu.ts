@@ -6,6 +6,7 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { extractMenuItemsFromImage, extractMenuItemsFromText, fetchWebsiteText } from "@/lib/ai/websiteImport";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
+import { dbErrorResult } from "@/lib/errors";
 
 // NOTE: rendering a JS-heavy page (with a stealth-proxy retry if the
 // first attempt is blocked) can take 20-40+ seconds — well past
@@ -30,7 +31,7 @@ export async function addMenuCategoryAction(name: string): Promise<ActionResult>
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("menu_categories").insert({ business_id: businessId, name });
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "addMenuCategoryAction", "Could not add that category.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -55,7 +56,7 @@ export async function addMenuItemAction(input: MenuItemInput): Promise<ActionRes
     price_cents: Math.round((parseFloat(input.price) || 0) * 100),
     source: "manual",
   });
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "addMenuItemAction", "Could not add that item.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -76,7 +77,7 @@ export async function updateMenuItemAction(itemId: string, input: MenuItemInput)
     .eq("id", itemId)
     .eq("business_id", businessId); // IDOR-safe: scoped to this business, never trusted from the client alone
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateMenuItemAction", "Could not save that item.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -113,7 +114,7 @@ export async function updateMenuItemTimePricingAction(itemId: string, input: Tim
     .eq("id", itemId)
     .eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateMenuItemTimePricingAction", "Could not save that price.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -123,7 +124,7 @@ export async function toggleMenuItemActiveAction(itemId: string, isActive: boole
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("menu_items").update({ is_active: isActive }).eq("id", itemId).eq("business_id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "toggleMenuItemActiveAction", "Could not update that item.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -133,7 +134,7 @@ export async function deleteMenuItemAction(itemId: string): Promise<ActionResult
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("menu_items").delete().eq("id", itemId).eq("business_id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deleteMenuItemAction", "Could not delete that item.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -161,7 +162,7 @@ export async function addModifierGroupAction(menuItemId: string, input: Modifier
     .insert({ business_id: businessId, menu_item_id: menuItemId, name: input.name, is_required: input.required, min_select: input.minSelect, max_select: input.maxSelect })
     .select("id")
     .single();
-  if (groupError || !group) return { success: false, error: groupError?.message || "Could not add modifier group." };
+  if (groupError || !group) return dbErrorResult(groupError, "addModifierGroupAction", "Could not add that add-on group.");
 
   const optionRows = input.options.filter((o) => o.name.trim()).map((o) => ({
     business_id: businessId,
@@ -171,7 +172,7 @@ export async function addModifierGroupAction(menuItemId: string, input: Modifier
   }));
   if (optionRows.length > 0) {
     const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
-    if (optionsError) return { success: false, error: optionsError.message };
+    if (optionsError) return dbErrorResult(optionsError, "addModifierGroupAction:options", "Could not add those options.");
   }
 
   revalidatePath("/dashboard/menu");
@@ -183,7 +184,7 @@ export async function deleteModifierGroupAction(groupId: string): Promise<Action
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("modifier_groups").delete().eq("id", groupId).eq("business_id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deleteModifierGroupAction", "Could not delete that add-on group.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -207,7 +208,7 @@ export async function createAddonTemplateAction(input: ModifierGroupInput): Prom
     .insert({ business_id: businessId, menu_item_id: null, is_template: true, name: input.name, is_required: input.required, min_select: input.minSelect, max_select: input.maxSelect })
     .select("id")
     .single();
-  if (groupError || !group) return { success: false, error: groupError?.message || "Could not create add-on group." };
+  if (groupError || !group) return dbErrorResult(groupError, "createAddonTemplateAction", "Could not create that add-on group.");
 
   const optionRows = input.options.filter((o) => o.name.trim()).map((o) => ({
     business_id: businessId,
@@ -217,7 +218,7 @@ export async function createAddonTemplateAction(input: ModifierGroupInput): Prom
   }));
   if (optionRows.length > 0) {
     const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
-    if (optionsError) return { success: false, error: optionsError.message };
+    if (optionsError) return dbErrorResult(optionsError, "createAddonTemplateAction:options", "Could not add those options.");
   }
 
   revalidatePath("/dashboard/menu");
@@ -229,7 +230,7 @@ export async function renameAddonTemplateAction(templateId: string, name: string
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("modifier_groups").update({ name }).eq("id", templateId).eq("business_id", businessId).eq("is_template", true);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "renameAddonTemplateAction", "Could not rename that add-on group.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -252,7 +253,7 @@ export async function addAddonTemplateOptionAction(templateId: string, name: str
     name,
     price_delta_cents: Math.round((parseFloat(priceDelta) || 0) * 100),
   });
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "addAddonTemplateOptionAction", "Could not add that option.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -262,7 +263,7 @@ export async function deleteAddonOptionAction(modifierId: string): Promise<Actio
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("modifiers").delete().eq("id", modifierId).eq("business_id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deleteAddonOptionAction", "Could not delete that option.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -272,7 +273,7 @@ export async function deleteAddonTemplateAction(templateId: string): Promise<Act
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const { error } = await admin.from("modifier_groups").delete().eq("id", templateId).eq("business_id", businessId).eq("is_template", true);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deleteAddonTemplateAction", "Could not delete that add-on group.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -294,7 +295,7 @@ export async function attachAddonTemplateAction(menuItemId: string, templateId: 
     { business_id: businessId, menu_item_id: menuItemId, modifier_group_id: templateId },
     { onConflict: "menu_item_id,modifier_group_id", ignoreDuplicates: true }
   );
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "attachAddonTemplateAction", "Could not attach that add-on group.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -309,7 +310,7 @@ export async function detachAddonTemplateAction(menuItemId: string, templateId: 
     .eq("business_id", businessId)
     .eq("menu_item_id", menuItemId)
     .eq("modifier_group_id", templateId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "detachAddonTemplateAction", "Could not remove that add-on group.");
   revalidatePath("/dashboard/menu");
   return { success: true };
 }
@@ -449,7 +450,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
           categoryId = existing.id;
         } else {
           const { data: created, error } = await admin.from("menu_categories").insert({ business_id: businessId, name: categoryName }).select("id").single();
-          if (error) return { success: false, error: error.message };
+          if (error) return dbErrorResult(error, "importMenuItemsAction:category", "Could not import the menu.");
           categoryId = created.id;
         }
         categoryIdByName.set(categoryName, categoryId!);
@@ -468,7 +469,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
       })
       .select("id")
       .single();
-    if (itemError) return { success: false, error: itemError.message };
+    if (itemError) return dbErrorResult(itemError, "importMenuItemsAction:item", "Could not import the menu.");
 
     for (const group of item.modifierGroups) {
       if (!group.name.trim()) continue;
@@ -486,7 +487,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
             .insert({ business_id: businessId, menu_item_id: null, is_template: true, name: group.name, is_required: group.required, min_select: group.required ? 1 : 0, max_select: 1 })
             .select("id")
             .single();
-          if (templateError || !templateGroup) return { success: false, error: templateError?.message || "Could not create a shared add-on group." };
+          if (templateError || !templateGroup) return dbErrorResult(templateError, "importMenuItemsAction:template", "Could not create a shared add-on group.");
           templateId = templateGroup.id as string;
           templateIdBySignature.set(sig, templateId);
 
@@ -498,7 +499,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
           }));
           if (optionRows.length > 0) {
             const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
-            if (optionsError) return { success: false, error: optionsError.message };
+            if (optionsError) return dbErrorResult(optionsError, "importMenuItemsAction:template-options", "Could not import the menu.");
           }
         }
 
@@ -506,7 +507,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
           { business_id: businessId, menu_item_id: menuItem.id, modifier_group_id: templateId },
           { onConflict: "menu_item_id,modifier_group_id", ignoreDuplicates: true }
         );
-        if (attachError) return { success: false, error: attachError.message };
+        if (attachError) return dbErrorResult(attachError, "importMenuItemsAction:attach", "Could not import the menu.");
         continue;
       }
 
@@ -515,7 +516,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
         .insert({ business_id: businessId, menu_item_id: menuItem.id, is_template: false, name: group.name, is_required: group.required, min_select: group.required ? 1 : 0, max_select: 1 })
         .select("id")
         .single();
-      if (groupError) return { success: false, error: groupError.message };
+      if (groupError) return dbErrorResult(groupError, "importMenuItemsAction:group", "Could not import the menu.");
 
       const optionRows = group.options.filter((o) => o.name.trim()).map((o) => ({
         business_id: businessId,
@@ -525,7 +526,7 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
       }));
       if (optionRows.length > 0) {
         const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
-        if (optionsError) return { success: false, error: optionsError.message };
+        if (optionsError) return dbErrorResult(optionsError, "importMenuItemsAction:options", "Could not import the menu.");
       }
     }
   }

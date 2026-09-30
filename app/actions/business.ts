@@ -7,6 +7,7 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { provisionNumber, releaseNumber, createSubAccount } from "@/lib/integrations/telephony/twilioProvider";
 import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { AiResponsibilities, Personality, VoiceId } from "@/lib/database/types";
+import { dbErrorResult } from "@/lib/errors";
 
 async function requireBusinessId(): Promise<string> {
   const supabase = createClient();
@@ -74,7 +75,7 @@ export async function updateBusinessProfileAction(input: {
     })
     .eq("id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateBusinessProfileAction", "Could not save your business profile.");
   revalidatePath("/dashboard/settings");
   return { success: true };
 }
@@ -105,7 +106,7 @@ export async function updateTaxRateAction(input: { taxRatePercent: string }): Pr
     .update({ tax_rate_bps: Math.round(percent * 100) })
     .eq("id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateTaxRateAction", "Could not save that tax rate.");
   revalidatePath("/dashboard/settings");
   return { success: true };
 }
@@ -135,7 +136,7 @@ export async function updateBusinessHoursAction(hours: HoursInput[]): Promise<Ac
   }));
 
   const { error } = await admin.from("business_hours").upsert(rows, { onConflict: "business_id,weekday" });
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateBusinessHoursAction", "Could not save your hours.");
 
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/ai-employee");
@@ -191,7 +192,7 @@ export async function updateAiEmployeeAction(input: {
       generated_instructions: generatedInstructions,
     })
     .eq("business_id", businessId);
-  if (aiError) return { success: false, error: aiError.message };
+  if (aiError) return dbErrorResult(aiError, "updateAiEmployeeAction:ai", "Could not save your AI employee's settings.");
 
   const { error: voiceError } = await admin.from("ai_voice_configs").upsert(
     input.customVoice
@@ -205,7 +206,7 @@ export async function updateAiEmployeeAction(input: {
       : { business_id: businessId, voice_id: input.voiceId, provider: null, provider_voice_ref: null, provider_voice_name: null },
     { onConflict: "business_id" }
   );
-  if (voiceError) return { success: false, error: voiceError.message };
+  if (voiceError) return dbErrorResult(voiceError, "updateAiEmployeeAction:voice", "Could not save the selected voice.");
 
   revalidatePath("/dashboard/ai-employee");
   return { success: true, generatedInstructions };
@@ -229,7 +230,7 @@ export async function toggleAiStatusAction(online: boolean): Promise<ActionResul
 
   const admin = createAdminClient();
   const { error } = await admin.from("ai_receptionists").update({ status: online ? "online" : "offline" }).eq("business_id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "toggleAiStatusAction", "Could not update your AI's status.");
 
   revalidatePath("/dashboard");
   return { success: true };
@@ -381,7 +382,7 @@ export async function updateNotificationPreferencesAction(prefs: NotificationPre
 
   const supabase = createClient();
   const { error } = await supabase.from("businesses").update({ notification_preferences: prefs }).eq("id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateNotificationPreferencesAction", "Could not save your notification preferences.");
 
   revalidatePath("/dashboard/settings");
   return { success: true };

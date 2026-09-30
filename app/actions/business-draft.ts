@@ -4,6 +4,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { isValidTimezone } from "@/lib/business/timezone";
+import { dbErrorResult } from "@/lib/errors";
 
 export interface CreateBusinessDraftResult {
   success: boolean;
@@ -70,7 +71,7 @@ export async function createBusinessDraftAction(input: {
       .eq("id", existingBusinessId)
       .select()
       .single();
-    if (businessError || !business) return { success: false, error: businessError?.message || "Could not update business." };
+    if (businessError || !business) return dbErrorResult(businessError, "createBusinessDraftAction:update", "Could not update business.");
     return { success: true, businessId: business.id };
   }
 
@@ -80,10 +81,10 @@ export async function createBusinessDraftAction(input: {
     .select()
     .single();
 
-  if (businessError || !business) return { success: false, error: businessError?.message || "Could not create business." };
+  if (businessError || !business) return dbErrorResult(businessError, "createBusinessDraftAction:insert", "Could not create business.");
 
   const { error: memberError } = await admin.from("business_members").insert({ business_id: business.id, user_id: user.id, role: "owner" });
-  if (memberError) return { success: false, error: memberError.message };
+  if (memberError) return dbErrorResult(memberError, "createBusinessDraftAction:member", "Could not finish setting up your account.");
 
   return { success: true, businessId: business.id };
 }

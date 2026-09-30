@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
+import { dbErrorResult } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   // Scoped to this device's own business — a device can never mark
   // (or even see) another business's print job as printed.
   const { error } = await admin.from("printer_print_jobs").update(update).eq("id", params.id).eq("business_id", device.businessId);
-  if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  if (error) return NextResponse.json(dbErrorResult(error, "printer-app/orders/[id] POST", "Could not update that print job."), { status: 500 });
 
   return NextResponse.json({ success: true });
 }

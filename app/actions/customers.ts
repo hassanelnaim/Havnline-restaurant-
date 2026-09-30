@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
+import { dbErrorResult } from "@/lib/errors";
 
 type ActionResult = { success: true } | { success: false; error: string };
 
@@ -24,7 +25,7 @@ export async function blockCustomerAction(customerId: string): Promise<ActionRes
     .eq("id", customerId)
     .eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "blockCustomerAction", "Could not block that customer.");
   revalidatePath("/dashboard/customers");
   return { success: true };
 }
@@ -41,7 +42,7 @@ export async function unblockCustomerAction(customerId: string): Promise<ActionR
     .eq("id", customerId)
     .eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "unblockCustomerAction", "Could not unblock that customer.");
   revalidatePath("/dashboard/customers");
   return { success: true };
 }
@@ -64,7 +65,7 @@ export async function deleteCustomerAction(customerId: string): Promise<ActionRe
     .eq("id", customerId)
     .eq("business_id", businessId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "deleteCustomerAction", "Could not delete that customer.");
   revalidatePath("/dashboard/customers");
   return { success: true };
 }

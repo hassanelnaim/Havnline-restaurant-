@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/supabase/platform-admin";
 import { sendBusinessSuspendedEmail, sendBusinessReactivatedEmail } from "@/lib/notifications/account-email";
 import { releaseNumber } from "@/lib/integrations/telephony/twilioProvider";
+import { dbErrorResult } from "@/lib/errors";
 
 export interface ActionResult {
   success: boolean;
@@ -33,14 +34,17 @@ export async function suspendBusinessAction(businessId: string, reason: string):
     .from("businesses")
     .update({ is_suspended: true, suspended_at: new Date().toISOString(), suspended_reason: reason || null })
     .eq("id", businessId);
-  if (businessError) return { success: false, error: businessError.message };
+  if (businessError) return dbErrorResult(businessError, "suspendBusinessAction", "Could not suspend that business.");
 
   // Actually turn the AI off — this is the real, meaningful part of
   // suspension, not just a status label. Column is "status"
   // ("online"/"offline"), matching ai_receptionists everywhere else
   // in the app (see toggleAiStatusAction) — not "is_online".
   const { error: aiError } = await admin.from("ai_receptionists").update({ status: "offline" }).eq("business_id", businessId);
-  if (aiError) return { success: false, error: `Business was suspended, but turning off the AI failed: ${aiError.message}` };
+  if (aiError) {
+    console.error("[suspendBusinessAction:ai]", aiError.message);
+    return { success: false, error: "Business was suspended, but turning off the AI failed. Check server logs and retry." };
+  }
 
   sendBusinessSuspendedEmail(businessId, reason).catch((err) => console.error("Business-suspended email failed:", err));
 
@@ -60,7 +64,7 @@ export async function reactivateBusinessAction(businessId: string): Promise<Acti
     .from("businesses")
     .update({ is_suspended: false, suspended_at: null, suspended_reason: null })
     .eq("id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "reactivateBusinessAction", "Could not reactivate that business.");
 
   // Note: this deliberately does NOT automatically turn the AI back
   // online — that's a separate, real decision the business owner (or

@@ -3,6 +3,7 @@
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, getClientIp } from "@/lib/security/rateLimit";
+import { dbErrorResult } from "@/lib/errors";
 
 export interface SubmitReviewResult {
   success: boolean;
@@ -42,6 +43,6 @@ export async function submitReviewAction(input: {
     status: "pending",
   });
 
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "submitReviewAction", "Could not submit your review.");
   return { success: true };
 }

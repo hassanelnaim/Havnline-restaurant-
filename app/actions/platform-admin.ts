@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/supabase/platform-admin";
+import { dbErrorResult } from "@/lib/errors";
 
 export interface ActionResult {
   success: boolean;
@@ -19,7 +20,7 @@ export async function updateBusinessSubscriptionStatusAction(businessId: string,
 
   const admin = createAdminClient();
   const { error } = await admin.from("businesses").update({ subscription_status: status }).eq("id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updateBusinessSubscriptionStatusAction", "Could not update the subscription status.");
 
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);
@@ -49,7 +50,7 @@ export async function updatePlatformFeeAction(businessId: string, feePercent: nu
 
   const admin = createAdminClient();
   const { error } = await admin.from("businesses").update({ platform_fee_bps: feeBps }).eq("id", businessId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "updatePlatformFeeAction", "Could not update the platform fee.");
 
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);
@@ -63,7 +64,7 @@ export async function moderateReviewAction(reviewId: string, status: "approved" 
 
   const admin = createAdminClient();
   const { error } = await admin.from("reviews").update({ status }).eq("id", reviewId);
-  if (error) return { success: false, error: error.message };
+  if (error) return dbErrorResult(error, "moderateReviewAction", "Could not update that review.");
 
   revalidatePath("/admin");
   revalidatePath("/");
