@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 import type { AddonTemplate } from "@/lib/data/menu";
-import { NEXT_STEP_HIGHLIGHT, NEXT_STEP_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
+import { EASY_TO_MISS_HIGHLIGHT, EASY_TO_MISS_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
 import {
   addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction,
   addModifierGroupAction, deleteModifierGroupAction,
@@ -296,7 +296,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
               </div>
             ))}
 
-            <div className={`rounded-lg p-3 ${availableTemplates.length > 0 ? NEXT_STEP_HIGHLIGHT : "border border-border"}`}>
+            <div className={`rounded-lg p-3 ${availableTemplates.length > 0 ? EASY_TO_MISS_HIGHLIGHT : "border border-border"}`}>
               <div className="text-[12.5px] font-semibold text-text">Attach a shared add-on</div>
               <p className="mt-0.5 text-[11.5px] text-text-faint">From your add-ons library — edit it once there and it updates on every item using it.</p>
               {availableTemplates.length === 0 ? (
@@ -308,7 +308,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                   <select
                     value={selectedTemplateId}
                     onChange={(e) => setSelectedTemplateId(e.target.value)}
-                    className={`h-9 flex-1 rounded-lg border bg-white px-2.5 text-[13px] outline-none ${NEXT_STEP_INPUT_HIGHLIGHT}`}
+                    className={`h-9 flex-1 rounded-lg border bg-white px-2.5 text-[13px] outline-none ${EASY_TO_MISS_INPUT_HIGHLIGHT}`}
                   >
                     <option value="">Choose an add-on group…</option>
                     {availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
