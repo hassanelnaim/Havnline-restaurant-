@@ -31,7 +31,7 @@ export async function getBusinessIssues(businessId?: string): Promise<BusinessIs
 
   let businessQuery = admin
     .from("businesses")
-    .select("id, name, subscription_status, is_suspended, suspended_reason, cancel_at_period_end, current_period_end, created_at, stripe_connect_account_id, stripe_connect_charges_enabled, phone_payments_enabled");
+    .select("id, name, subscription_status, is_suspended, suspended_reason, cancel_at_period_end, current_period_end, created_at, stripe_connect_account_id, stripe_connect_charges_enabled");
   if (businessId) businessQuery = businessQuery.eq("id", businessId);
   const { data: businesses } = await businessQuery;
   if (!businesses || businesses.length === 0) return [];
@@ -78,22 +78,31 @@ export async function getBusinessIssues(businessId?: string): Promise<BusinessIs
       });
     }
 
-    if (b.phone_payments_enabled && !b.stripe_connect_charges_enabled) {
-      issues.push({
-        businessId: b.id,
-        businessName: b.name,
-        severity: "warning",
-        label: "Phone payments on, but Stripe isn't ready",
-        detail: "Phone payments is toggled on, but their Stripe Connect account isn't actually able to accept charges yet — customers may be getting a broken payment flow.",
-      });
-    } else if (b.stripe_connect_account_id && !b.stripe_connect_charges_enabled) {
-      issues.push({
-        businessId: b.id,
-        businessName: b.name,
-        severity: "info",
-        label: "Stripe onboarding unfinished",
-        detail: "They started connecting Stripe but haven't finished onboarding.",
-      });
+    // Phone payments are mandatory for every business now — the AI
+    // refuses to place any order (see confirm_and_place_order) unless
+    // Stripe Connect is fully able to accept charges. So a business
+    // whose AI is actively online without that isn't just missing a
+    // nice-to-have: every single caller who tries to order will hit a
+    // dead end, which is a critical, not a warning.
+    const aiStatusForPayments = aiStatusByBusiness.get(b.id);
+    if (!b.stripe_connect_charges_enabled) {
+      if (aiStatusForPayments === "online") {
+        issues.push({
+          businessId: b.id,
+          businessName: b.name,
+          severity: "critical",
+          label: "Taking calls with no way to get paid",
+          detail: "Their AI is online and taking calls, but Stripe Connect isn't ready to accept charges — every caller who tries to place an order will be told orders aren't available right now.",
+        });
+      } else if (b.stripe_connect_account_id) {
+        issues.push({
+          businessId: b.id,
+          businessName: b.name,
+          severity: "info",
+          label: "Stripe onboarding unfinished",
+          detail: "They started connecting Stripe but haven't finished onboarding.",
+        });
+      }
     }
 
     const failedOrderCount = failedOrderCountByBusiness.get(b.id) || 0;
@@ -113,9 +122,8 @@ export async function getBusinessIssues(businessId?: string): Promise<BusinessIs
     // (Twilio number forwarding, webhook misconfiguration) rather than
     // just a quiet week — worth a human looking, not an alarm.
     const daysOld = (Date.now() - new Date(b.created_at).getTime()) / (24 * 60 * 60 * 1000);
-    const aiStatus = aiStatusByBusiness.get(b.id);
     const recentCallCount = recentCallCountByBusiness.get(b.id) || 0;
-    if (isOperational && aiStatus === "online" && daysOld > 7 && recentCallCount === 0) {
+    if (isOperational && aiStatusForPayments === "online" && daysOld > 7 && recentCallCount === 0) {
       issues.push({
         businessId: b.id,
         businessName: b.name,

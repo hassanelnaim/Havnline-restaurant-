@@ -122,10 +122,28 @@ export async function handleTurn(
     .neq("role", "system")
     .order("created_at", { ascending: true });
 
-  const history: ConversationMessage[] = (priorMessages || []).map((m) => ({
+  let history: ConversationMessage[] = (priorMessages || []).map((m) => ({
     role: m.role === "ai" ? "assistant" : "user",
     content: m.content,
   }));
+
+  // Phone calls run on a smaller, faster model (see claude.ts) chosen
+  // for latency, not for how well it holds up across a long, growing
+  // transcript. The full system prompt (menu, hours, rules) is already
+  // rebuilt fresh on every single turn, so nothing there gets "lost" —
+  // but an uncapped back-and-forth history does dilute a small model's
+  // attention the longer a call runs, which is what actually produces
+  // that "gets dumber as the call goes on" effect. Keeping only the
+  // most recent turns keeps the model's attention on what's currently
+  // relevant (the order being built) without losing anything it needs,
+  // since order state itself lives in the database, not in the
+  // conversation history, and get_current_order can always be called
+  // to see the real, current order regardless of how far back it
+  // started.
+  const MAX_PHONE_HISTORY_MESSAGES = 20;
+  if (channel === "phone" && history.length > MAX_PHONE_HISTORY_MESSAGES) {
+    history = history.slice(-MAX_PHONE_HISTORY_MESSAGES);
+  }
 
   await admin.from("call_messages").insert({ call_id: callId, role: "customer", content: userMessage });
 

@@ -40,6 +40,24 @@ async function requireNotSuspended(businessId: string): Promise<string | null> {
   return business?.is_suspended ? "This account is suspended. Contact support to resolve this before going back online." : null;
 }
 
+// Payment is mandatory on every phone order (see confirm_and_place_order
+// in lib/ai/tools.ts) — there is no pay-at-pickup path. Without this
+// check, an owner whose AI takes orders could flip it online before
+// finishing Stripe Connect, and every caller who tries to order would
+// hit a dead end. Only applies when take_orders is actually enabled —
+// a business using the AI purely to answer questions doesn't need
+// payments set up at all.
+async function requirePaymentsReadyIfTakingOrders(businessId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const [{ data: business }, { data: receptionist }] = await Promise.all([
+    admin.from("businesses").select("stripe_connect_charges_enabled").eq("id", businessId).single(),
+    admin.from("ai_receptionists").select("responsibilities").eq("business_id", businessId).maybeSingle(),
+  ]);
+  const takesOrders = (receptionist?.responsibilities as AiResponsibilities | undefined)?.take_orders;
+  if (!takesOrders) return null;
+  return business?.stripe_connect_charges_enabled ? null : "Finish connecting Stripe in Integrations before going online — every phone order requires payment up front, so your AI can't take orders until that's set up.";
+}
+
 export interface ActionResult {
   success: boolean;
   error?: string;
@@ -226,6 +244,9 @@ export async function toggleAiStatusAction(online: boolean): Promise<ActionResul
 
     const subscriptionError = await requireOperationalSubscription(businessId);
     if (subscriptionError) return { success: false, error: subscriptionError };
+
+    const paymentsError = await requirePaymentsReadyIfTakingOrders(businessId);
+    if (paymentsError) return { success: false, error: paymentsError };
   }
 
   const admin = createAdminClient();

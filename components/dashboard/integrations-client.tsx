@@ -5,11 +5,10 @@ import { PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, Tablet, Credi
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 import { provisionPhoneNumberAction, changePhoneNumberAction } from "@/app/actions/business";
 import { generatePrinterAppCodeAction, unpairPrinterAppAction } from "@/app/actions/printer-app";
-import { startStripeConnectOnboardingAction, setPhonePaymentsEnabledAction } from "@/app/actions/payments";
+import { startStripeConnectOnboardingAction } from "@/app/actions/payments";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { IntegrationStatusBadge } from "@/components/dashboard/status-badges";
 
 const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof PhoneCall }> = {
@@ -23,13 +22,11 @@ export function IntegrationsClient({
   initialIntegrations,
   stripeConnectAccountId,
   stripeConnectChargesEnabled,
-  phonePaymentsEnabled,
   platformFeeBps,
 }: {
   initialIntegrations: DbIntegration[];
   stripeConnectAccountId: string | null;
   stripeConnectChargesEnabled: boolean;
-  phonePaymentsEnabled: boolean;
   platformFeeBps: number | null;
 }) {
   const feePercent = platformFeeBps ? platformFeeBps / 100 : 0;
@@ -41,8 +38,6 @@ export function IntegrationsClient({
   const [, startTransition] = useTransition();
 
   const [onboarding, setOnboarding] = useState(false);
-  const [togglingPayments, setTogglingPayments] = useState(false);
-  const [paymentsEnabled, setPaymentsEnabled] = useState(phonePaymentsEnabled);
   const [paymentsError, setPaymentsError] = useState<string | null>(null);
   const stripeConnected = Boolean(stripeConnectAccountId);
 
@@ -57,17 +52,6 @@ export function IntegrationsClient({
         return;
       }
       window.location.href = result.url;
-    });
-  }
-
-  function handleTogglePhonePayments(checked: boolean) {
-    setTogglingPayments(true);
-    setPaymentsError(null);
-    startTransition(async () => {
-      const result = await setPhonePaymentsEnabledAction(checked);
-      setTogglingPayments(false);
-      if (!result.success) { setPaymentsError(result.error || "Could not update this setting."); return; }
-      setPaymentsEnabled(checked);
     });
   }
 
@@ -278,14 +262,14 @@ export function IntegrationsClient({
             <CardContent className="border-t border-border-soft pt-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-[13px] font-medium text-ink">Take payment over the phone</div>
+                  <div className="text-[13px] font-medium text-ink">Payment over the phone</div>
                   <p className="mt-0.5 text-[12px] text-text-muted">
                     {stripeConnectChargesEnabled
-                      ? "AI texts a payment link after confirming the order; the kitchen ticket prints once it's paid."
-                      : "Finish connecting Stripe to turn this on."}
+                      ? "Required on every phone order — the AI texts a payment link after confirming the order, and the kitchen ticket prints once it's paid."
+                      : "Every phone order requires payment up front — finish connecting Stripe above so your AI can actually take orders."}
                   </p>
                 </div>
-                <Switch checked={paymentsEnabled} onCheckedChange={handleTogglePhonePayments} disabled={!stripeConnectChargesEnabled || togglingPayments} />
+                <IntegrationStatusBadge status={stripeConnectChargesEnabled ? "connected" : "not_connected"} />
               </div>
             </CardContent>
           </Card>

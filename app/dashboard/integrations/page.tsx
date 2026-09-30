@@ -14,7 +14,6 @@ export default async function IntegrationsPage() {
         initialIntegrations={integrations}
         stripeConnectAccountId={business.stripe_connect_account_id}
         stripeConnectChargesEnabled={business.stripe_connect_charges_enabled}
-        phonePaymentsEnabled={business.phone_payments_enabled}
         platformFeeBps={business.platform_fee_bps}
       />
     </div>

@@ -147,8 +147,22 @@ export async function lastTurnUsedTool(callId: string): Promise<boolean> {
 // happening, instead of one random generic line every time.
 const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
   {
-    // add_item_to_order / remove_item_from_order — a real DB write per
-    // item, plus a menu/modifier lookup.
+    // add_item_to_order on a NEW item — ordinary ordering phrases
+    // ("I'll have a burger," "can I get fries") that trigger a menu
+    // lookup + a DB write, same as the modify-order category below,
+    // but worth its own line since this is the single most common
+    // thing said on a call.
+    keywords: [
+      "i want", "i'd like", "i would like", "i'll have", "i will have", "i'll take",
+      "i will take", "i'll get", "can i get", "can i have", "could i get", "could i have",
+      "give me", "gimme", "get me", "let me get", "let me have", "i need", "i'll do",
+    ],
+    fillers: ["Sure, adding that now.", "Got it, one sec.", "Okay, putting that in."],
+  },
+  {
+    // add_item_to_order / remove_item_from_order on something already
+    // in the order — a real DB write per item, plus a menu/modifier
+    // lookup.
     keywords: [
       "add", "remove", "instead", "substitute", "change my order", "change that",
       "make that", "make it", "actually", "no onions", "extra", "swap", "cancel that",
@@ -166,6 +180,14 @@ const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
       "that's my order", "that should do it",
     ],
     fillers: ["Great, placing that order now.", "Perfect, locking that in.", "Okay, sending that through."],
+  },
+  {
+    // lookup_customer / create_customer — asked right after the order
+    // is read back, once the customer gives their name and number.
+    keywords: [
+      "my name is", "my number is", "phone number", "here's my number",
+    ],
+    fillers: ["Got it, thanks.", "Okay, one sec."],
   },
   {
     // escalate_to_human / transfer_call — a DB write and (for a

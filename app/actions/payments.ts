@@ -70,25 +70,6 @@ export async function syncStripeConnectStatusAction(): Promise<ActionResult & { 
   }
 }
 
-/** The explicit "start charging customers" switch — separate from just having connected an account (see migration 016's comment for why). Refuses to turn on if the account isn't actually ready to accept charges yet. */
-export async function setPhonePaymentsEnabledAction(enabled: boolean): Promise<ActionResult> {
-  const businessId = await requireBusinessId();
-  const admin = createAdminClient();
-
-  if (enabled) {
-    const { data: business } = await admin.from("businesses").select("stripe_connect_charges_enabled").eq("id", businessId).single();
-    if (!business?.stripe_connect_charges_enabled) {
-      return { success: false, error: "Finish connecting Stripe before turning this on — your account isn't ready to accept charges yet." };
-    }
-  }
-
-  const { error } = await admin.from("businesses").update({ phone_payments_enabled: enabled }).eq("id", businessId);
-  if (error) return dbErrorResult(error, "setPhonePaymentsEnabledAction", "Could not update phone payments setting.");
-
-  revalidatePath("/dashboard/integrations");
-  return { success: true };
-}
-
 /** Void: cancels an order BEFORE it's been paid — expires the payment link. Nothing was ever charged. */
 export async function voidOrderAction(orderId: string): Promise<ActionResult> {
   const businessId = await requireBusinessId();

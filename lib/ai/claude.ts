@@ -30,7 +30,11 @@ export async function runTurn(
 
   const client = new Anthropic({ apiKey });
   const model = options.model || (toolCtx.channel === "phone" ? PHONE_MODEL : DEFAULT_MODEL);
-  const maxTokens = options.maxTokens || (toolCtx.channel === "phone" ? 150 : 1024);
+  // 150 was tight enough to occasionally cut a reply off mid-sentence
+  // once an order had a few items in it (the read-back alone can run
+  // long) — 240 gives that room while staying short enough to keep
+  // phone replies fast.
+  const maxTokens = options.maxTokens || (toolCtx.channel === "phone" ? 240 : 1024);
 
   const system = buildSystemPrompt(toolCtx.context, toolCtx.channel);
 
