@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { OnboardingDraft } from "@/lib/onboarding/context";
 
@@ -28,7 +29,14 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
     return { success: false, error: "Server isn't fully configured yet (missing SUPABASE_SERVICE_ROLE_KEY)." };
   }
 
-  let businessId = draft.businessId;
+  // Deliberately NOT trusting draft.businessId, even though the client
+  // sends one — every other write path in this app derives the
+  // business id server-side from the session (business_members), and
+  // this was the one exception: it took the client's id as-is with no
+  // ownership check, so any signed-in user could pass another
+  // business's id here and overwrite its menu, hours, and live AI
+  // config. Deriving it the same way as everywhere else closes that.
+  let businessId = await getCurrentBusinessId();
 
   if (businessId) {
     const { error: updateError } = await admin

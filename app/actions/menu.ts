@@ -151,6 +151,11 @@ export async function addModifierGroupAction(menuItemId: string, input: Modifier
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
 
+  // menuItemId isn't trustworthy on its own coming from the client —
+  // same check attachAddonTemplateAction already does below.
+  const { data: item } = await admin.from("menu_items").select("id").eq("id", menuItemId).eq("business_id", businessId).maybeSingle();
+  if (!item) return { success: false, error: "Could not find that item." };
+
   const { data: group, error: groupError } = await admin
     .from("modifier_groups")
     .insert({ business_id: businessId, menu_item_id: menuItemId, name: input.name, is_required: input.required, min_select: input.minSelect, max_select: input.maxSelect })

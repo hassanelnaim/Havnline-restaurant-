@@ -134,7 +134,17 @@ export async function refundOrderAction(orderId: string, amountCents: number | u
   const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", businessId).single();
   if (!business?.stripe_connect_account_id) return { success: false, error: "Stripe isn't connected for this business." };
 
-  const result = await refundOrderPayment(business.stripe_connect_account_id, order.stripe_payment_intent_id, amountCents);
+  // Keyed on the exact pre-refund state we just read: two near-
+  // simultaneous submissions of the SAME click (a double-click, a
+  // dropped-response client retry) will almost always both read the
+  // same amount_refunded_cents before either write lands, so they
+  // produce the identical key and Stripe itself collapses them into
+  // one real refund — the second call just gets back the same refund
+  // object instead of issuing a second one. A genuinely separate,
+  // later refund (the amount already on file has since changed) gets
+  // its own distinct key and goes through normally.
+  const idempotencyKey = `refund:${orderId}:${order.amount_refunded_cents}:${amountCents ?? "full"}`;
+  const result = await refundOrderPayment(business.stripe_connect_account_id, order.stripe_payment_intent_id, amountCents, idempotencyKey);
   if (!result.success) return { success: false, error: result.error };
 
   const {
@@ -144,7 +154,11 @@ export async function refundOrderAction(orderId: string, amountCents: number | u
   const newAmountRefunded = order.amount_refunded_cents + (result.refundedCents || 0);
   const fullyRefunded = newAmountRefunded >= order.total_cents;
 
-  const { error } = await admin
+  // Guarded by the same pre-refund amount we keyed Stripe's call on —
+  // if another request already moved amount_refunded_cents in the
+  // meantime, this update intentionally matches no row rather than
+  // stomping a newer value with a total computed from stale data.
+  const { data: updatedOrder, error } = await admin
     .from("orders")
     .update({
       payment_status: fullyRefunded ? "refunded" : "partially_refunded",
@@ -153,8 +167,17 @@ export async function refundOrderAction(orderId: string, amountCents: number | u
       refunded_by: user?.id || null,
       refunded_at: new Date().toISOString(),
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("amount_refunded_cents", order.amount_refunded_cents)
+    .select("id")
+    .maybeSingle();
   if (error) return { success: false, error: error.message };
+  if (!updatedOrder) {
+    // Stripe's own idempotency already prevented a double charge (see
+    // above) — this just means another request recorded the result
+    // first. Nothing left for this call to do.
+    return { success: true };
+  }
 
   revalidatePath("/dashboard/orders");
   return { success: true };

@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, buildTurnResponseTwiml, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { twiml, buildTurnResponseTwiml, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +45,10 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref };
 
-  const result = await handleTurn(call.business_id, callId, speechResult, "phone");
-
-  return buildTurnResponseTwiml(call.business_id, callId, result, voice);
+  try {
+    const result = await handleTurn(call.business_id, callId, speechResult, "phone");
+    return buildTurnResponseTwiml(call.business_id, callId, result, voice);
+  } catch (err) {
+    return errorFallbackTwiml(call.business_id, callId, voice, err);
+  }
 }

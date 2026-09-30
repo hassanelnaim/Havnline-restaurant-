@@ -4,7 +4,7 @@ import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { smsClient } from "@/lib/integrations/sms";
-import { sendPaymentsLiveEmail } from "@/lib/notifications/account-email";
+import { sendPaymentsLiveEmail, sendPaymentsDisconnectedEmail } from "@/lib/notifications/account-email";
 import type { OrderWithItems } from "@/lib/database/types";
 
 /**
@@ -146,6 +146,35 @@ export async function POST(request: NextRequest) {
         // same email over and over.
         if (before && !before.stripe_connect_charges_enabled && account.charges_enabled) {
           sendPaymentsLiveEmail(before.id).catch((err) => console.error("Payments-live email failed:", err));
+        }
+        break;
+      }
+
+      // Fired when a business disconnects their Stripe account from
+      // ours (or Stripe revokes it) — no account.updated follows this,
+      // so without handling it separately, stripe_connect_charges_enabled
+      // stays stale at whatever it last was. That's the one flag
+      // confirm_and_place_order trusts to decide whether to text a
+      // real payment link, so a stale "true" here means every call
+      // from then on tries to charge through a connection that no
+      // longer exists.
+      case "account.application.deauthorized": {
+        const accountId = event.account;
+        if (!accountId) break;
+
+        const { data: before } = await admin
+          .from("businesses")
+          .select("id, stripe_connect_charges_enabled")
+          .eq("stripe_connect_account_id", accountId)
+          .maybeSingle();
+
+        await admin
+          .from("businesses")
+          .update({ stripe_connect_charges_enabled: false, stripe_connect_onboarded_at: null })
+          .eq("stripe_connect_account_id", accountId);
+
+        if (before?.stripe_connect_charges_enabled) {
+          sendPaymentsDisconnectedEmail(before.id).catch((err) => console.error("Payments-disconnected email failed:", err));
         }
         break;
       }

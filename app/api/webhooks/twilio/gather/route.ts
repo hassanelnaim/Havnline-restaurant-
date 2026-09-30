@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, lastTurnUsedTool, getContextualFiller, sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, lastTurnUsedTool, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -48,8 +48,12 @@ export async function POST(request: NextRequest) {
   const filler = getContextualFiller(speechResult, await lastTurnUsedTool(callId));
 
   if (!filler) {
-    const result = await handleTurn(call.business_id, callId, speechResult, "phone");
-    return buildTurnResponseTwiml(call.business_id, callId, result, voice);
+    try {
+      const result = await handleTurn(call.business_id, callId, speechResult, "phone");
+      return buildTurnResponseTwiml(call.business_id, callId, result, voice);
+    } catch (err) {
+      return errorFallbackTwiml(call.business_id, callId, voice, err);
+    }
   }
 
   const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}`;

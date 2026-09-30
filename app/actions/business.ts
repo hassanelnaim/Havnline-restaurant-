@@ -28,6 +28,17 @@ async function requireOperationalSubscription(businessId: string): Promise<strin
   return operational ? null : "Start your free trial in Billing before setting up a phone number.";
 }
 
+// Suspension (see suspendBusinessAction) enforces itself by flipping
+// ai_receptionists.status to "offline" — the same column the owner's
+// own dashboard toggle controls. Without this check, a suspended
+// business could just click "AI Online" again and immediately resume
+// taking calls and payments, bypassing the suspension entirely.
+async function requireNotSuspended(businessId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data: business } = await admin.from("businesses").select("is_suspended").eq("id", businessId).single();
+  return business?.is_suspended ? "This account is suspended. Contact support to resolve this before going back online." : null;
+}
+
 export interface ActionResult {
   success: boolean;
   error?: string;
@@ -209,6 +220,9 @@ export async function toggleAiStatusAction(online: boolean): Promise<ActionResul
   }
 
   if (online) {
+    const suspendedError = await requireNotSuspended(businessId);
+    if (suspendedError) return { success: false, error: suspendedError };
+
     const subscriptionError = await requireOperationalSubscription(businessId);
     if (subscriptionError) return { success: false, error: subscriptionError };
   }
@@ -260,6 +274,9 @@ export async function provisionPhoneNumberAction(areaCode?: string): Promise<Pro
     return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
   }
 
+  const suspendedError = await requireNotSuspended(businessId);
+  if (suspendedError) return { success: false, error: suspendedError };
+
   const subscriptionError = await requireOperationalSubscription(businessId);
   if (subscriptionError) return { success: false, error: subscriptionError };
 
@@ -298,6 +315,9 @@ export async function changePhoneNumberAction(areaCode?: string): Promise<Provis
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
   }
+
+  const suspendedError = await requireNotSuspended(businessId);
+  if (suspendedError) return { success: false, error: suspendedError };
 
   const subscriptionError = await requireOperationalSubscription(businessId);
   if (subscriptionError) return { success: false, error: subscriptionError };

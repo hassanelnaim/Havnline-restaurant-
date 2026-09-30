@@ -14,6 +14,11 @@ export interface ToolContext {
   callId: string;
   channel: "test" | "phone";
   context: BusinessContext;
+  // The real, Twilio-verified caller ID for this call (calls.phone,
+  // set once at call start from Twilio's own From param) — never a
+  // phone number the model merely heard/inferred mid-conversation.
+  // null for the test channel, which has no real caller.
+  callerPhone: string | null;
 }
 
 export interface ToolResult {
@@ -51,7 +56,15 @@ async function get_menu(_input: unknown, ctx: ToolContext): Promise<ToolResult> 
 
 async function lookup_customer(input: { phone: string }, ctx: ToolContext): Promise<ToolResult> {
   const admin = createAdminClient();
-  const { data } = await admin.from("customers").select("*").eq("business_id", ctx.businessId).eq("phone", input.phone).maybeSingle();
+  // On a real call, always look up by the verified caller ID Twilio
+  // gave us at call start — never the phone number the model just
+  // heard/inferred from what the customer said. Otherwise a caller
+  // could fish for another customer's name/email/notes simply by
+  // asking to look up a number that isn't theirs. The test channel has
+  // no real caller ID, so it keeps the free-form lookup for the
+  // owner's own testing.
+  const phone = ctx.channel === "phone" && ctx.callerPhone ? ctx.callerPhone : input.phone;
+  const { data } = await admin.from("customers").select("*").eq("business_id", ctx.businessId).eq("phone", phone).maybeSingle();
   return data ? { found: true, customer: data } : { found: false };
 }
 
@@ -94,7 +107,21 @@ async function getOrCreateBuildingOrder(ctx: ToolContext): Promise<string> {
     .select("id")
     .single();
 
-  if (error || !created) throw new Error(error?.message || "Could not start an order.");
+  if (error || !created) {
+    // A genuinely concurrent request (a Twilio retry landing while the
+    // original turn is still mid-flight — see handleTurn's dedupe
+    // comment) can lose this exact race: both selects above find
+    // nothing, then both try to insert. A DB-level constraint
+    // (migration 019) makes the loser's insert fail with a unique
+    // violation (Postgres 23505) instead of silently succeeding and
+    // creating a second order for the same call. Treat that as a win,
+    // not an error — re-select the row the other request just created.
+    if (error?.code === "23505") {
+      const { data: winner } = await admin.from("orders").select("id").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
+      if (winner) return winner.id;
+    }
+    throw new Error(error?.message || "Could not start an order.");
+  }
   return created.id;
 }
 
@@ -253,7 +280,15 @@ async function confirm_and_place_order(
     customerId = newCustomer?.id;
   }
 
-  await admin
+  // Conditioned on status still being "building" — an atomic
+  // claim, not just a write. If two overlapping requests for the same
+  // call both reach this point (the narrower race handleTurn's own
+  // dedupe can still miss — see its "fall through" comment), only the
+  // first one's update actually matches a row and flips the status;
+  // the second gets back no row and must NOT print a second kitchen
+  // ticket, start a second Checkout Session, or send a second
+  // confirmation text for the same order.
+  const { data: claimedOrder } = await admin
     .from("orders")
     .update({
       status: "confirmed",
@@ -262,7 +297,14 @@ async function confirm_and_place_order(
       phone: input.phone,
       special_instructions: input.special_instructions || null,
     })
-    .eq("id", order.id);
+    .eq("id", order.id)
+    .eq("status", "building")
+    .select("id")
+    .maybeSingle();
+
+  if (!claimedOrder) {
+    return { success: true, order_id: order.id, already_placed: true };
+  }
 
   await admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId);
 
@@ -371,7 +413,17 @@ async function transfer_call(_input: unknown, _ctx: ToolContext): Promise<ToolRe
 }
 
 async function send_sms(input: { phone: string; message: string }, ctx: ToolContext): Promise<ToolResult> {
-  const result = await smsClient.send(ctx.businessId, input.phone, input.message);
+  // Unlike confirm_and_place_order's own payment/confirmation texts
+  // (which are tied to a real order the customer just built and can
+  // legitimately go to a number they stated, e.g. ordering for someone
+  // else), this is a free-form "send any message to any number" tool
+  // with no order behind it — exactly what would let a caller turn the
+  // business's own paid Twilio number into an arbitrary SMS relay by
+  // just asking the AI to "text this message to this other number."
+  // Lock it to the verified caller on a real call; the test channel
+  // has no real caller ID to lock to.
+  const phone = ctx.channel === "phone" && ctx.callerPhone ? ctx.callerPhone : input.phone;
+  const result = await smsClient.send(ctx.businessId, phone, input.message);
   return { sent: result.sent, reason: result.reason };
 }
 

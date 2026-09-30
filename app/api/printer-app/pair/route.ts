@@ -12,17 +12,22 @@ export const dynamic = "force-dynamic";
  * short-lived code for a permanent device_token, which the app then
  * stores and sends as a Bearer token on every other request below.
  *
- * The code is only 6 digits (1,000,000 combinations) and, unrated,
- * could be brute-forced within its 15-minute lifetime by a script
+ * The code is 8 digits (100,000,000 combinations) and, unrated, could
+ * still be brute-forced within its 15-minute lifetime by a script
  * hitting this endpoint — a successful guess would hand a stranger a
  * permanent token that can read that business's pending orders. This
  * rate limit doesn't need to be generous: a real owner enters their
- * own code once, by hand.
+ * own code once, by hand. Both an IP-scoped and a global cap apply —
+ * the IP one stops any single source from grinding through guesses,
+ * the global one bounds a distributed attempt spread across many IPs.
  */
 export async function POST(request: NextRequest) {
   const ip = getClientIp();
-  const ipOk = await checkRateLimit(`printer_pair_ip:${ip}`, 10, 15);
-  if (!ipOk) {
+  const [ipOk, globalOk] = await Promise.all([
+    checkRateLimit(`printer_pair_ip:${ip}`, 10, 15),
+    checkRateLimit("printer_pair_global", 50, 15),
+  ]);
+  if (!ipOk || !globalOk) {
     return NextResponse.json({ success: false, error: "Too many attempts. Please wait a few minutes and try again." }, { status: 429 });
   }
 

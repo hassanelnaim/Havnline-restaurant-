@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider";
 import { isElevenLabsConfigured } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
 import { getSiteUrl } from "@/lib/env";
@@ -37,8 +38,11 @@ export function escapeXml(s: string) {
  */
 export function sayLine(voice: VoiceSelection, text: string, businessId?: string): string {
   if (isElevenLabsConfigured()) {
-    const params = new URLSearchParams({ text, voiceId: voice.voiceId || "alex_professional" });
-    if (voice.providerVoiceRef) params.set("providerVoiceRef", voice.providerVoiceRef);
+    const voiceId = voice.voiceId || "alex_professional";
+    const providerVoiceRef = voice.providerVoiceRef || undefined;
+    const { signature, expiresAt } = signTtsParams({ text, voiceId, providerVoiceRef, businessId });
+    const params = new URLSearchParams({ text, voiceId, exp: String(expiresAt), sig: signature });
+    if (providerVoiceRef) params.set("providerVoiceRef", providerVoiceRef);
     if (businessId) params.set("businessId", businessId);
     const ttsUrl = `${SITE_URL}/api/tts?${params.toString()}`;
     return `<Play>${escapeXml(ttsUrl)}</Play>`;
@@ -80,6 +84,37 @@ export async function buildTurnResponseTwiml(
     ${sayLine(voice, result.reply, businessId)}
   </Gather>
   ${sayLine(voice, "Thanks for calling. Goodbye.", businessId)}
+  <Hangup/>
+</Response>`);
+}
+
+/**
+ * Fallback for when the AI turn itself throws — an Anthropic timeout,
+ * a 5xx, a network error, or a bug in system-prompt building (e.g. a
+ * bad business.timezone value). Without this, the route handler's
+ * unhandled exception becomes a non-TwiML 500 response, which Twilio
+ * can't parse — the caller gets dead air and the call just drops with
+ * no record of what happened. This logs it the same way a failed live
+ * transfer does (dial-status/route.ts) — a real escalation, not a
+ * silent failure — and gives the caller a graceful, human-sounding
+ * close instead of a crash.
+ */
+export async function errorFallbackTwiml(businessId: string, callId: string, voice: VoiceSelection, err: unknown): Promise<Response> {
+  console.error(`AI turn failed for call ${callId}:`, err);
+  const admin = createAdminClient();
+  await admin
+    .from("calls")
+    .update({ outcome: "escalated", escalation_reason: "The AI ran into a technical problem mid-call and couldn't continue." })
+    .eq("id", callId);
+  await admin
+    .from("call_messages")
+    .insert({ call_id: callId, role: "system", content: `AI turn error: ${err instanceof Error ? err.message : String(err)}` });
+
+  const { sendEscalationEmail } = await import("@/lib/notifications/escalation-email");
+  sendEscalationEmail(businessId, callId).catch((emailErr) => console.error("Escalation email failed:", emailErr));
+
+  return twiml(`<Response>
+  ${sayLine(voice, "Sorry, I'm having some technical trouble right now. I've made a note and someone from the team will follow up with you. Thanks for calling!", businessId)}
   <Hangup/>
 </Response>`);
 }

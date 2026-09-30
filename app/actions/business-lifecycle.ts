@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/supabase/platform-admin";
 import { sendBusinessSuspendedEmail, sendBusinessReactivatedEmail } from "@/lib/notifications/account-email";
+import { releaseNumber } from "@/lib/integrations/telephony/twilioProvider";
 
 export interface ActionResult {
   success: boolean;
@@ -97,33 +98,89 @@ export async function deleteBusinessAction(businessId: string, typedConfirmation
     return { success: false, error: "The typed name doesn't match — nothing was deleted." };
   }
 
+  // Release the actual Twilio phone number BEFORE deleting anything.
+  // The `integrations` row is just our own record of it — deleting
+  // that (or letting it cascade away with the business below) does
+  // NOT release the number on Twilio's side. Without this, a deleted
+  // business's number keeps costing real money on Twilio indefinitely,
+  // orphaned with no dashboard left to manage or release it from.
+  const { data: twilioIntegration } = await admin
+    .from("integrations")
+    .select("metadata")
+    .eq("business_id", businessId)
+    .eq("provider", "twilio")
+    .maybeSingle();
+  const twilioMeta = twilioIntegration?.metadata as Record<string, unknown> | null;
+  const phoneNumber = twilioMeta?.phone_number as string | undefined;
+  if (phoneNumber) {
+    const subAccountSid = twilioMeta?.subaccount_sid as string | undefined;
+    const subAccountAuthToken = twilioMeta?.subaccount_auth_token as string | undefined;
+    const creds = subAccountSid && subAccountAuthToken ? { accountSid: subAccountSid, authToken: subAccountAuthToken } : null;
+    const released = await releaseNumber(creds, phoneNumber);
+    if (!released.success) {
+      // Don't let a Twilio hiccup block a deletion the admin already
+      // explicitly confirmed — but don't pretend it succeeded either.
+      console.error(`deleteBusinessAction: could not release Twilio number ${phoneNumber} for business ${businessId}: ${released.reason}`);
+    }
+  }
+
   // Delete related records explicitly, in a safe order, rather than
-  // trusting unverified cascade behavior.
-  await admin.from("call_messages").delete().in(
-    "call_id",
-    (await admin.from("calls").select("id").eq("business_id", businessId)).data?.map((c) => c.id) || []
-  );
-  await admin.from("calls").delete().eq("business_id", businessId);
-  await admin.from("order_item_modifiers").delete().in(
-    "order_item_id",
-    (await admin.from("order_items").select("id").in(
-      "order_id",
-      (await admin.from("orders").select("id").eq("business_id", businessId)).data?.map((o) => o.id) || []
-    )).data?.map((i) => i.id) || []
-  );
-  await admin.from("order_items").delete().in(
-    "order_id",
-    (await admin.from("orders").select("id").eq("business_id", businessId)).data?.map((o) => o.id) || []
-  );
-  await admin.from("orders").delete().eq("business_id", businessId);
-  await admin.from("modifiers").delete().eq("business_id", businessId);
-  await admin.from("modifier_groups").delete().eq("business_id", businessId);
-  await admin.from("menu_items").delete().eq("business_id", businessId);
-  await admin.from("menu_categories").delete().eq("business_id", businessId);
-  await admin.from("customers").delete().eq("business_id", businessId);
-  await admin.from("ai_receptionists").delete().eq("business_id", businessId);
-  await admin.from("business_members").delete().eq("business_id", businessId);
-  await admin.from("businesses").delete().eq("id", businessId);
+  // trusting unverified cascade behavior — and actually check each
+  // one, rather than reporting success regardless of what happened.
+  const steps: { label: string; run: () => Promise<{ error: { message: string } | null }> }[] = [
+    {
+      label: "call messages",
+      run: async () =>
+        admin.from("call_messages").delete().in(
+          "call_id",
+          (await admin.from("calls").select("id").eq("business_id", businessId)).data?.map((c) => c.id) || []
+        ),
+    },
+    { label: "calls", run: async () => admin.from("calls").delete().eq("business_id", businessId) },
+    {
+      label: "order item modifiers",
+      run: async () =>
+        admin.from("order_item_modifiers").delete().in(
+          "order_item_id",
+          (await admin.from("order_items").select("id").in(
+            "order_id",
+            (await admin.from("orders").select("id").eq("business_id", businessId)).data?.map((o) => o.id) || []
+          )).data?.map((i) => i.id) || []
+        ),
+    },
+    {
+      label: "order items",
+      run: async () =>
+        admin.from("order_items").delete().in(
+          "order_id",
+          (await admin.from("orders").select("id").eq("business_id", businessId)).data?.map((o) => o.id) || []
+        ),
+    },
+    { label: "orders", run: async () => admin.from("orders").delete().eq("business_id", businessId) },
+    { label: "modifiers", run: async () => admin.from("modifiers").delete().eq("business_id", businessId) },
+    { label: "modifier groups", run: async () => admin.from("modifier_groups").delete().eq("business_id", businessId) },
+    { label: "menu item add-on attachments", run: async () => admin.from("menu_item_modifier_groups").delete().eq("business_id", businessId) },
+    { label: "menu items", run: async () => admin.from("menu_items").delete().eq("business_id", businessId) },
+    { label: "menu categories", run: async () => admin.from("menu_categories").delete().eq("business_id", businessId) },
+    { label: "customers", run: async () => admin.from("customers").delete().eq("business_id", businessId) },
+    { label: "knowledge items", run: async () => admin.from("knowledge_items").delete().eq("business_id", businessId) },
+    { label: "promotions", run: async () => admin.from("promotions").delete().eq("business_id", businessId) },
+    { label: "printer devices", run: async () => admin.from("printer_devices").delete().eq("business_id", businessId) },
+    { label: "printer pairing codes", run: async () => admin.from("printer_pairing_codes").delete().eq("business_id", businessId) },
+    { label: "business hours", run: async () => admin.from("business_hours").delete().eq("business_id", businessId) },
+    { label: "AI voice config", run: async () => admin.from("ai_voice_configs").delete().eq("business_id", businessId) },
+    { label: "AI receptionist", run: async () => admin.from("ai_receptionists").delete().eq("business_id", businessId) },
+    { label: "integrations", run: async () => admin.from("integrations").delete().eq("business_id", businessId) },
+    { label: "business members", run: async () => admin.from("business_members").delete().eq("business_id", businessId) },
+    { label: "business", run: async () => admin.from("businesses").delete().eq("id", businessId) },
+  ];
+
+  for (const step of steps) {
+    const { error } = await step.run();
+    if (error) {
+      return { success: false, error: `Deletion stopped while removing ${step.label}: ${error.message}. Some data may have already been removed — check with engineering before retrying.` };
+    }
+  }
 
   revalidatePath("/admin");
   return { success: true };

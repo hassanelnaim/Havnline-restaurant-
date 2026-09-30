@@ -126,3 +126,26 @@ export async function sendPaymentsLiveEmail(businessId: string): Promise<void> {
   });
   await send(recipients, `${business.name}: you're set up to take phone payments`, html, "payments-live");
 }
+
+/**
+ * Sent from the Stripe Connect webhook when a business's Stripe
+ * account is deauthorized/disconnected — either they disconnected it
+ * themselves, or Stripe did. Without this, a business could go from
+ * "collecting real payments" to silently falling back to pay-at-pickup
+ * with no idea why, until a customer or a failed charge tipped them off.
+ */
+export async function sendPaymentsDisconnectedEmail(businessId: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
+  if (!business) return;
+
+  const recipients = await getRecipients(admin, businessId);
+  const html = renderEmailLayout({
+    preheader: `${business.name}'s Stripe account was disconnected from HavnLine.`,
+    heading: "Your Stripe account was disconnected",
+    intro: `<strong>${escapeHtml(business.name)}</strong>'s connection to Stripe was removed, so HavnLine can no longer text customers a payment link. Orders will fall back to pay-at-pickup until you reconnect.`,
+    cta: { label: "Reconnect Stripe", url: `${APP_URL}/dashboard/integrations` },
+    footerNote: `This is sent to every member of ${escapeHtml(business.name)}.`,
+  });
+  await send(recipients, `${business.name}: your Stripe account was disconnected`, html, "payments-disconnected");
+}

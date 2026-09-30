@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
 import Anthropic from "@anthropic-ai/sdk";
+import { promises as dns } from "dns";
+import net from "net";
 import type { KnowledgeCategory } from "@/lib/database/types";
 
 const MAX_CHARS = 15000;
@@ -194,29 +196,117 @@ async function fetchViaScrapingBee(url: string): Promise<string> {
   return response.text();
 }
 
-async function fetchViaPlainRequest(url: string): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+// --------------------------------------------------------------------------
+// SSRF guard. This fetches whatever URL a business owner types into
+// "Import from your website" — with no restriction, that's a server-
+// side request to an address OF THE OWNER'S CHOOSING, and the result
+// (or up to 300 chars of it — see the "0 items found" diagnostic in
+// extractMenuFromWebsiteAction) gets echoed back into the dashboard.
+// That's blind SSRF turned into SSRF-with-disclosure: pointed at
+// 169.254.169.254 (cloud metadata) or an internal service, it could
+// leak real infrastructure data to whoever's running the import.
+// Resolves the hostname ourselves and refuses anything that isn't a
+// public address, rather than trusting the URL's scheme/hostname
+// alone (which a redirect or a numeric-IP host can disguise).
+// --------------------------------------------------------------------------
 
-  let response: Response;
+function isPrivateOrReservedIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 127) return true; // loopback
+    if (a === 10) return true; // private
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 192 && b === 168) return true; // private
+    if (a === 169 && b === 254) return true; // link-local incl. cloud metadata
+    if (a === 0) return true; // "this" network
+    if (a >= 224) return true; // multicast / reserved
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1" || lower === "::") return true; // loopback / unspecified
+    if (/^fe[89ab][0-9a-f]:/.test(lower)) return true; // link-local fe80::/10
+    if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true; // unique local fc00::/7
+    if (lower.startsWith("::ffff:")) {
+      const embedded = lower.split(":").pop()!;
+      if (net.isIPv4(embedded)) return isPrivateOrReservedIp(embedded);
+    }
+    return false;
+  }
+  return true; // not a recognizable IP — fail closed
+}
+
+async function assertPublicHttpUrl(rawUrl: string): Promise<void> {
+  let url: URL;
   try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-  } finally {
-    clearTimeout(timeout);
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("That doesn't look like a valid website address.");
   }
 
-  if (!response.ok) {
-    throw new Error(`Could not load that website (HTTP ${response.status}).`);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Only http or https website addresses can be imported.");
   }
 
-  return response.text();
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    throw new Error("That address can't be imported from.");
+  }
+
+  let addresses: string[];
+  try {
+    addresses = (await dns.lookup(hostname, { all: true })).map((r) => r.address);
+  } catch {
+    throw new Error("Could not resolve that website's address.");
+  }
+
+  if (addresses.length === 0 || addresses.some(isPrivateOrReservedIp)) {
+    throw new Error("That address can't be imported from.");
+  }
+}
+
+async function fetchViaPlainRequest(url: string): Promise<string> {
+  // Manual redirect handling (not fetch's default "follow") so a page
+  // that 30x's to an internal address can't slip past the check above
+  // on the very next hop — each hop is validated the same way as the
+  // original URL before it's followed.
+  let currentUrl = url;
+  for (let redirects = 0; redirects <= 5; redirects++) {
+    await assertPublicHttpUrl(currentUrl);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    let response: Response;
+    try {
+      response = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: "manual",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("That website redirected without a destination.");
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Could not load that website (HTTP ${response.status}).`);
+    }
+
+    return response.text();
+  }
+
+  throw new Error("That website redirected too many times.");
 }
 
 export async function fetchWebsiteText(url: string): Promise<string> {
@@ -224,6 +314,12 @@ export async function fetchWebsiteText(url: string): Promise<string> {
   if (!/^https?:\/\//i.test(normalizedUrl)) {
     normalizedUrl = `https://${normalizedUrl}`;
   }
+
+  // Validated up front for both paths — ScrapingBee fetches from its
+  // own infrastructure (so it isn't an SSRF risk to ours), but there's
+  // no legitimate reason to "import a menu" from a private/internal
+  // address either way, and this keeps the check in one place.
+  await assertPublicHttpUrl(normalizedUrl);
 
   const renderingConfigured = Boolean(process.env.SCRAPINGBEE_API_KEY);
   const html = renderingConfigured ? await fetchViaScrapingBee(normalizedUrl) : await fetchViaPlainRequest(normalizedUrl);

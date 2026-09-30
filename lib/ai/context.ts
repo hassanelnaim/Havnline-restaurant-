@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { safeTimezone } from "@/lib/business/timezone";
 import type {
   DbAiReceptionist, DbAiVoiceConfig, DbBusiness, DbBusinessHours,
   DbKnowledgeItem, DbPromotion, MenuItemWithModifiers,
@@ -33,7 +34,13 @@ export async function loadBusinessContext(businessId: string): Promise<BusinessC
   if (businessRes.error || !businessRes.data) return null;
   if (aiRes.error || !aiRes.data) return null;
 
-  const business = businessRes.data as DbBusiness;
+  // Normalized once, here, so every downstream consumer of this
+  // BusinessContext (the system prompt, hours/pricing checks, tool
+  // handlers — the whole live-call path) can trust business.timezone
+  // is always a real IANA zone, even if a bad value somehow ended up
+  // in the row. A throw here would otherwise take down this business's
+  // entire phone line on every single call.
+  const business = { ...(businessRes.data as DbBusiness), timezone: safeTimezone(businessRes.data.timezone) };
   const groups = groupsRes.data || [];
   const allModifiers = modifiersRes.data || [];
   const attachments = attachmentsRes.data || [];

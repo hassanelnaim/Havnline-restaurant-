@@ -19,10 +19,14 @@ import type { DbBusiness, OrderWithItems } from "@/lib/database/types";
 
 const PAIRING_CODE_TTL_MINUTES = 15;
 
-function randomCode(length = 6): string {
+function randomCode(length = 8): string {
   // Digits only — easiest thing to read off a screen and type on a
   // tablet's on-screen keyboard, and avoids ambiguous letters (0/O, 1/I)
-  // a 6-char alphanumeric code would risk.
+  // a 6-char alphanumeric code would risk. 8 digits (100M combinations,
+  // up from 6/1M) so brute-forcing one within its 15-minute lifetime
+  // stays impractical even spread across many source IPs, now that the
+  // per-IP rate limit in app/api/printer-app/pair/route.ts can no
+  // longer be trivially bypassed by spoofing X-Forwarded-For.
   const bytes = randomBytes(length);
   return Array.from(bytes, (b) => (b % 10).toString()).join("");
 }

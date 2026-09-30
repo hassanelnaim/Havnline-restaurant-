@@ -3,6 +3,7 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
+import { isValidTimezone } from "@/lib/business/timezone";
 
 export interface CreateBusinessDraftResult {
   success: boolean;
@@ -26,6 +27,14 @@ export async function createBusinessDraftAction(input: {
 
   if (userError || !user) return { success: false, error: "You need to be logged in." };
   if (!input.businessName.trim()) return { success: false, error: "Business name is required." };
+  // The onboarding UI only ever offers a fixed <select> of real IANA
+  // zones, but this is a server action — reachable directly with any
+  // string — and an invalid one stored here would crash this
+  // business's phone line the moment a call comes in (see
+  // lib/business/timezone.ts).
+  if (input.timezone && !isValidTimezone(input.timezone)) {
+    return { success: false, error: "That timezone isn't recognized — please pick one from the list." };
+  }
 
   const admin = createAdminClient();
 

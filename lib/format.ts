@@ -1,3 +1,5 @@
+import { safeTimezone } from "@/lib/business/timezone";
+
 export function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -21,7 +23,7 @@ export function formatDuration(minutes: number): string {
  */
 export function formatDateTime(iso: string, timezone: string): string {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { timeZone: timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return d.toLocaleString(undefined, { timeZone: safeTimezone(timezone), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function formatDate(iso: string): string {
@@ -50,7 +52,7 @@ export function formatDateWithWeekday(iso: string): string {
  * Vercel), same reasoning as formatDateTime above.
  */
 export function localDateKey(iso: string, timezone: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: timezone }); // en-CA gives YYYY-MM-DD
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: safeTimezone(timezone) }); // en-CA gives YYYY-MM-DD
 }
 
 /**

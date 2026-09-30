@@ -198,13 +198,14 @@ export async function voidOrderCheckout(connectedAccountId: string, checkoutSess
 export async function refundOrderPayment(
   connectedAccountId: string,
   paymentIntentId: string,
-  amountCents?: number
+  amountCents?: number,
+  idempotencyKey?: string
 ): Promise<{ success: boolean; refundedCents?: number; error?: string }> {
   const stripe = requireStripe();
   try {
     const refund = await stripe.refunds.create(
       { payment_intent: paymentIntentId, amount: amountCents, refund_application_fee: true },
-      { stripeAccount: connectedAccountId }
+      { stripeAccount: connectedAccountId, ...(idempotencyKey ? { idempotencyKey } : {}) }
     );
     return { success: true, refundedCents: refund.amount };
   } catch (err) {

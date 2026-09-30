@@ -45,7 +45,18 @@ export async function signUpAction(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/signup?error=${encodeURIComponent(error.message)}`);
+    // Supabase can return a distinct "already registered" error here
+    // (depending on the project's email-confirmation setting), which
+    // would let anyone check whether a given email has an account just
+    // by trying to sign up with it. Every other error (weak password,
+    // bad email format, rate-limited) still shows Supabase's own
+    // message, since only the duplicate-account case is enumeration-
+    // sensitive.
+    const isDuplicateEmail = /already registered|already exists|already in use/i.test(error.message);
+    const message = isDuplicateEmail
+      ? "If that email doesn't already have an account, check your inbox to finish signing up. Already have one? Try signing in instead."
+      : error.message;
+    redirect(`/signup?error=${encodeURIComponent(message)}`);
   }
 
   redirect("/login?justSignedUp=1");

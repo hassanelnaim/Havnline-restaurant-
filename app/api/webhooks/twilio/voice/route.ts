@@ -64,10 +64,16 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const { data: business } = await admin.from("businesses").select("subscription_status").eq("id", businessId).single();
+  const { data: business } = await admin.from("businesses").select("subscription_status, is_suspended").eq("id", businessId).single();
   const isOperational = business && OPERATIONAL_SUBSCRIPTION_STATUSES.includes(business.subscription_status);
 
-  if (!isOperational || context.ai.status !== "online") {
+  // Defense in depth: suspension is meant to be enforced by flipping
+  // ai_receptionists.status to "offline" (see suspendBusinessAction),
+  // but that's the same column the business's own dashboard toggle
+  // controls — so a suspended business could otherwise just turn
+  // itself back "online". Check is_suspended directly here too, since
+  // this is the one place that actually decides whether to answer.
+  if (!isOperational || business?.is_suspended || context.ai.status !== "online") {
     return twiml(`<Response><Say>Thanks for calling ${escapeXml(context.business.name)}. We're currently unable to take your call — please try again later.</Say><Hangup/></Response>`);
   }
 

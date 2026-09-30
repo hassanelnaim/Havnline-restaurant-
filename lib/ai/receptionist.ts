@@ -112,6 +112,9 @@ export async function handleTurn(
     return { reply: "Sorry, I'm having trouble accessing business information right now.", toolCalls: [] };
   }
 
+  const { data: callRow } = await admin.from("calls").select("phone").eq("id", callId).maybeSingle();
+  const callerPhone = channel === "phone" ? callRow?.phone || null : null;
+
   const { data: priorMessages } = await admin
     .from("call_messages")
     .select("role, content")
@@ -126,7 +129,7 @@ export async function handleTurn(
 
   await admin.from("call_messages").insert({ call_id: callId, role: "customer", content: userMessage });
 
-  const toolCtx: ToolContext = { businessId, callId, channel, context };
+  const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone };
   const result = await runTurn(history, userMessage, toolCtx);
 
   await admin.from("call_messages").insert({
