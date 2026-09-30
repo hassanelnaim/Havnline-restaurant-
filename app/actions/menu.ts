@@ -352,14 +352,46 @@ export async function extractMenuFromImageAction(imageBase64: string, mediaType:
   }
 }
 
+// An add-on group's "identity" for deciding whether two items' groups
+// are really the same add-on — same name, same required-ness, same
+// options (and prices). Order-independent (options are sorted) so it
+// doesn't matter what order the extraction model listed them in.
+function modifierGroupSignature(group: ExtractedMenuItem["modifierGroups"][number]): string {
+  const normalizedOptions = group.options
+    .map((o) => `${o.name.trim().toLowerCase()}:${(parseFloat(o.priceDeltaDollars) || 0).toFixed(2)}`)
+    .sort()
+    .join("|");
+  return `${group.name.trim().toLowerCase()}::${group.required}::${normalizedOptions}`;
+}
+
 // Called only after the owner has reviewed/edited the staged items in
 // the UI — this is the one function that actually writes real,
 // orderable menu rows.
+//
+// An add-on group that comes back byte-for-byte identical (same name,
+// same required flag, same options/prices) across 2+ items in this one
+// import is almost certainly the same real add-on — most menus reuse
+// the same "Size" or "Toppings" choices across many items. Those
+// become ONE shared add-ons-library template (see migration 017),
+// attached to every item that has it, instead of a separate copy per
+// item — so the owner doesn't have to manually rebuild the library
+// after every import. A group that only shows up once stays a one-off
+// tied directly to that item, exactly as before.
 export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const categoryIdByName = new Map<string, string>();
+
+  const signatureCounts = new Map<string, number>();
+  for (const item of items) {
+    for (const group of item.modifierGroups) {
+      if (!group.name.trim()) continue;
+      const sig = modifierGroupSignature(group);
+      signatureCounts.set(sig, (signatureCounts.get(sig) || 0) + 1);
+    }
+  }
+  const templateIdBySignature = new Map<string, string>();
 
   for (const item of items) {
     if (!item.name.trim()) continue;
@@ -398,9 +430,47 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
 
     for (const group of item.modifierGroups) {
       if (!group.name.trim()) continue;
+      const sig = modifierGroupSignature(group);
+      const isShared = (signatureCounts.get(sig) || 0) > 1;
+
+      if (isShared) {
+        const existingTemplateId: string | undefined = templateIdBySignature.get(sig);
+        let templateId: string;
+        if (existingTemplateId) {
+          templateId = existingTemplateId;
+        } else {
+          const { data: templateGroup, error: templateError } = await admin
+            .from("modifier_groups")
+            .insert({ business_id: businessId, menu_item_id: null, is_template: true, name: group.name, is_required: group.required, min_select: group.required ? 1 : 0, max_select: 1 })
+            .select("id")
+            .single();
+          if (templateError || !templateGroup) return { success: false, error: templateError?.message || "Could not create a shared add-on group." };
+          templateId = templateGroup.id as string;
+          templateIdBySignature.set(sig, templateId);
+
+          const optionRows = group.options.filter((o) => o.name.trim()).map((o) => ({
+            business_id: businessId,
+            modifier_group_id: templateId,
+            name: o.name,
+            price_delta_cents: Math.round((parseFloat(o.priceDeltaDollars) || 0) * 100),
+          }));
+          if (optionRows.length > 0) {
+            const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
+            if (optionsError) return { success: false, error: optionsError.message };
+          }
+        }
+
+        const { error: attachError } = await admin.from("menu_item_modifier_groups").upsert(
+          { business_id: businessId, menu_item_id: menuItem.id, modifier_group_id: templateId },
+          { onConflict: "menu_item_id,modifier_group_id", ignoreDuplicates: true }
+        );
+        if (attachError) return { success: false, error: attachError.message };
+        continue;
+      }
+
       const { data: modifierGroup, error: groupError } = await admin
         .from("modifier_groups")
-        .insert({ business_id: businessId, menu_item_id: menuItem.id, name: group.name, is_required: group.required, min_select: group.required ? 1 : 0, max_select: 1 })
+        .insert({ business_id: businessId, menu_item_id: menuItem.id, is_template: false, name: group.name, is_required: group.required, min_select: group.required ? 1 : 0, max_select: 1 })
         .select("id")
         .single();
       if (groupError) return { success: false, error: groupError.message };

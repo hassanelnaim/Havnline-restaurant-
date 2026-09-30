@@ -1,9 +1,10 @@
 "use client";
-import { useState, useTransition, useRef, useMemo } from "react";
+import { useState, useTransition, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 import type { AddonTemplate } from "@/lib/data/menu";
+import { NEXT_STEP_HIGHLIGHT, NEXT_STEP_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
 import {
   addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction,
   addModifierGroupAction, deleteModifierGroupAction,
@@ -34,10 +35,22 @@ export function MenuClient({
 }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
-  const [categories] = useState(initialCategories);
+  const [categories, setCategories] = useState(initialCategories);
   const [addonTemplates, setAddonTemplates] = useState(initialAddonTemplates);
   const [, startTransition] = useTransition();
   const [search, setSearch] = useState("");
+
+  // router.refresh() re-fetches this page's server data and passes new
+  // initial* props down, but a mounted client component's useState
+  // keeps its OLD value across that — React only reads the initial
+  // value once, on first mount. Without this, anything added via
+  // router.refresh() alone (a new add-on template was the one actually
+  // reported broken, but the same gap existed for new items/categories
+  // too) would silently not show up until a full page reload. Syncing
+  // on every prop change fixes all three at once.
+  useEffect(() => { setItems(initialItems); }, [initialItems]);
+  useEffect(() => { setCategories(initialCategories); }, [initialCategories]);
+  useEffect(() => { setAddonTemplates(initialAddonTemplates); }, [initialAddonTemplates]);
 
   // Add item form
   const [name, setName] = useState("");
@@ -283,8 +296,8 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
               </div>
             ))}
 
-            <div className="rounded-lg border border-border p-3">
-              <div className="text-[12.5px] font-medium text-text">Attach a shared add-on</div>
+            <div className={`rounded-lg p-3 ${availableTemplates.length > 0 ? NEXT_STEP_HIGHLIGHT : "border border-border"}`}>
+              <div className="text-[12.5px] font-semibold text-text">Attach a shared add-on</div>
               <p className="mt-0.5 text-[11.5px] text-text-faint">From your add-ons library — edit it once there and it updates on every item using it.</p>
               {availableTemplates.length === 0 ? (
                 <p className="mt-2 text-[12px] text-text-faint">
@@ -295,7 +308,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                   <select
                     value={selectedTemplateId}
                     onChange={(e) => setSelectedTemplateId(e.target.value)}
-                    className="h-9 flex-1 rounded-lg border border-border bg-paper px-2.5 text-[13px]"
+                    className={`h-9 flex-1 rounded-lg border bg-white px-2.5 text-[13px] outline-none ${NEXT_STEP_INPUT_HIGHLIGHT}`}
                   >
                     <option value="">Choose an add-on group…</option>
                     {availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
