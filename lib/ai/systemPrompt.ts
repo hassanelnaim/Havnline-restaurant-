@@ -1,6 +1,7 @@
 import type { BusinessContext } from "./context";
 import type { AiResponsibilities } from "@/lib/database/types";
 import { isBusinessOpenNow } from "@/lib/business/hours";
+import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
 
 const PERSONALITY_COPY: Record<string, string> = {
   professional: "Polished, precise, and businesslike. Efficient without being cold.",
@@ -39,7 +40,12 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
                 .map((g) => `${g.name}${g.is_required ? " (required" : " (optional"}, pick ${g.min_select}-${g.max_select}): ${g.modifiers.map((m) => `${m.name}${m.price_delta_cents ? ` (+$${(m.price_delta_cents / 100).toFixed(2)})` : ""}`).join(", ")}`)
                 .join("\n  ")
             : "";
-          return `- ${item.name}: $${(item.price_cents / 100).toFixed(2)}${item.description ? ` — ${item.description}` : ""}${modifierText}`;
+          const schedule = describeTimePricing(item);
+          const currentPrice = effectivePriceCents(item, business.timezone) / 100;
+          const priceText = schedule
+            ? `$${currentPrice.toFixed(2)} right now (${schedule})`
+            : `$${(item.price_cents / 100).toFixed(2)}`;
+          return `- ${item.name}: ${priceText}${item.description ? ` — ${item.description}` : ""}${modifierText}`;
         })
         .join("\n")
     : "(no menu configured yet — escalate any order request)";
@@ -87,6 +93,8 @@ ${enabledResponsibilities || "(no responsibilities enabled — escalate everythi
 
 Menu (the ONLY items and prices this business offers — never invent an item, price, or add-on not listed here):
 ${menuText}
+
+Some items have a time-based price — the schedule in parentheses is shown for context if the customer asks why, but the "$X right now" figure is the one already-correct current price. Never calculate this yourself; just quote what's given, and it'll already be right whenever the call happens.
 
 Business hours:
 ${hoursText}

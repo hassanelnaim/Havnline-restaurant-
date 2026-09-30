@@ -1,15 +1,17 @@
 "use client";
 import { useState, useTransition, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil } from "lucide-react";
+import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 import type { AddonTemplate } from "@/lib/data/menu";
 import { EASY_TO_MISS_HIGHLIGHT, EASY_TO_MISS_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
+import { describeTimePricing } from "@/lib/business/pricing";
 import {
   addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction,
   addModifierGroupAction, deleteModifierGroupAction,
   createAddonTemplateAction, renameAddonTemplateAction, addAddonTemplateOptionAction, deleteAddonOptionAction, deleteAddonTemplateAction,
   attachAddonTemplateAction, detachAddonTemplateAction,
+  updateMenuItemTimePricingAction,
   extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, importMenuItemsAction,
 } from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
@@ -214,6 +216,50 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
   const [groupError, setGroupError] = useState<string | null>(null);
   const [savingGroup, setSavingGroup] = useState(false);
 
+  // Time-based pricing (e.g. a Breakfast Special that's cheaper 7-11am)
+  const hasTimePricing = item.special_price_cents != null && !!item.special_price_start_time && !!item.special_price_end_time;
+  const [showTimePricingForm, setShowTimePricingForm] = useState(false);
+  const [specialPrice, setSpecialPrice] = useState(item.special_price_cents != null ? (item.special_price_cents / 100).toFixed(2) : "");
+  const [startTime, setStartTime] = useState(item.special_price_start_time?.slice(0, 5) || "");
+  const [endTime, setEndTime] = useState(item.special_price_end_time?.slice(0, 5) || "");
+  const [timePricingError, setTimePricingError] = useState<string | null>(null);
+  const [savingTimePricing, setSavingTimePricing] = useState(false);
+  const timePricingSchedule = describeTimePricing({
+    price_cents: item.price_cents,
+    special_price_cents: item.special_price_cents,
+    special_price_start_time: item.special_price_start_time,
+    special_price_end_time: item.special_price_end_time,
+  });
+
+  function saveTimePricing() {
+    if (specialPrice.trim() && (!startTime || !endTime)) {
+      setTimePricingError("Set both a start and end time, or clear the special price to remove time pricing.");
+      return;
+    }
+    setSavingTimePricing(true);
+    setTimePricingError(null);
+    startTransition(async () => {
+      const result = await updateMenuItemTimePricingAction(item.id, { specialPrice, startTime, endTime });
+      setSavingTimePricing(false);
+      if (!result.success) { setTimePricingError(result.error || "Could not save time pricing."); return; }
+      setShowTimePricingForm(false);
+      onRefresh();
+    });
+  }
+
+  function clearTimePricing() {
+    setSpecialPrice(""); setStartTime(""); setEndTime("");
+    setSavingTimePricing(true);
+    setTimePricingError(null);
+    startTransition(async () => {
+      const result = await updateMenuItemTimePricingAction(item.id, { specialPrice: "", startTime: "", endTime: "" });
+      setSavingTimePricing(false);
+      if (!result.success) { setTimePricingError(result.error || "Could not clear time pricing."); return; }
+      setShowTimePricingForm(false);
+      onRefresh();
+    });
+  }
+
   const attachedTemplateIds = new Set(item.modifier_groups.filter((g) => g.is_template).map((g) => g.id));
   const availableTemplates = addonTemplates.filter((t) => !attachedTemplateIds.has(t.id));
 
@@ -264,6 +310,11 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                 {item.name}
                 {item.modifier_groups.length > 0 && (
                   <span className="rounded-full bg-paper px-1.5 py-0.5 text-[10px] font-medium text-text-faint">{item.modifier_groups.length} add-on{item.modifier_groups.length === 1 ? "" : "s"}</span>
+                )}
+                {hasTimePricing && (
+                  <span className="flex items-center gap-1 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand-dark" title={timePricingSchedule || undefined}>
+                    <Clock className="h-2.5 w-2.5" /> Time pricing
+                  </span>
                 )}
               </div>
               <div className="text-[12px] text-text-muted">{item.description}</div>
@@ -344,6 +395,52 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                 </div>
               </div>
             )}
+
+            <div className="border-t border-border-soft pt-3">
+              {hasTimePricing && !showTimePricingForm ? (
+                <div className={`flex items-center justify-between rounded-lg p-3 ${EASY_TO_MISS_HIGHLIGHT}`}>
+                  <div className="flex items-center gap-1.5 text-[12.5px] text-text">
+                    <Clock className="h-3.5 w-3.5 text-brand-dark" />
+                    <span className="font-medium">Time-based pricing:</span> {timePricingSchedule}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button className="rounded-md p-1 text-text-faint hover:bg-paper hover:text-text" onClick={() => setShowTimePricingForm(true)} aria-label="Edit time pricing"><Pencil className="h-3.5 w-3.5" /></button>
+                    <button className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" onClick={clearTimePricing} disabled={savingTimePricing} aria-label="Remove time pricing"><X className="h-3.5 w-3.5" /></button>
+                  </div>
+                </div>
+              ) : !showTimePricingForm ? (
+                <button className="text-[12px] font-medium text-text-muted hover:text-text" onClick={() => setShowTimePricingForm(true)}>
+                  + Add a time-based price (e.g. a breakfast special)
+                </button>
+              ) : (
+                <div className="rounded-lg border border-border p-3">
+                  <div className="text-[12.5px] font-medium text-text">Time-based price</div>
+                  <p className="mt-0.5 text-[11.5px] text-text-faint">
+                    Charge a different price during a window each day — like ${item.price_cents ? (item.price_cents / 100).toFixed(2) : "9.99"} normally, but $9.99 from 7-11am. Outside the window it uses the item&apos;s regular price above.
+                  </p>
+                  {timePricingError && <div className="mt-2 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-[12px] text-danger">{timePricingError}</div>}
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    <div>
+                      <Label className="text-[11px] text-text-faint">Special price</Label>
+                      <Input placeholder="9.99" value={specialPrice} onChange={(e) => setSpecialPrice(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-text-faint">Start time</Label>
+                      <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-text-faint">End time</Label>
+                      <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <Button size="sm" variant="brand" onClick={saveTimePricing} disabled={savingTimePricing}>{savingTimePricing ? "Saving…" : "Save"}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setShowTimePricingForm(false); setTimePricingError(null); setSpecialPrice(item.special_price_cents != null ? (item.special_price_cents / 100).toFixed(2) : ""); setStartTime(item.special_price_start_time?.slice(0, 5) || ""); setEndTime(item.special_price_end_time?.slice(0, 5) || ""); }}>Cancel</Button>
+                    {hasTimePricing && <Button size="sm" variant="ghost" onClick={clearTimePricing} disabled={savingTimePricing}>Remove</Button>}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </CardContent>

@@ -116,6 +116,12 @@ export interface DbMenuItem {
   is_active: boolean;
   sort_order: number;
   source: MenuItemSource;
+  // Time-based pricing (e.g. a Breakfast Special that's cheaper before
+  // 11am) — all three must be set for it to apply. When any are null,
+  // this item just uses price_cents all the time, exactly as before.
+  special_price_cents: number | null;
+  special_price_start_time: string | null;
+  special_price_end_time: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

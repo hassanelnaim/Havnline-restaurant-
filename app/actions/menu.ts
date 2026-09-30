@@ -81,6 +81,43 @@ export async function updateMenuItemAction(itemId: string, input: MenuItemInput)
   return { success: true };
 }
 
+export interface TimePricingInput {
+  specialPrice: string; // dollars, e.g. "9.99" — empty/invalid clears time pricing
+  startTime: string; // "HH:MM", 24h
+  endTime: string; // "HH:MM", 24h
+}
+
+/**
+ * Sets or clears an item's time-based price (e.g. a Breakfast Special
+ * that's $9.99 from 7:00-11:00am and price_cents the rest of the day).
+ * All three fields are required together — passing an empty
+ * specialPrice (or missing either time) clears time pricing entirely,
+ * so the item just goes back to always using price_cents, same as any
+ * item that never had this set.
+ */
+export async function updateMenuItemTimePricingAction(itemId: string, input: TimePricingInput): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+
+  const specialPriceCents = input.specialPrice.trim() ? Math.round(parseFloat(input.specialPrice) * 100) : null;
+  const hasWindow = specialPriceCents != null && Number.isFinite(specialPriceCents) && input.startTime && input.endTime;
+
+  const { error } = await admin
+    .from("menu_items")
+    .update({
+      special_price_cents: hasWindow ? specialPriceCents : null,
+      special_price_start_time: hasWindow ? input.startTime : null,
+      special_price_end_time: hasWindow ? input.endTime : null,
+    })
+    .eq("id", itemId)
+    .eq("business_id", businessId);
+
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/dashboard/menu");
+  return { success: true };
+}
+
 export async function toggleMenuItemActiveAction(itemId: string, isActive: boolean): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();

@@ -5,6 +5,7 @@ import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
+import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -26,18 +27,25 @@ async function get_business_information(_input: unknown, ctx: ToolContext): Prom
 
 async function get_menu(_input: unknown, ctx: ToolContext): Promise<ToolResult> {
   return {
-    menu: ctx.context.menu.map((item) => ({
-      name: item.name,
-      price: item.price_cents / 100,
-      description: item.description,
-      modifier_groups: item.modifier_groups.map((g) => ({
-        name: g.name,
-        required: g.is_required,
-        min_select: g.min_select,
-        max_select: g.max_select,
-        options: g.modifiers.map((m) => ({ name: m.name, price_delta: m.price_delta_cents / 100 })),
-      })),
-    })),
+    menu: ctx.context.menu.map((item) => {
+      const schedule = describeTimePricing(item);
+      return {
+        name: item.name,
+        price: effectivePriceCents(item, ctx.context.business.timezone) / 100,
+        // Only present for an item with time-based pricing — tells the
+        // AI the full schedule so it can explain why the price is
+        // different earlier/later, not just quote the current number.
+        ...(schedule ? { price_schedule: schedule } : {}),
+        description: item.description,
+        modifier_groups: item.modifier_groups.map((g) => ({
+          name: g.name,
+          required: g.is_required,
+          min_select: g.min_select,
+          max_select: g.max_select,
+          options: g.modifiers.map((m) => ({ name: m.name, price_delta: m.price_delta_cents / 100 })),
+        })),
+      };
+    }),
   };
 }
 
@@ -142,13 +150,20 @@ async function add_item_to_order(
 
   const orderId = await getOrCreateBuildingOrder(ctx);
 
+  // Charge whatever this item's real price is RIGHT NOW — for most
+  // items that's just price_cents, but an item with time-based pricing
+  // (e.g. a Breakfast Special) needs the actual current price locked
+  // in at the moment it's added, not a stale price from whenever the
+  // menu was quoted earlier in the call.
+  const unitPriceCents = effectivePriceCents(menuItem, ctx.context.business.timezone);
+
   const { data: orderItem, error } = await admin
     .from("order_items")
     .insert({
       order_id: orderId,
       menu_item_id: menuItem.id,
       item_name: menuItem.name,
-      unit_price_cents: menuItem.price_cents,
+      unit_price_cents: unitPriceCents,
       quantity,
       notes: input.notes || null,
     })
