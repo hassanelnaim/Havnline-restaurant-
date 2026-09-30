@@ -47,7 +47,7 @@ export function BillingClient({ business }: { business: DbBusiness }) {
         {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
         <div className="flex gap-3 pt-2">
           {hasSubscription ? (
-            <Button variant="outline" onClick={handleManage} disabled={loading}>{loading ? "Opening…" : "Manage billing"}</Button>
+            <Button variant="brand" onClick={handleManage} disabled={loading}>{loading ? "Opening…" : "Manage billing"}</Button>
           ) : (
             <Button variant="brand" onClick={handleSubscribe} disabled={loading}>{loading ? "Starting checkout…" : "Start 7-day free trial"}</Button>
           )}

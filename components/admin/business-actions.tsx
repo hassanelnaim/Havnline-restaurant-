@@ -76,7 +76,7 @@ export function BusinessActions({ businessId, businessName, isSuspended }: Busin
   return (
     <div className="flex items-center gap-2">
       {isSuspended ? (
-        <Button variant="outline" size="sm" onClick={handleReactivate} disabled={reactivating}>
+        <Button variant="brand" size="sm" onClick={handleReactivate} disabled={reactivating}>
           <ShieldCheck className="h-3.5 w-3.5" /> {reactivating ? "Reactivating…" : "Reactivate"}
         </Button>
       ) : (

@@ -166,7 +166,7 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
               <div><Label>Title</Label><Input className="mt-1.5" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
             )}
             <div><Label>Content</Label><Textarea rows={3} className="mt-1.5" value={content} onChange={(e) => setContent(e.target.value)} /></div>
-            <Button variant="outline" size="sm" onClick={addItem} disabled={isPending || !content.trim()}><Plus className="h-3.5 w-3.5" /> Add</Button>
+            <Button variant="brand" size="sm" onClick={addItem} disabled={isPending || !content.trim()}><Plus className="h-3.5 w-3.5" /> Add</Button>
           </CardContent>
         </Card>
         {items.filter((i) => i.category !== "policy").length === 0 ? (
@@ -197,7 +197,7 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
               <div><Label>Start date</Label><Input type="date" className="mt-1.5" value={promoStart} onChange={(e) => setPromoStart(e.target.value)} /></div>
               <div><Label>End date</Label><Input type="date" className="mt-1.5" value={promoEnd} onChange={(e) => setPromoEnd(e.target.value)} /></div>
             </div>
-            <Button variant="outline" size="sm" onClick={addPromo} disabled={!promoTitle.trim()}><Plus className="h-3.5 w-3.5" /> Add promotion</Button>
+            <Button variant="brand" size="sm" onClick={addPromo} disabled={!promoTitle.trim()}><Plus className="h-3.5 w-3.5" /> Add promotion</Button>
           </CardContent>
         </Card>
         {promotions.length === 0 ? (

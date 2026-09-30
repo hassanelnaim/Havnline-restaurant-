@@ -209,20 +209,20 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
           <CardContent className="space-y-4">
             <div>
               <Label>Full name</Label>
-              <div className="mt-1.5 flex gap-2"><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /><Button variant="outline" size="sm" onClick={handleSaveName} disabled={isPending}>Save</Button></div>
+              <div className="mt-1.5 flex gap-2"><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /><Button variant="brand" size="sm" onClick={handleSaveName} disabled={isPending}>Save</Button></div>
               {nameError && <p className="mt-1.5 text-[12px] text-danger">{nameError}</p>}
               {nameSaved && <p className="mt-1.5 text-[12px] text-success">Saved ✓</p>}
             </div>
             <div>
               <Label>Email</Label>
-              <div className="mt-1.5 flex gap-2"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /><Button variant="outline" size="sm" onClick={handleSaveEmail} disabled={isPending}>Save</Button></div>
+              <div className="mt-1.5 flex gap-2"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /><Button variant="brand" size="sm" onClick={handleSaveEmail} disabled={isPending}>Save</Button></div>
               {emailError && <p className="mt-1.5 text-[12px] text-danger">{emailError}</p>}
               {emailSaved && <p className="mt-1.5 text-[12px] text-success">Check your new email for a confirmation link.</p>}
             </div>
             <Separator />
             <div>
               <Label>New password</Label>
-              <div className="mt-1.5 flex gap-2"><Input type="password" placeholder="At least 8 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /><Button variant="outline" size="sm" onClick={handleSavePassword} disabled={isPending || newPassword.length === 0}>Update password</Button></div>
+              <div className="mt-1.5 flex gap-2"><Input type="password" placeholder="At least 8 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /><Button variant="brand" size="sm" onClick={handleSavePassword} disabled={isPending || newPassword.length === 0}>Update password</Button></div>
               {passwordError && <p className="mt-1.5 text-[12px] text-danger">{passwordError}</p>}
               {passwordSaved && <p className="mt-1.5 text-[12px] text-success">Password updated ✓</p>}
             </div>

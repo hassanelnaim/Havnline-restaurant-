@@ -135,7 +135,7 @@ export function MenuClient({
                 <datalist id="menu-categories">{categories.map((c) => <option key={c.id} value={c.name} />)}</datalist>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={addItem} disabled={saving}><Plus className="h-3.5 w-3.5" /> Add item</Button>
+            <Button variant="brand" size="sm" onClick={addItem} disabled={saving}><Plus className="h-3.5 w-3.5" /> Add item</Button>
           </CardContent>
         </Card>
 
@@ -313,7 +313,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                     <option value="">Choose an add-on group…</option>
                     {availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
-                  <Button size="sm" variant="outline" onClick={attachTemplate} disabled={!selectedTemplateId || attaching}>{attaching ? "Attaching…" : "Attach"}</Button>
+                  <Button size="sm" variant="brand" onClick={attachTemplate} disabled={!selectedTemplateId || attaching}>{attaching ? "Attaching…" : "Attach"}</Button>
                 </div>
               )}
             </div>
@@ -340,7 +340,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                 </div>
                 <div className="mt-2 flex gap-2">
                   <Button size="sm" variant="ghost" onClick={addOptionRow}><Plus className="h-3.5 w-3.5" /> Add option</Button>
-                  <Button size="sm" variant="outline" onClick={saveGroup} disabled={savingGroup}>{savingGroup ? "Saving…" : "Save group"}</Button>
+                  <Button size="sm" variant="brand" onClick={saveGroup} disabled={savingGroup}>{savingGroup ? "Saving…" : "Save group"}</Button>
                 </div>
               </div>
             )}
@@ -464,7 +464,7 @@ function AddonTemplateRow({ template, onRemove, onRefresh }: {
           {renaming ? (
             <div className="flex flex-1 items-center gap-2">
               <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 max-w-xs" autoFocus />
-              <Button size="sm" variant="outline" onClick={saveRename}>Save</Button>
+              <Button size="sm" variant="brand" onClick={saveRename}>Save</Button>
             </div>
           ) : (
             <button className="flex items-center gap-1.5 text-[13.5px] font-medium text-text hover:text-brand-dark" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>
@@ -487,7 +487,7 @@ function AddonTemplateRow({ template, onRemove, onRefresh }: {
         <div className="mt-2 flex gap-2">
           <Input placeholder="Add an option, e.g. Bacon" className="h-8" value={newOptionName} onChange={(e) => setNewOptionName(e.target.value)} />
           <Input placeholder="+$" className="h-8 w-24" value={newOptionPrice} onChange={(e) => setNewOptionPrice(e.target.value)} />
-          <Button size="sm" variant="ghost" onClick={addOption}><Plus className="h-3.5 w-3.5" /></Button>
+          <Button size="sm" variant="brand" onClick={addOption}><Plus className="h-3.5 w-3.5" /> Add</Button>
         </div>
       </CardContent>
     </Card>
@@ -633,7 +633,7 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
         <CardHeader><CardTitle className="flex items-center gap-2"><Camera className="h-4 w-4 text-brand" /> Import from a photo</CardTitle><CardDescription>Take a picture of a printed menu, price list, or PDF page you've exported as an image.</CardDescription></CardHeader>
         <CardContent>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={fromPhoto} className="hidden" />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+          <Button variant="brand" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
             {importing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading…</> : <><Camera className="h-3.5 w-3.5" /> Take or upload a photo</>}
           </Button>
         </CardContent>

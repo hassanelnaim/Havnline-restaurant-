@@ -148,7 +148,7 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
 
             <div className="mt-3 flex items-center gap-2">
               {order.status !== "submitted" && order.status !== "cancelled" && printerAppConnected && (
-                <Button size="sm" variant="outline" onClick={() => retry(order.id)} disabled={retryingId === order.id}>
+                <Button size="sm" variant="brand" onClick={() => retry(order.id)} disabled={retryingId === order.id}>
                   <RefreshCw className="h-3.5 w-3.5" /> {retryingId === order.id ? "Sending…" : order.submit_error ? "Retry send" : "Send to kitchen"}
                 </Button>
               )}
