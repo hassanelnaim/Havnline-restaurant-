@@ -38,3 +38,15 @@ create table if not exists public.menu_item_modifier_groups (
 create index if not exists menu_item_modifier_groups_menu_item_idx on public.menu_item_modifier_groups (menu_item_id);
 create index if not exists menu_item_modifier_groups_group_idx on public.menu_item_modifier_groups (modifier_group_id);
 create index if not exists modifier_groups_business_template_idx on public.modifier_groups (business_id) where is_template = true;
+
+-- Same pattern as every other HavnLine table (see rate_limit_hits,
+-- printer_devices, etc.): every read/write to this table goes through
+-- the admin (service-role) client in app code, which bypasses RLS
+-- entirely — so this just locks out anon/authenticated keys hitting
+-- this table directly over the client-side Supabase API.
+alter table public.menu_item_modifier_groups enable row level security;
+
+create policy "No direct client access to menu item modifier groups"
+  on public.menu_item_modifier_groups for all
+  using (false)
+  with check (false);
