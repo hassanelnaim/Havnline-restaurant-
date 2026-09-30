@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
+import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
 import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
@@ -272,14 +273,24 @@ async function confirm_and_place_order(
   const { data: orderItems } = await admin.from("order_items").select("id").eq("order_id", order.id);
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
-  // Phone payments (Stripe Connect) are mandatory for every REAL phone
-  // call — there is no pay-at-pickup path. The "test" channel is the
-  // dashboard's own preview chat (app/api/ai/chat/route.ts) — the
-  // owner talking to their own AI to see how it sounds, never an
-  // actual customer or a real order — so it's exempt from needing
-  // Stripe connected at all; see the payment-skip further down.
+  // order.subtotal_cents is already kept current by recomputeOrderSubtotal
+  // on every add/remove, so the real total (including tax) is knowable
+  // before claiming the order — needed below to decide whether this
+  // order actually requires payment at all.
   const business = ctx.context.business;
-  if (ctx.channel === "phone" && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
+  const taxRateBps = business.tax_rate_bps || 0;
+  const preClaimSubtotal = order.subtotal_cents || 0;
+  const isFreeOrder = preClaimSubtotal + Math.round((preClaimSubtotal * taxRateBps) / 10000) === 0;
+
+  // Phone payments (Stripe Connect) are mandatory for every REAL phone
+  // order with an actual cost — there is no pay-at-pickup path for a
+  // priced order. Two things are exempt from needing Stripe connected
+  // at all: a genuinely free order (nothing to collect, so nothing to
+  // gate on payment — and Stripe itself refuses a $0 Checkout Session
+  // anyway), and the "test" channel, the dashboard's own preview chat
+  // (app/api/ai/chat/route.ts) — the owner talking to their own AI,
+  // never an actual customer or a real order.
+  if (ctx.channel === "phone" && !isFreeOrder && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
     return {
       success: false,
       reason:
@@ -344,7 +355,6 @@ async function confirm_and_place_order(
   // AI always quotes and records the real total, and the order shows
   // up on the dashboard with the right tax/total even if it just sits
   // at "confirmed" for the owner to ring in manually.
-  const taxRateBps = ctx.context.business.tax_rate_bps || 0;
   const taxCents = Math.round((fullOrder.subtotal_cents * taxRateBps) / 10000);
   const totalCents = fullOrder.subtotal_cents + taxCents;
   fullOrder.tax_cents = taxCents;
@@ -354,15 +364,49 @@ async function confirm_and_place_order(
   // Test channel: simulate a completed payment instead of touching
   // Stripe or texting a real phone number — this is the owner's own
   // preview chat, not a real order, so there's no payment to actually
-  // collect and no real customer number to send anything to.
+  // collect and no real customer number to send anything to. Still
+  // queues a real kitchen ticket if a printer's paired, so this is
+  // also the easiest way to test the printer without spending anything
+  // or having to actually call in. Reply keeps saying a payment link
+  // was texted so the preview sounds like a real call, even though
+  // nothing was actually sent.
   if (ctx.channel === "test") {
     await admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id);
+    if (business.printer_app_paired_at) {
+      const queued = await queuePrintJob(fullOrder, business);
+      if (queued.success) {
+        await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
+      } else {
+        await admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id);
+      }
+    }
     return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true, test_mode: true };
   }
 
-  // Reaching here means channel === "phone" (test already returned
-  // above), where the earlier check already guarantees this is set —
-  // this is just satisfying the type checker, not a real runtime path.
+  // A genuinely free order (comped, 100%-off promo, a $0 item used to
+  // test the flow) — nothing to collect, so it's placed immediately
+  // with no Checkout Session and no payment link. This also covers
+  // testing the printer on a real call without Stripe connected or
+  // spending anything: price a menu item at $0 and call in.
+  if (totalCents === 0) {
+    await admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id);
+    if (business.printer_app_paired_at) {
+      const queued = await queuePrintJob(fullOrder, business);
+      if (queued.success) {
+        await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
+      } else {
+        await admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id);
+      }
+    }
+    const smsBody = `Order confirmed at ${business.name}! Total: $0.00. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
+    await smsClient.send(ctx.businessId, input.phone, smsBody);
+    return { success: true, order_id: order.id, total: 0, payment_link_sent: false, free_order: true };
+  }
+
+  // Reaching here means channel === "phone" with a real, nonzero total
+  // (test and free orders already returned above), where the earlier
+  // check already guarantees this is set — this is just satisfying the
+  // type checker, not a real runtime path.
   if (!business.stripe_connect_account_id) {
     return { success: false, reason: "This business hasn't finished setting up phone payments yet." };
   }
