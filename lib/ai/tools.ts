@@ -272,11 +272,14 @@ async function confirm_and_place_order(
   const { data: orderItems } = await admin.from("order_items").select("id").eq("order_id", order.id);
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
-  // Phone payments (Stripe Connect) are mandatory for every business —
-  // there is no pay-at-pickup path. Checked before claiming the order
-  // so an unpaid-and-unpayable order never even flips to "confirmed".
+  // Phone payments (Stripe Connect) are mandatory for every REAL phone
+  // call — there is no pay-at-pickup path. The "test" channel is the
+  // dashboard's own preview chat (app/api/ai/chat/route.ts) — the
+  // owner talking to their own AI to see how it sounds, never an
+  // actual customer or a real order — so it's exempt from needing
+  // Stripe connected at all; see the payment-skip further down.
   const business = ctx.context.business;
-  if (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id) {
+  if (ctx.channel === "phone" && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
     return {
       success: false,
       reason:
@@ -347,6 +350,22 @@ async function confirm_and_place_order(
   fullOrder.tax_cents = taxCents;
   fullOrder.total_cents = totalCents;
   await admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id);
+
+  // Test channel: simulate a completed payment instead of touching
+  // Stripe or texting a real phone number — this is the owner's own
+  // preview chat, not a real order, so there's no payment to actually
+  // collect and no real customer number to send anything to.
+  if (ctx.channel === "test") {
+    await admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id);
+    return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true, test_mode: true };
+  }
+
+  // Reaching here means channel === "phone" (test already returned
+  // above), where the earlier check already guarantees this is set —
+  // this is just satisfying the type checker, not a real runtime path.
+  if (!business.stripe_connect_account_id) {
+    return { success: false, reason: "This business hasn't finished setting up phone payments yet." };
+  }
 
   // An order never goes to the kitchen on the strength of a phone call
   // alone: it sits at payment_status "awaiting_payment" until the
