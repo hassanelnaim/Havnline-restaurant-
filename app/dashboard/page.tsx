@@ -34,7 +34,10 @@ export default async function OverviewPage() {
   const escalationsToday = calls.filter((c) => c.outcome === "escalated" && toBizDateString(c.started_at, timezone) === todayInBizTz).length;
 
   const recentCalls = calls.slice(0, 5);
-  const recentOrders = orders.filter((o) => o.status !== "cancelled").slice(0, 5);
+  // "Recent orders" here means recent AND today's — otherwise a quiet
+  // day can still show an order from days ago that just hadn't
+  // scrolled out of getOrdersForBusiness's most-recent-100 window yet.
+  const recentOrders = ordersTodayList.slice(0, 5);
 
   return (
     <div>

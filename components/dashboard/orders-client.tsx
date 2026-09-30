@@ -23,10 +23,10 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
   const [refunding, setRefunding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // "Today" in the business's own timezone, not the server's — see
-  // localDateKey. Only covers the orders this page already fetched
-  // (getOrdersForBusiness's most recent 100), which is fine for a
-  // same-day summary but won't reach back further than that.
+  // The Orders page now only ever fetches today's orders (see
+  // app/dashboard/orders/page.tsx), so this filter is mostly a
+  // no-op/safety net rather than doing real work — kept as-is so this
+  // summary stays correct even if that changes later.
   const todaysSummary = useMemo(() => {
     const today = localDateKey(new Date().toISOString(), timezone);
     const todays = orders.filter((o) => countsTowardSales(o) && localDateKey(o.created_at, timezone) === today);
