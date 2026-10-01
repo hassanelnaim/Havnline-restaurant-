@@ -63,7 +63,7 @@ one:
 ```bash
 npm install -g eas-cli
 eas login                      # free Expo account
-eas build:configure
+eas build:configure            # only needed the very first time
 eas build --platform android --profile preview
 ```
 
@@ -72,11 +72,30 @@ there and install it on the tablet directly (no Play Store needed for
 internal use — "Install unknown apps" has to be allowed for whichever
 app you use to open the file, e.g. Chrome or Files).
 
+### Updating a tablet that's already paired
+
+Every change merged into this repo's `printer-app/` folder (new
+screens, new backend calls, bug fixes) only reaches a real tablet the
+next time someone runs the `eas build --profile preview` command
+above and installs the resulting APK — merging code here never
+updates an app already sitting on a tablet.
+
+Re-running that same command is the whole process: no need to unpair
+the tablet or uninstall the old app first. `eas.json`'s `preview`
+profile has `autoIncrement: true`, so every build gets a fresh,
+higher `versionCode`, and Android installs the new APK right over the
+old one — the pairing (its `device_token`) and the saved printer IP
+both survive, because that's ordinary app data, not something an
+in-place update wipes. Only a full uninstall (not an update-install)
+would lose that pairing and require re-pairing from the dashboard.
+
 ## Before shipping this to a real restaurant
 
-- `src/config.ts` has `API_BASE_URL` hardcoded to `https://havnline.com`
-  — update this if the production domain is different at the time you
-  build.
+- `src/config.ts` has `API_BASE_URL` hardcoded to
+  `https://www.havnline.com` (note the `www` — the bare domain 308
+  redirects there, and that redirect drops this app's Authorization
+  header, see the comment in that file) — update this if the
+  production domain is different at the time you build.
 - The printer's IP address can change if the restaurant's router
   reassigns it (common with DHCP). Worth telling restaurants to set a
   static/reserved IP for the printer on their router, or this will
