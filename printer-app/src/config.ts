@@ -24,6 +24,14 @@ export const API_BASE_URL = "https://www.havnline.com";
 // it takes the AI to finish reading the confirmation back on the call.
 export const POLL_INTERVAL_MS = 4000;
 
+// How often the Today's Orders screen refreshes itself in the
+// background. This is a read-only status view a staff member glances
+// at, not the actual print pipeline (that's POLL_INTERVAL_MS above),
+// so it doesn't need print-pipeline latency — 15s keeps it feeling
+// live without hammering the API every time the screen is left open
+// all day. Pull-to-refresh covers "I need this right now."
+export const ORDERS_REFRESH_INTERVAL_MS = 15000;
+
 // Standard raw-ESC/POS-over-TCP port almost every network-connected
 // receipt/kitchen printer (Epson, Star Micronics, and most generic
 // ESC/POS printers) listens on. Not user-configurable — if a printer

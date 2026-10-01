@@ -64,3 +64,54 @@ export async function ackOrder(deviceToken: string, jobId: string, status: "prin
   });
   return res.json();
 }
+
+// -- Today's Orders (Phase 2 of the tablet redesign) ------------------------
+// A read-only view of the day's real orders, separate from the print-job
+// queue above (PrintJob/fetchPendingOrders/ackOrder) — this is for staff to
+// look up an order or check its status, not for the automatic print flow.
+
+export interface TodayOrderModifier {
+  modifier_name: string;
+  price_delta_cents: number;
+}
+
+export interface TodayOrderItem {
+  id: string;
+  item_name: string;
+  unit_price_cents: number;
+  quantity: number;
+  notes: string | null;
+  modifiers: TodayOrderModifier[];
+}
+
+export type OrderStatus = "confirmed" | "submitted" | "failed" | "cancelled";
+export type OrderPaymentStatus = "not_required" | "awaiting_payment" | "paid" | "refunded" | "partially_refunded" | "failed";
+
+export interface TodayOrder {
+  id: string;
+  status: OrderStatus;
+  payment_status: OrderPaymentStatus;
+  customer_name: string | null;
+  phone: string | null;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  amount_refunded_cents: number;
+  special_instructions: string | null;
+  submit_error: string | null;
+  created_at: string;
+  items: TodayOrderItem[];
+}
+
+export interface TodayOrdersResult {
+  success: boolean;
+  orders?: TodayOrder[];
+  error?: string;
+}
+
+export async function fetchTodayOrders(deviceToken: string): Promise<TodayOrdersResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  return res.json();
+}

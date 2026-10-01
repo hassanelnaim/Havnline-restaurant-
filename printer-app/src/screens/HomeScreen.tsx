@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
-import { useKeepAwake } from "expo-keep-awake";
 import { reportPrinterIp } from "../lib/api";
 import { getPrinterIp, setPrinterIp as savePrinterIp, clearPairing } from "../lib/storage";
 import { createPoller, PollLogEntry, Poller } from "../lib/poller";
@@ -13,11 +12,8 @@ interface Props {
 }
 
 export function HomeScreen({ deviceToken, businessName, onUnpaired }: Props) {
-  // A kitchen tablet that falls asleep is a tablet that stops
-  // printing orders — this is the one screen where that actually
-  // matters, so the whole point of the app depends on it staying awake.
-  useKeepAwake();
-
+  // useKeepAwake now lives in App.tsx's PairedShell, covering the
+  // whole paired session (both tabs), not just this one.
   const [printerIp, setPrinterIpState] = useState("");
   const [savingIp, setSavingIp] = useState(false);
   const [testingPrint, setTestingPrint] = useState(false);
