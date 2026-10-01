@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Building2, UserRound, Bell, Clock } from "lucide-react";
+import { Building2, UserRound, Bell, Clock, KeyRound } from "lucide-react";
 import type { DbBusiness, DbBusinessHours } from "@/lib/database/types";
 import type { UserProfile } from "@/lib/data/profile";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -13,14 +13,14 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { signOutAction } from "@/app/actions/auth";
-import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction, updateTaxRateAction } from "@/app/actions/business";
+import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction, updateTaxRateAction, setMoneyPinAction } from "@/app/actions/business";
 import { updateProfileNameAction, updateEmailAction, updatePasswordAction } from "@/app/actions/profile";
 import { RESTAURANT_TYPES } from "@/lib/restaurant-types";
 
 const WEEKDAY_LABELS: Record<string, string> = { monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday", thursday: "Thursday", friday: "Friday", saturday: "Saturday", sunday: "Sunday" };
 const WEEKDAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
-export function SettingsClient({ business, profile, hours }: { business: DbBusiness; profile: UserProfile; hours: DbBusinessHours[] }) {
+export function SettingsClient({ business, profile, hours, moneyPinSet }: { business: DbBusiness; profile: UserProfile; hours: DbBusinessHours[]; moneyPinSet: boolean }) {
   const [name, setName] = useState(business.name);
   const [businessType, setBusinessType] = useState(business.business_type || "");
   const [description, setDescription] = useState(business.description || "");
@@ -126,6 +126,27 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
     });
   }
 
+  const [moneyPin, setMoneyPinInput] = useState("");
+  const [confirmMoneyPin, setConfirmMoneyPin] = useState("");
+  const [pinSaved, setPinSaved] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinIsSet, setPinIsSet] = useState(moneyPinSet);
+
+  function handleSaveMoneyPin() {
+    setPinError(null);
+    if (!/^\d{4}$/.test(moneyPin)) { setPinError("PIN must be exactly 4 digits."); return; }
+    if (moneyPin !== confirmMoneyPin) { setPinError("PINs don't match."); return; }
+    startTransition(async () => {
+      const result = await setMoneyPinAction({ pin: moneyPin, confirmPin: confirmMoneyPin });
+      if (!result.success) { setPinError(result.error || "Could not save that PIN."); return; }
+      setPinIsSet(true);
+      setMoneyPinInput("");
+      setConfirmMoneyPin("");
+      setPinSaved(true);
+      setTimeout(() => setPinSaved(false), 1800);
+    });
+  }
+
   return (
     <Tabs defaultValue="business">
       <TabsList className="flex-wrap">
@@ -133,6 +154,7 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
         <TabsTrigger value="hours"><Clock className="h-3.5 w-3.5" /> Hours</TabsTrigger>
         <TabsTrigger value="account"><UserRound className="h-3.5 w-3.5" /> Account</TabsTrigger>
         <TabsTrigger value="notifications"><Bell className="h-3.5 w-3.5" /> Notifications</TabsTrigger>
+        <TabsTrigger value="security"><KeyRound className="h-3.5 w-3.5" /> Security</TabsTrigger>
       </TabsList>
 
       <TabsContent value="business">
@@ -253,6 +275,56 @@ export function SettingsClient({ business, profile, hours }: { business: DbBusin
             <div className="flex items-center gap-3 pt-1">
               <Button variant="brand" size="sm" onClick={handleSaveNotifications} disabled={isPending}>Save preferences</Button>
               {notifSaved && <span className="text-[12px] text-success">Saved ✓</span>}
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="security">
+        <Card>
+          <CardHeader>
+            <CardTitle>Tablet money PIN</CardTitle>
+            <CardDescription>Required on the paired HavnLine Printer tablet before a refund or discount — never needed for comping or adding items to an order.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2 text-[12.5px]">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ${pinIsSet ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}>
+                {pinIsSet ? "A PIN is set" : "No PIN set yet"}
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>{pinIsSet ? "New 4-digit PIN" : "4-digit PIN"}</Label>
+                <Input
+                  className="mt-1.5"
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="••••"
+                  value={moneyPin}
+                  onChange={(e) => setMoneyPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                />
+              </div>
+              <div>
+                <Label>Confirm PIN</Label>
+                <Input
+                  className="mt-1.5"
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="••••"
+                  value={confirmMoneyPin}
+                  onChange={(e) => setConfirmMoneyPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-text-faint">This is one shared PIN for all staff on this tablet, not a per-person login. Changing it here takes effect immediately on the paired tablet.</p>
+            {pinError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{pinError}</div>}
+            <div className="flex items-center gap-3">
+              <Button variant="brand" size="sm" onClick={handleSaveMoneyPin} disabled={isPending || moneyPin.length !== 4 || confirmMoneyPin.length !== 4}>
+                {isPending ? "Saving…" : pinIsSet ? "Change PIN" : "Set PIN"}
+              </Button>
+              {pinSaved && <span className="text-[12.5px] font-medium text-success">Saved ✓</span>}
             </div>
           </CardContent>
         </Card>

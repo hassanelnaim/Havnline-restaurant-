@@ -8,6 +8,7 @@ import { provisionNumber, releaseNumber, createSubAccount } from "@/lib/integrat
 import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { AiResponsibilities, Personality, VoiceId } from "@/lib/database/types";
 import { dbErrorResult } from "@/lib/errors";
+import { setMoneyPin } from "@/lib/security/moneyPin";
 
 async function requireBusinessId(): Promise<string> {
   const supabase = createClient();
@@ -127,6 +128,26 @@ export async function updateTaxRateAction(input: { taxRatePercent: string }): Pr
   if (error) return dbErrorResult(error, "updateTaxRateAction", "Could not save that tax rate.");
   revalidatePath("/dashboard/settings");
   return { success: true };
+}
+
+// The tablet-redesign PIN (see lib/security/moneyPin.ts) that staff
+// enter on the paired tablet before a refund or discount. Set or
+// changed from here, same as the tax rate above — no "current PIN" is
+// asked for, because being logged into this dashboard already grants
+// full control over the business (same precedent as
+// updatePasswordAction in app/actions/profile.ts, which doesn't ask
+// for the old password either).
+export async function setMoneyPinAction(input: { pin: string; confirmPin: string }): Promise<ActionResult> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+
+  if (input.pin !== input.confirmPin) return { success: false, error: "PINs don't match." };
+
+  return setMoneyPin(businessId, input.pin.trim());
 }
 
 export interface HoursInput {
