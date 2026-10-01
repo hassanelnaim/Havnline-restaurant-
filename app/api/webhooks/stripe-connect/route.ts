@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { queuePrintJob } from "@/lib/integrations/printer-app";
+import { queuePrintJob, queueAddendumPrintJob } from "@/lib/integrations/printer-app";
+import { insertOrderItems, recomputeRealOrderTotals } from "@/lib/billing/orderItemAddition";
+import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendPaymentsLiveEmail, sendPaymentsDisconnectedEmail } from "@/lib/notifications/account-email";
 import type { OrderWithItems } from "@/lib/database/types";
@@ -49,6 +51,56 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // Phase 4 of the tablet redesign: a QR item-addition charge is
+        // its OWN, much smaller Checkout Session, not the original
+        // order's — checked first, via addendum_id, so it's never
+        // mistaken for the order-level session order_id also carries.
+        const addendumId = session.metadata?.addendum_id;
+        if (addendumId) {
+          const { data: addendum } = await admin.from("order_addendum_charges").select("*").eq("id", addendumId).single();
+          if (!addendum) {
+            console.warn(`checkout.session.completed (${event.id}): addendum ${addendumId} not found.`);
+            break;
+          }
+          // Idempotency, same reasoning as the order-level branch below
+          // — Stripe can and does redeliver webhook events, and this
+          // must never insert the same pending items twice.
+          if (addendum.status === "paid") break;
+
+          const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+          const pendingItems = (addendum.items as PendingAddendumItem[]) || [];
+
+          const inserted = await insertOrderItems(addendum.order_id, pendingItems);
+          if (!inserted.success) {
+            console.error(`checkout.session.completed (${event.id}): could not insert addendum ${addendumId} items: ${inserted.error}`);
+            break;
+          }
+
+          const { data: business } = await admin.from("businesses").select("*").eq("id", addendum.business_id).single();
+          // Re-derived fresh from every item now on the order (original
+          // plus this addition), the same approach confirm_and_place_order
+          // uses, rather than adding a tax delta on top of the stored total.
+          await recomputeRealOrderTotals(addendum.order_id, business?.tax_rate_bps || 0);
+
+          await admin
+            .from("order_addendum_charges")
+            .update({ status: "paid", stripe_payment_intent_id: paymentIntentId || null, paid_at: new Date().toISOString() })
+            .eq("id", addendumId);
+
+          if (business?.printer_app_paired_at) {
+            await queueAddendumPrintJob(
+              addendum.business_id,
+              addendum.order_id,
+              business,
+              pendingItems.map((item) => ({ item_name: item.itemName, quantity: item.quantity, notes: item.notes, modifiers: item.modifiers.map((m) => ({ modifier_name: m.modifierName })) })),
+              addendum.amount_cents,
+              true
+            );
+          }
+          break;
+        }
+
         const orderId = session.metadata?.order_id;
         if (!orderId) {
           console.warn(`checkout.session.completed (${event.id}): no order_id in metadata — ignoring.`);
@@ -108,6 +160,17 @@ export async function POST(request: NextRequest) {
 
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        const addendumId = session.metadata?.addendum_id;
+        if (addendumId) {
+          // Same "only touch if still genuinely pending" guard as the
+          // order-level branch below — an addendum reported expired
+          // after already completing (rare redelivery ordering) must
+          // never be silently marked expired.
+          await admin.from("order_addendum_charges").update({ status: "expired" }).eq("id", addendumId).eq("status", "awaiting_payment");
+          break;
+        }
+
         const orderId = session.metadata?.order_id;
         if (!orderId) break;
 

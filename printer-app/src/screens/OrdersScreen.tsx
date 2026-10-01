@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from "react-native";
 import { fetchTodayOrders, TodayOrder, MoneyActionType } from "../lib/api";
 import { MoneyActionModal, MoneyActionToken } from "../components/MoneyActionModal";
+import { AddItemModal } from "../components/AddItemModal";
 import { ORDERS_REFRESH_INTERVAL_MS } from "../config";
 
 interface Props {
@@ -29,13 +30,14 @@ function statusLabel(order: TodayOrder): { text: string; color: string } {
 
 /**
  * Today's Orders — Phase 2 of the tablet redesign (the list + detail
- * screens) plus Phase 3 (the PIN-gated Refund/Discount buttons in
- * OrderDetail below, via MoneyActionModal). Everything else on this
- * screen stays read-only — item edits (comp/add items) are a later
- * phase and need no PIN. Polls in the background on
- * ORDERS_REFRESH_INTERVAL_MS so an order placed a minute ago shows up
- * without staff having to pull to refresh, but pull-to-refresh still
- * works for "I need this right now."
+ * screens), Phase 3 (the PIN-gated Refund/Discount buttons in
+ * OrderDetail below, via MoneyActionModal), and Phase 4 (the "Add
+ * item" button, via AddItemModal — comped or charged via a QR code,
+ * deliberately NOT PIN-gated, since nothing already-collected moves
+ * either way). Polls in the background on ORDERS_REFRESH_INTERVAL_MS
+ * so an order placed a minute ago shows up without staff having to
+ * pull to refresh, but pull-to-refresh still works for "I need this
+ * right now."
  */
 export function OrdersScreen({ deviceToken }: Props) {
   const [orders, setOrders] = useState<TodayOrder[] | null>(null);
@@ -144,9 +146,11 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
   const status = statusLabel(order);
   const [pendingAction, setPendingAction] = useState<MoneyActionType | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [addingItem, setAddingItem] = useState(false);
 
   const remainingCents = order.total_cents - order.amount_refunded_cents;
   const canMoveMoney = remainingCents > 0 && order.status !== "cancelled" && (order.payment_status === "paid" || order.payment_status === "partially_refunded");
+  const canAddItems = order.status !== "cancelled";
 
   function handleActionSuccess(actionType: MoneyActionType) {
     setPendingAction(null);
@@ -177,6 +181,13 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, styles.actionButtonDanger]} onPress={() => setPendingAction("refund")}>
             <Text style={styles.actionButtonText}>Refund</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {canAddItems && (
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.addItemButton} onPress={() => setAddingItem(true)}>
+            <Text style={styles.actionButtonText}>+ Add item</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -245,6 +256,15 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
           onSuccess={() => handleActionSuccess(pendingAction)}
         />
       )}
+
+      {addingItem && (
+        <AddItemModal
+          deviceToken={deviceToken}
+          orderId={order.id}
+          onClose={() => setAddingItem(false)}
+          onItemAdded={onOrderChanged}
+        />
+      )}
     </View>
   );
 }
@@ -269,6 +289,7 @@ const styles = StyleSheet.create({
   actionButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#334155" },
   actionButtonDanger: { backgroundColor: "#3F1D1D", borderColor: "#5C2626" },
   actionButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  addItemButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#14532D", borderWidth: 1, borderColor: "#22C55E" },
   actionSuccess: { color: "#22C55E", fontSize: 12.5, fontWeight: "600", marginBottom: 10 },
   itemRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#131C30", paddingVertical: 12, alignItems: "flex-start" },
   itemName: { color: "#fff", fontSize: 15, fontWeight: "600" },

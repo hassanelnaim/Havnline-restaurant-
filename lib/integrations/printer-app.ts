@@ -171,16 +171,70 @@ export interface QueuePrintJobResult {
 }
 
 /**
+ * The actual DB write shared by every kind of print job this app
+ * queues — a full order ticket (queuePrintJob) or a Phase 4 addendum
+ * ticket (queueAddendumPrintJob) alike. Pulled out on its own so
+ * neither caller has to know printer_print_jobs's column names.
+ */
+async function insertPrintJob(businessId: string, orderId: string, ticketText: string): Promise<QueuePrintJobResult> {
+  const admin = createAdminClient();
+  const { error } = await admin.from("printer_print_jobs").insert({ business_id: businessId, order_id: orderId, ticket_text: ticketText });
+  if (error) return dbErrorResult(error, "insertPrintJob", "Could not queue the print job.");
+  return { success: true };
+}
+
+/**
  * Queues a confirmed order for the paired tablet to pick up on its
  * next poll. Called from confirm_and_place_order in lib/ai/tools.ts
  * whenever a business has a paired printer tablet.
  */
 export async function queuePrintJob(order: OrderWithItems, business: Pick<DbBusiness, "name">): Promise<QueuePrintJobResult> {
-  const admin = createAdminClient();
   const ticketText = buildTicketText(order, business);
-  const { error } = await admin
-    .from("printer_print_jobs")
-    .insert({ business_id: order.business_id, order_id: order.id, ticket_text: ticketText });
-  if (error) return dbErrorResult(error, "queuePrintJob", "Could not queue the print job.");
-  return { success: true };
+  return insertPrintJob(order.business_id, order.id, ticketText);
+}
+
+// --------------------------------------------------------------------------
+// Addendum tickets (Phase 4 of the tablet redesign — "Add Items"). A
+// staff member adding an item to an already-placed order, comped or
+// paid via a customer-scanned QR code, should never trigger a full
+// kitchen reprint of the whole order (re-cooking/re-plating items
+// already made) — just a small ticket for what's NEW. See
+// app/api/printer-app/today-orders/[id]/items (comp, inserted
+// immediately) and the Connect webhook's addendum_id branch (charge,
+// inserted once Stripe confirms payment).
+// --------------------------------------------------------------------------
+
+export interface AddendumTicketItem {
+  item_name: string;
+  quantity: number;
+  notes?: string | null;
+  modifiers: { modifier_name: string }[];
+}
+
+/** Same plain-text ticket format as buildTicketText, deliberately headed "ADDITION TO ORDER" so kitchen staff never mistake it for the original ticket being reprinted. */
+export function buildAddendumTicketText(order: Pick<OrderWithItems, "id">, business: Pick<DbBusiness, "name">, items: AddendumTicketItem[], amountCents: number, paid: boolean): string {
+  const lines: string[] = [];
+  lines.push(business.name.toUpperCase());
+  lines.push(`ADDITION TO ORDER #${order.id.slice(0, 8).toUpperCase()}`);
+  lines.push("--------------------------------");
+  for (const item of items) {
+    lines.push(`${item.quantity}x ${item.item_name}`);
+    for (const mod of item.modifiers) lines.push(`   + ${mod.modifier_name}`);
+    if (item.notes) lines.push(`   note: ${item.notes}`);
+  }
+  lines.push("--------------------------------");
+  lines.push(amountCents === 0 ? "Added: $0.00 (comped)" : `Added: $${(amountCents / 100).toFixed(2)} (${paid ? "paid" : "unpaid"})`);
+  return lines.join("\n");
+}
+
+export async function queueAddendumPrintJob(
+  businessId: string,
+  orderId: string,
+  business: Pick<DbBusiness, "name">,
+  items: AddendumTicketItem[],
+  amountCents: number,
+  paid: boolean
+): Promise<QueuePrintJobResult> {
+  const ticketText = buildAddendumTicketText({ id: orderId }, business, items, amountCents, paid);
+  return insertPrintJob(businessId, orderId, ticketText);
 }

@@ -166,3 +166,95 @@ export async function submitMoneyAction(
   });
   return res.json();
 }
+
+// -- Add items (Phase 4 of the tablet redesign) ------------------------------
+// Adding a menu item to an already-placed order, comped (free) or
+// charged via a QR code the customer scans with their own phone. No
+// PIN involved — unlike refund/discount above, nothing already-
+// collected is being moved: a comp never charges anyone, and a QR
+// charge is new money the customer pays themselves.
+
+export interface MenuModifier {
+  id: string;
+  name: string;
+  price_delta_cents: number;
+}
+
+export interface MenuModifierGroup {
+  id: string;
+  name: string;
+  is_required: boolean;
+  modifiers: MenuModifier[];
+}
+
+export interface MenuItem {
+  id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  modifier_groups: MenuModifierGroup[];
+}
+
+export interface MenuResult {
+  success: boolean;
+  menu?: MenuItem[];
+  error?: string;
+}
+
+export async function fetchMenu(deviceToken: string): Promise<MenuResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/menu`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  return res.json();
+}
+
+export type AddItemMode = "comp" | "charge";
+
+export interface AddItemInput {
+  menuItemId: string;
+  quantity: number;
+  modifierIds: string[];
+  notes?: string;
+  mode: AddItemMode;
+}
+
+export interface AddItemResult {
+  success: boolean;
+  error?: string;
+  /** The mode the server actually used — a "charge" request on a $0 item comes back "comp" instead, since there's nothing to collect. */
+  mode?: AddItemMode;
+  item?: string;
+  quantity?: number;
+  /** Set when mode is "charge" — id of the pending order_addendum_charges row to poll with pollAddendumCharge. */
+  addendumId?: string;
+  amountCents?: number;
+  /** A data:image/png;base64,... URI, ready for <Image source={{ uri: qrDataUrl }} /> — generated server-side so this app never needs its own QR-rendering dependency. */
+  qrDataUrl?: string;
+  checkoutUrl?: string;
+}
+
+export async function submitItemAddition(deviceToken: string, orderId: string, input: AddItemInput): Promise<AddItemResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
+export type AddendumChargeStatus = "awaiting_payment" | "paid" | "expired" | "failed";
+
+export interface AddendumChargeStatusResult {
+  success: boolean;
+  status?: AddendumChargeStatus;
+  amountCents?: number;
+  error?: string;
+}
+
+/** Polled every few seconds while the QR step is on screen — see AddItemModal. */
+export async function pollAddendumCharge(deviceToken: string, orderId: string, chargeId: string): Promise<AddendumChargeStatusResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/addendum-charges/${chargeId}`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  return res.json();
+}

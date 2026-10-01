@@ -38,3 +38,10 @@ export const ORDERS_REFRESH_INTERVAL_MS = 15000;
 // needs something else, that's unusual enough to handle by hand later
 // rather than adding a setup field nobody else will ever need.
 export const PRINTER_PORT = 9100;
+
+// How often the QR-charge screen polls for payment (Phase 4 of the
+// tablet redesign — Add Item). Much faster than
+// ORDERS_REFRESH_INTERVAL_MS above on purpose: a customer is standing
+// there watching this exact screen waiting to see it update, not
+// glancing at it occasionally like the orders list.
+export const ADDENDUM_POLL_INTERVAL_MS = 3000;

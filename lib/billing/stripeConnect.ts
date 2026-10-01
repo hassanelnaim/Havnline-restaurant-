@@ -129,11 +129,21 @@ export interface OrderCheckoutInput {
   businessName: string;
   totalCents: number;
   platformFeeBps: number | null;
-  customerPhone: string;
+  customerPhone?: string;
   successUrl: string;
   cancelUrl: string;
   /** Stripe idempotency key — must be unique per real charge attempt, stable across retries of the SAME attempt, so a Twilio/webhook retry can never create two Checkout Sessions (and two charges) for one order. */
   idempotencyKey: string;
+  /** Overrides the default "{businessName} — phone order" line item name — used by Phase 4's addendum charges ("Additional item"), which aren't phone orders at all. */
+  productName?: string;
+  /**
+   * Extra metadata merged onto the Checkout Session alongside the
+   * usual order_id/business_id — used by Phase 4's addendum charges to
+   * carry addendum_id, which the Connect webhook checks FIRST to
+   * decide whether a completed session means "mark this whole order
+   * paid" or "insert these specific pending items."
+   */
+  extraMetadata?: Record<string, string>;
 }
 
 export async function createOrderCheckoutSession(input: OrderCheckoutInput): Promise<{ sessionId: string | null; url: string | null; error?: string }> {
@@ -151,7 +161,7 @@ export async function createOrderCheckoutSession(input: OrderCheckoutInput): Pro
           {
             price_data: {
               currency: "usd",
-              product_data: { name: `${input.businessName} — phone order` },
+              product_data: { name: input.productName || `${input.businessName} — phone order` },
               unit_amount: input.totalCents,
             },
             quantity: 1,
@@ -164,7 +174,7 @@ export async function createOrderCheckoutSession(input: OrderCheckoutInput): Pro
         // set a tighter window since a pickup order abandoned for a
         // day is worthless to the kitchen either way.
         expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-        metadata: { order_id: input.orderId, business_id: input.businessId },
+        metadata: { order_id: input.orderId, business_id: input.businessId, ...input.extraMetadata },
       },
       { stripeAccount: input.connectedAccountId, idempotencyKey: input.idempotencyKey }
     );
