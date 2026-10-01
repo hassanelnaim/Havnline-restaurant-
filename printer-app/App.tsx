@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";
 import { getDeviceToken, getBusinessName } from "./src/lib/storage";
@@ -21,29 +22,31 @@ export default function App() {
     })();
   }, []);
 
-  if (session === undefined) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color="#2563EB" size="large" />
-        <StatusBar style="light" />
-      </View>
-    );
-  }
-
-  if (!session) {
-    return (
-      <>
-        <PairingScreen onPaired={() => { getDeviceToken().then((deviceToken) => getBusinessName().then((businessName) => setSession(deviceToken ? { deviceToken, businessName } : null))); }} />
-        <StatusBar style="light" />
-      </>
-    );
-  }
-
+  // SafeAreaProvider once, at the root, wrapping every state below — a
+  // tablet mounted flush in a kitchen doesn't need this, but testing on
+  // a phone (or any Android device drawing its own gesture/nav bar over
+  // the app, which newer Android versions do by default) does: without
+  // it, bottom-anchored buttons like the tab bar below sit right under
+  // the system's back/home/recents area and steal its taps.
   return (
-    <>
-      <PairedShell deviceToken={session.deviceToken} businessName={session.businessName} onUnpaired={() => setSession(null)} />
-      <StatusBar style="light" />
-    </>
+    <SafeAreaProvider>
+      {session === undefined ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color="#2563EB" size="large" />
+          <StatusBar style="light" />
+        </View>
+      ) : !session ? (
+        <>
+          <PairingScreen onPaired={() => { getDeviceToken().then((deviceToken) => getBusinessName().then((businessName) => setSession(deviceToken ? { deviceToken, businessName } : null))); }} />
+          <StatusBar style="light" />
+        </>
+      ) : (
+        <>
+          <PairedShell deviceToken={session.deviceToken} businessName={session.businessName} onUnpaired={() => setSession(null)} />
+          <StatusBar style="light" />
+        </>
+      )}
+    </SafeAreaProvider>
   );
 }
 
@@ -61,8 +64,12 @@ function PairedShell({ deviceToken, businessName, onUnpaired }: { deviceToken: s
   useKeepAwake();
   const [tab, setTab] = useState<Tab>("orders");
 
+  // edges={["bottom"]} only — the top is already fine (a tablet/phone's
+  // status bar doesn't overlap anything here), this is specifically
+  // about lifting the tab bar above the device's own gesture/nav area
+  // so "Orders"/"Setup" aren't fighting the system's back/home taps.
   return (
-    <View style={styles.shell}>
+    <SafeAreaView style={styles.shell} edges={["bottom"]}>
       <View style={styles.tabContent}>
         {tab === "orders" ? (
           <OrdersScreen deviceToken={deviceToken} />
@@ -78,7 +85,7 @@ function PairedShell({ deviceToken, businessName, onUnpaired }: { deviceToken: s
           <Text style={[styles.tabLabel, tab === "setup" && styles.tabLabelActive]}>Setup</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

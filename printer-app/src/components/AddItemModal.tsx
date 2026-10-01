@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal, View, Text, TextInput, TouchableOpacity, FlatList, Image, StyleSheet, ActivityIndicator } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fetchMenu, submitItemAddition, pollAddendumCharge, MenuItem, MenuModifier } from "../lib/api";
 import { ADDENDUM_POLL_INTERVAL_MS } from "../config";
 
@@ -26,6 +27,10 @@ function centsToDollarsString(cents: number): string {
  * over from a previous item.
  */
 export function AddItemModal({ deviceToken, orderId, onClose, onItemAdded }: Props) {
+  // Full-screen Modal, so its own Comp/Charge buttons and the Cancel
+  // links can land right at the device's bottom edge — same reasoning
+  // as MoneyActionModal.
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<Step>("pick");
 
   const [menu, setMenu] = useState<MenuItem[] | null>(null);
@@ -151,7 +156,7 @@ export function AddItemModal({ deviceToken, orderId, onClose, onItemAdded }: Pro
 
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <View style={styles.screen}>
+      <View style={[styles.screen, { paddingBottom: 20 + insets.bottom }]}>
         {step === "pick" && (
           <>
             <View style={styles.header}>

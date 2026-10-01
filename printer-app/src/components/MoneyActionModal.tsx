@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { verifyMoneyPin, submitMoneyAction, MoneyActionType, MoneyActionResult } from "../lib/api";
 
 export interface MoneyActionToken {
@@ -40,6 +41,12 @@ function centsToDollarsString(cents: number): string {
  * down to a partial refund.
  */
 export function MoneyActionModal({ deviceToken, orderId, actionType, maxRefundableCents, moneyActionToken, onTokenAcquired, onClose, onSuccess }: Props) {
+  // This sheet is pinned to the bottom of the screen (backdrop below
+  // is justifyContent: "flex-end") — on a device whose system
+  // back/home/recents area overlaps app content (common on Android,
+  // and what this whole fix is for), its own fixed padding alone isn't
+  // enough to keep Cancel/Confirm clear of it.
+  const insets = useSafeAreaInsets();
   const tokenValid = !!moneyActionToken && moneyActionToken.expiresAt > Date.now();
   const [step, setStep] = useState<Step>(tokenValid ? "amount" : "pin");
   const [pin, setPin] = useState("");
@@ -114,7 +121,7 @@ export function MoneyActionModal({ deviceToken, orderId, actionType, maxRefundab
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: 22 + insets.bottom }]}>
           {step === "pin" ? (
             <>
               <Text style={styles.title}>Enter PIN</Text>
