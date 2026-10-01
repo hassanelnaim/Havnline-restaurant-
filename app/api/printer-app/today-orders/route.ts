@@ -32,6 +32,9 @@ function bearerToken(request: NextRequest): string | null {
  * device, so internal fields like stripe_checkout_session_id,
  * stripe_payment_intent_id, and refunded_by/voided_by (admin user
  * ids) are left out as having no reason to ever reach the tablet.
+ *
+ * See ./[id]/refund/route.ts for the PIN-gated refund/discount action
+ * on one of these orders (Phase 3).
  */
 export async function GET(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));

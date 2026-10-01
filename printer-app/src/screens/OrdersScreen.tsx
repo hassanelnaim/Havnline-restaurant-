@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from "react-native";
-import { fetchTodayOrders, TodayOrder } from "../lib/api";
+import { fetchTodayOrders, TodayOrder, MoneyActionType } from "../lib/api";
+import { MoneyActionModal, MoneyActionToken } from "../components/MoneyActionModal";
 import { ORDERS_REFRESH_INTERVAL_MS } from "../config";
 
 interface Props {
@@ -27,9 +28,11 @@ function statusLabel(order: TodayOrder): { text: string; color: string } {
 }
 
 /**
- * Today's Orders — Phase 2 of the tablet redesign. Read-only: no
- * action here moves money or changes an order (that's Phase 3/4,
- * PIN-gated where it matters). Polls in the background on
+ * Today's Orders — Phase 2 of the tablet redesign (the list + detail
+ * screens) plus Phase 3 (the PIN-gated Refund/Discount buttons in
+ * OrderDetail below, via MoneyActionModal). Everything else on this
+ * screen stays read-only — item edits (comp/add items) are a later
+ * phase and need no PIN. Polls in the background on
  * ORDERS_REFRESH_INTERVAL_MS so an order placed a minute ago shows up
  * without staff having to pull to refresh, but pull-to-refresh still
  * works for "I need this right now."
@@ -40,6 +43,11 @@ export function OrdersScreen({ deviceToken }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const mountedRef = useRef(true);
+
+  // Lives here, not in OrderDetail, so re-selecting a different order
+  // (or going back to the list and into another order) within the
+  // same 5-minute unlock window doesn't re-prompt for the PIN.
+  const [moneyActionToken, setMoneyActionToken] = useState<MoneyActionToken | null>(null);
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -68,7 +76,18 @@ export function OrdersScreen({ deviceToken }: Props) {
   }, [load]);
 
   const selectedOrder = orders?.find((o) => o.id === selectedId) || null;
-  if (selectedOrder) return <OrderDetail order={selectedOrder} onBack={() => setSelectedId(null)} />;
+  if (selectedOrder) {
+    return (
+      <OrderDetail
+        order={selectedOrder}
+        deviceToken={deviceToken}
+        moneyActionToken={moneyActionToken}
+        onTokenAcquired={setMoneyActionToken}
+        onOrderChanged={() => load({ silent: true })}
+        onBack={() => setSelectedId(null)}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -112,8 +131,30 @@ export function OrdersScreen({ deviceToken }: Props) {
   );
 }
 
-function OrderDetail({ order, onBack }: { order: TodayOrder; onBack: () => void }) {
+interface OrderDetailProps {
+  order: TodayOrder;
+  deviceToken: string;
+  moneyActionToken: MoneyActionToken | null;
+  onTokenAcquired: (token: MoneyActionToken) => void;
+  onOrderChanged: () => void;
+  onBack: () => void;
+}
+
+function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, onOrderChanged, onBack }: OrderDetailProps) {
   const status = statusLabel(order);
+  const [pendingAction, setPendingAction] = useState<MoneyActionType | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  const remainingCents = order.total_cents - order.amount_refunded_cents;
+  const canMoveMoney = remainingCents > 0 && order.status !== "cancelled" && (order.payment_status === "paid" || order.payment_status === "partially_refunded");
+
+  function handleActionSuccess(actionType: MoneyActionType) {
+    setPendingAction(null);
+    setActionMessage(actionType === "refund" ? "Refund issued." : "Discount applied.");
+    onOrderChanged();
+    setTimeout(() => setActionMessage(null), 3500);
+  }
+
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={onBack} style={styles.backButton}>
@@ -128,6 +169,18 @@ function OrderDetail({ order, onBack }: { order: TodayOrder; onBack: () => void 
         </Text>
         <Text style={[styles.detailStatus, { color: status.color }]}>{status.text}</Text>
       </View>
+
+      {canMoveMoney && (
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => setPendingAction("discount")}>
+            <Text style={styles.actionButtonText}>Discount</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, styles.actionButtonDanger]} onPress={() => setPendingAction("refund")}>
+            <Text style={styles.actionButtonText}>Refund</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {actionMessage && <Text style={styles.actionSuccess}>{actionMessage}</Text>}
 
       <FlatList
         data={order.items}
@@ -179,6 +232,19 @@ function OrderDetail({ order, onBack }: { order: TodayOrder; onBack: () => void 
           </View>
         }
       />
+
+      {pendingAction && (
+        <MoneyActionModal
+          deviceToken={deviceToken}
+          orderId={order.id}
+          actionType={pendingAction}
+          maxRefundableCents={remainingCents}
+          moneyActionToken={moneyActionToken}
+          onTokenAcquired={onTokenAcquired}
+          onClose={() => setPendingAction(null)}
+          onSuccess={() => handleActionSuccess(pendingAction)}
+        />
+      )}
     </View>
   );
 }
@@ -199,6 +265,11 @@ const styles = StyleSheet.create({
   backText: { color: "#60A5FA", fontSize: 14, fontWeight: "600" },
   detailHeader: { marginBottom: 16 },
   detailStatus: { fontSize: 13, fontWeight: "700", marginTop: 8 },
+  actionRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  actionButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#334155" },
+  actionButtonDanger: { backgroundColor: "#3F1D1D", borderColor: "#5C2626" },
+  actionButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  actionSuccess: { color: "#22C55E", fontSize: 12.5, fontWeight: "600", marginBottom: 10 },
   itemRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#131C30", paddingVertical: 12, alignItems: "flex-start" },
   itemName: { color: "#fff", fontSize: 15, fontWeight: "600" },
   itemModifier: { color: "#B8C0D0", fontSize: 13, marginTop: 2, marginLeft: 8 },

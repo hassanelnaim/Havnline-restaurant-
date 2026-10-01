@@ -115,3 +115,54 @@ export async function fetchTodayOrders(deviceToken: string): Promise<TodayOrders
   });
   return res.json();
 }
+
+// -- Money actions (Phase 3 of the tablet redesign) --------------------------
+// Refund/discount, PIN-gated. Two calls: verifyMoneyPin trades a
+// correct 4-digit PIN for a short-lived token, then submitMoneyAction
+// spends that token on one actual refund/discount. Item edits (a
+// later phase) won't need any of this — only real money movement does.
+
+export interface VerifyPinResult {
+  success: boolean;
+  token?: string;
+  expiresAt?: number;
+  error?: string;
+}
+
+export async function verifyMoneyPin(deviceToken: string, pin: string): Promise<VerifyPinResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/verify-pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
+    body: JSON.stringify({ pin }),
+  });
+  return res.json();
+}
+
+export type MoneyActionType = "refund" | "discount";
+
+export interface MoneyActionResult {
+  success: boolean;
+  error?: string;
+  refundedCents?: number;
+  fullyRefunded?: boolean;
+  /** The server sets this when the money-action token was missing/expired — the caller should re-prompt for the PIN rather than show this as a generic error. */
+  needsPin?: boolean;
+}
+
+export async function submitMoneyAction(
+  deviceToken: string,
+  moneyActionToken: string,
+  orderId: string,
+  input: { amountCents?: number; reason: string; actionType: MoneyActionType }
+): Promise<MoneyActionResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/refund`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${deviceToken}`,
+      "X-Money-Action-Token": moneyActionToken,
+    },
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}

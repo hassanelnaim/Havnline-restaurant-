@@ -24,14 +24,17 @@ battery, so simple polling is the right trade-off (see `src/config.ts`).
 ## Project layout
 
 ```
-App.tsx                 Root — decides Pairing vs Home based on stored pairing state
-src/config.ts           API base URL, poll interval, printer port
+App.tsx                 Root — decides Pairing vs the paired tab shell (Orders / Setup)
+src/config.ts           API base URL, poll interval, printer port, orders refresh interval
 src/lib/storage.ts       Persists device_token / printer IP across restarts
 src/lib/api.ts           Thin client for /api/printer-app/*
 src/lib/printer.ts       Raw ESC/POS-over-TCP printing
-src/lib/poller.ts        Poll loop: fetch pending orders -> print -> ack
+src/lib/poller.ts        Poll loop: fetch pending print jobs -> print -> ack
 src/screens/PairingScreen.tsx   First-run pairing code entry
-src/screens/HomeScreen.tsx      Printer IP setup, test print, activity log, unpair
+src/screens/HomeScreen.tsx      "Setup" tab: printer IP, test print, activity log, unpair
+src/screens/OrdersScreen.tsx    "Orders" tab (default view): today's orders list + detail,
+                                 with PIN-gated Refund/Discount actions in the detail screen
+src/components/MoneyActionModal.tsx   PIN entry -> amount/reason -> submit, used by OrdersScreen
 ```
 
 ## Running it during development
