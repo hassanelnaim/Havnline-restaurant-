@@ -174,6 +174,11 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
           <DialogDescription>
             {refundTarget ? `This refunds the full ${formatCents(refundTarget.total_cents)} back to the customer's card through Stripe — this actually moves money, not just a status change.` : ""}
           </DialogDescription>
+          {printerAppConnected && (
+            <p className="mt-2 text-[12px] text-text-muted">
+              Need a partial refund or a discount instead? Those — and adding items, comped or charged by QR — are quicker from the paired kitchen tablet's Orders tab. This button only ever issues a full refund.
+            </p>
+          )}
           <div className="mt-4">
             <label className="text-[12px] font-semibold text-text-muted">Reason (kept on file for this order)</label>
             <Textarea className="mt-1.5" value={refundReason} onChange={(e) => setRefundReason(e.target.value)} placeholder="e.g. kitchen made it wrong, customer no-showed, duplicate order" rows={3} />

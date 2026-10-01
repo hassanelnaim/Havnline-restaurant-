@@ -15,7 +15,7 @@ const PROVIDER_META: Record<IntegrationProvider, { name: string; description: st
   twilio: { name: "Phone (Twilio)", description: "Powers your HavnLine phone number and inbound calls.", icon: PhoneCall },
   sms: { name: "SMS confirmations", description: "Sent automatically from your HavnLine number once you have one.", icon: MessageSquare },
   voice_provider: { name: "Order-taker voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
-  printer_app: { name: "HavnLine Printer App", description: "Prints orders straight to your kitchen printer from a tablet.", icon: Tablet },
+  printer_app: { name: "HavnLine Printer App", description: "Prints orders to your kitchen printer, and handles refunds, discounts, and adding items right from the tablet.", icon: Tablet },
 };
 
 export function IntegrationsClient({
@@ -192,7 +192,7 @@ export function IntegrationsClient({
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper text-text-muted"><Tablet className="h-4.5 w-4.5" /></div>
                 <div>
                   <div className="text-[13.5px] font-semibold text-ink">HavnLine Printer App</div>
-                  <p className="mt-0.5 max-w-md text-[12px] text-text-muted">Install the HavnLine app on any Android tablet and it'll print orders straight to your kitchen printer.</p>
+                  <p className="mt-0.5 max-w-md text-[12px] text-text-muted">Install the HavnLine app on any Android tablet to print orders to your kitchen printer — and to pull up today's orders, issue refunds or discounts, and add items, all without leaving the floor.</p>
                   <div className="mt-2">{printerAppIntegration && <IntegrationStatusBadge status={printerAppIntegration.status} />}</div>
                 </div>
               </div>
@@ -214,10 +214,15 @@ export function IntegrationsClient({
             )}
 
             {printerAppConnected && (
-              <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">
-                {printerAppMeta?.printer_ip ? `Printer: ${printerAppMeta.printer_ip}` : "Waiting for the tablet to report its printer's IP address (set this up in the app)."}
-                {printerAppMeta?.last_seen_at && <span> · Last checked in {new Date(printerAppMeta.last_seen_at).toLocaleString()}</span>}
-              </CardContent>
+              <>
+                <CardContent className="border-t border-border-soft pt-3 text-[12.5px] text-text-muted">
+                  {printerAppMeta?.printer_ip ? `Printer: ${printerAppMeta.printer_ip}` : "Waiting for the tablet to report its printer's IP address (set this up in the app)."}
+                  {printerAppMeta?.last_seen_at && <span> · Last checked in {new Date(printerAppMeta.last_seen_at).toLocaleString()}</span>}
+                </CardContent>
+                <CardContent className="border-t border-border-soft pt-3 text-[12px] text-text-muted">
+                  The tablet's <span className="font-medium text-text">Orders</span> tab is the fastest way to handle a table: look up any order from today, issue a PIN-protected refund or discount, or add an item — comped or charged by having the customer scan a QR code. The dashboard's Orders page still works too, for a full refund from a computer.
+                </CardContent>
+              </>
             )}
           </Card>
 

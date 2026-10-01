@@ -24,7 +24,7 @@ export default async function OrdersPage() {
         title="Orders"
         description={
           business.printer_app_paired_at
-            ? "Today's phone orders, and whether they made it to your kitchen printer."
+            ? "Today's phone orders, and whether they made it to your kitchen printer. Refunds, discounts, and adding items are quickest from the paired tablet's Orders tab — this page still has a full-refund button below if you'd rather do it from here."
             : "Today's phone orders. Pair the kitchen printer app in Integrations to send these straight to your kitchen printer — until then, you'll need to ring these in manually."
         }
       />
