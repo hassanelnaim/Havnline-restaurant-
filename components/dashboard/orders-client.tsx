@@ -92,7 +92,7 @@ export function OrdersClient({ initialOrders, timezone, printerAppConnected }: {
           <div><div className="text-[11px] text-text-faint">Orders</div><div className="font-mono text-[15px] font-semibold text-ink">{todaysSummary.orderCount}</div></div>
           <div><div className="text-[11px] text-text-faint">Gross sales</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.grossCents)}</div></div>
           <div><div className="text-[11px] text-text-faint">Net sales</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.netCents)}</div></div>
-          <div><div className="text-[11px] text-text-faint">Tax collected</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.taxCents)}</div></div>
+          <div><div className="text-[11px] text-text-faint" title="State sales tax collected, for your state Department of Revenue filing — not an IRS/federal figure.">Sales tax collected</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(todaysSummary.taxCents)}</div></div>
         </CardContent>
       </Card>
 

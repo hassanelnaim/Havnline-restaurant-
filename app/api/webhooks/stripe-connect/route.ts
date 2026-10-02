@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
           // Re-derived fresh from every item now on the order (original
           // plus this addition), the same approach confirm_and_place_order
           // uses, rather than adding a tax delta on top of the stored total.
-          await recomputeRealOrderTotals(addendum.order_id, business?.tax_rate_bps || 0);
+          await recomputeRealOrderTotals(addendum.order_id, business || { address_city: null, address_state: null, address_zip: null });
 
           await admin
             .from("order_addendum_charges")

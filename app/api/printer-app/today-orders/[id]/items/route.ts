@@ -106,7 +106,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const { data: business } = await admin
     .from("businesses")
-    .select("name, tax_rate_bps, printer_app_paired_at, stripe_connect_account_id, stripe_connect_charges_enabled, platform_fee_bps")
+    .select("name, address_city, address_state, address_zip, printer_app_paired_at, stripe_connect_account_id, stripe_connect_charges_enabled, platform_fee_bps")
     .eq("id", device.businessId)
     .single();
   if (!business) return NextResponse.json({ success: false, error: "Business not found." }, { status: 404 });
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const inserted = await insertOrderItems(order.id, [pendingItem]);
     if (!inserted.success) return NextResponse.json({ success: false, error: inserted.error || "Could not add item." }, { status: 500 });
 
-    await recomputeRealOrderTotals(order.id, business.tax_rate_bps || 0);
+    await recomputeRealOrderTotals(order.id, business);
 
     if (business.printer_app_paired_at) {
       await queueAddendumPrintJob(

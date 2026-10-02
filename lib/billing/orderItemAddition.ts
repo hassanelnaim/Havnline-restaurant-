@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { calculateTaxCents, type TaxableBusinessAddress } from "@/lib/billing/stripeTax";
 
 /**
  * Shared mechanics for adding items to an order that's already been
@@ -88,7 +89,7 @@ export interface RecomputedOrderTotals {
  * for the same addition (webhook redelivery, see its idempotency
  * guard) or interleaved with another change.
  */
-export async function recomputeRealOrderTotals(orderId: string, taxRateBps: number): Promise<RecomputedOrderTotals> {
+export async function recomputeRealOrderTotals(orderId: string, business: TaxableBusinessAddress): Promise<RecomputedOrderTotals> {
   const admin = createAdminClient();
   const { data: items } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
 
@@ -99,7 +100,7 @@ export async function recomputeRealOrderTotals(orderId: string, taxRateBps: numb
     subtotalCents += (item.unit_price_cents + modTotal) * item.quantity;
   }
 
-  const taxCents = Math.round((subtotalCents * taxRateBps) / 10000);
+  const taxCents = await calculateTaxCents(business, subtotalCents);
   const totalCents = subtotalCents + taxCents;
 
   await admin.from("orders").update({ subtotal_cents: subtotalCents, tax_cents: taxCents, total_cents: totalCents }).eq("id", orderId);

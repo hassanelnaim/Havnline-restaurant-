@@ -68,6 +68,9 @@ export async function updateBusinessProfileAction(input: {
   name: string;
   description: string;
   address: string;
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
   phone: string;
   businessType?: string;
 }): Promise<ActionResult> {
@@ -78,6 +81,13 @@ export async function updateBusinessProfileAction(input: {
     return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
   }
 
+  // State is stored uppercase ("NY", not "ny") since it's sent
+  // straight to Stripe Tax (lib/billing/stripeTax.ts) for live sales
+  // tax calculation on every phone order.
+  if (input.addressState !== undefined && input.addressState.trim() && !/^[A-Za-z]{2}$/.test(input.addressState.trim())) {
+    return { success: false, error: "State should be a 2-letter abbreviation, like NY." };
+  }
+
   const admin = createAdminClient();
   const { error } = await admin
     .from("businesses")
@@ -85,6 +95,9 @@ export async function updateBusinessProfileAction(input: {
       name: input.name,
       description: input.description || null,
       address: input.address || null,
+      ...(input.addressCity !== undefined ? { address_city: input.addressCity.trim() || null } : {}),
+      ...(input.addressState !== undefined ? { address_state: input.addressState.trim().toUpperCase() || null } : {}),
+      ...(input.addressZip !== undefined ? { address_zip: input.addressZip.trim() || null } : {}),
       phone: input.phone || null,
       // Feeds lib/ai/systemPrompt.ts directly — the AI's tone/assumptions
       // shift on this (a food truck's AI shouldn't casually mention "your
@@ -95,37 +108,6 @@ export async function updateBusinessProfileAction(input: {
     .eq("id", businessId);
 
   if (error) return dbErrorResult(error, "updateBusinessProfileAction", "Could not save your business profile.");
-  revalidatePath("/dashboard/settings");
-  return { success: true };
-}
-
-/**
- * Saves the sales tax rate applied to every order's subtotal when the
- * AI confirms it (see confirm_and_place_order in lib/ai/tools.ts).
- * Takes a plain percentage (e.g. "8.25") and stores it as basis
- * points so later math never drifts from float rounding.
- */
-export async function updateTaxRateAction(input: { taxRatePercent: string }): Promise<ActionResult> {
-  let businessId: string;
-  try {
-    businessId = await requireBusinessId();
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
-  }
-
-  const trimmed = input.taxRatePercent.trim();
-  const percent = trimmed === "" ? 0 : Number(trimmed);
-  if (!Number.isFinite(percent) || percent < 0 || percent > 25) {
-    return { success: false, error: "Enter a tax rate between 0 and 25%." };
-  }
-
-  const admin = createAdminClient();
-  const { error } = await admin
-    .from("businesses")
-    .update({ tax_rate_bps: Math.round(percent * 100) })
-    .eq("id", businessId);
-
-  if (error) return dbErrorResult(error, "updateTaxRateAction", "Could not save that tax rate.");
   revalidatePath("/dashboard/settings");
   return { success: true };
 }

@@ -17,6 +17,9 @@ export async function createBusinessDraftAction(input: {
   businessName: string;
   businessType: string;
   address: string;
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
   phone: string;
   description: string;
   timezone: string;
@@ -59,6 +62,9 @@ export async function createBusinessDraftAction(input: {
     name: input.businessName,
     business_type: input.businessType || null,
     address: input.address || null,
+    address_city: input.addressCity?.trim() || null,
+    address_state: input.addressState?.trim().toUpperCase() || null,
+    address_zip: input.addressZip?.trim() || null,
     phone: input.phone || null,
     description: input.description || null,
     timezone: input.timezone || "America/New_York",

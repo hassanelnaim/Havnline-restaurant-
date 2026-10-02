@@ -85,7 +85,7 @@ export function EndOfDayClient({
           <div><div className="text-[11px] text-text-faint">Cancelled</div><div className="font-mono text-[15px] font-semibold text-ink">{summary.cancelledCount}</div></div>
           <div><div className="text-[11px] text-text-faint">Gross sales</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(summary.grossCents)}</div></div>
           <div><div className="text-[11px] text-text-faint">Net sales</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(summary.netCents)}</div></div>
-          <div><div className="text-[11px] text-text-faint">Tax collected</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(summary.taxCents)}</div></div>
+          <div><div className="text-[11px] text-text-faint" title="State sales tax collected, for your state Department of Revenue filing — not an IRS/federal figure.">Sales tax collected</div><div className="font-mono text-[15px] font-semibold text-ink">{formatCents(summary.taxCents)}</div></div>
         </CardContent>
       </Card>
 

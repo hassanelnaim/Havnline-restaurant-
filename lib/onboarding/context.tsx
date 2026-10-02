@@ -37,6 +37,9 @@ export interface OnboardingDraft {
   businessName: string;
   businessType: string;
   address: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
   phone: string;
   website: string;
   description: string;
@@ -82,6 +85,9 @@ const defaultDraft: OnboardingDraft = {
   businessName: "",
   businessType: "",
   address: "",
+  addressCity: "",
+  addressState: "",
+  addressZip: "",
   phone: "",
   website: "",
   description: "",

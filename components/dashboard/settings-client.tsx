@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { signOutAction } from "@/app/actions/auth";
-import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction, updateTaxRateAction, setMoneyPinAction } from "@/app/actions/business";
+import { updateBusinessProfileAction, updateBusinessHoursAction, updateNotificationPreferencesAction, setMoneyPinAction } from "@/app/actions/business";
 import { updateProfileNameAction, updateEmailAction, updatePasswordAction } from "@/app/actions/profile";
 import { RESTAURANT_TYPES } from "@/lib/restaurant-types";
 
@@ -25,10 +25,10 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
   const [businessType, setBusinessType] = useState(business.business_type || "");
   const [description, setDescription] = useState(business.description || "");
   const [address, setAddress] = useState(business.address || "");
+  const [addressCity, setAddressCity] = useState(business.address_city || "");
+  const [addressState, setAddressState] = useState(business.address_state || "");
+  const [addressZip, setAddressZip] = useState(business.address_zip || "");
   const [phone, setPhone] = useState(business.phone || "");
-  const [taxRate, setTaxRate] = useState(business.tax_rate_bps ? (business.tax_rate_bps / 100).toString() : "");
-  const [taxRateSaved, setTaxRateSaved] = useState(false);
-  const [taxRateError, setTaxRateError] = useState<string | null>(null);
   const [notifyCalls, setNotifyCalls] = useState(business.notification_preferences?.calls ?? false);
   const [notifyEscalations, setNotifyEscalations] = useState(business.notification_preferences?.escalations ?? true);
   const [notifyDigest, setNotifyDigest] = useState(business.notification_preferences?.digest ?? false);
@@ -71,20 +71,10 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
   function handleSaveProfile() {
     setError(null);
     startTransition(async () => {
-      const result = await updateBusinessProfileAction({ name, description, address, phone, businessType });
+      const result = await updateBusinessProfileAction({ name, description, address, addressCity, addressState, addressZip, phone, businessType });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
-    });
-  }
-
-  function handleSaveTaxRate() {
-    setTaxRateError(null);
-    startTransition(async () => {
-      const result = await updateTaxRateAction({ taxRatePercent: taxRate });
-      if (!result.success) { setTaxRateError(result.error || "Could not save the tax rate."); return; }
-      setTaxRateSaved(true);
-      setTimeout(() => setTaxRateSaved(false), 1800);
     });
   }
 
@@ -173,10 +163,14 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
               </div>
             </div>
             <div><Label>Description</Label><Textarea rows={3} className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div><Label>Address</Label><Input className="mt-1.5" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
-              <div><Label>Phone (used for call transfers)</Label><Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} /><p className="mt-1 text-[11px] text-text-faint">Your HavnLine number and forwarding are managed in Integrations.</p></div>
+            <div><Label>Address</Label><Input className="mt-1.5" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div><Label>City</Label><Input className="mt-1.5" value={addressCity} onChange={(e) => setAddressCity(e.target.value)} /></div>
+              <div><Label>State</Label><Input className="mt-1.5" maxLength={2} placeholder="NY" value={addressState} onChange={(e) => setAddressState(e.target.value)} /></div>
+              <div><Label>ZIP</Label><Input className="mt-1.5" value={addressZip} onChange={(e) => setAddressZip(e.target.value)} /></div>
             </div>
+            <p className="text-[11px] text-text-faint">City, state and ZIP are used to calculate real sales tax on every order below — they need to be your restaurant's actual location, not just a display address.</p>
+            <div><Label>Phone (used for call transfers)</Label><Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} /><p className="mt-1 text-[11px] text-text-faint">Your HavnLine number and forwarding are managed in Integrations.</p></div>
             {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
             <div className="flex items-center gap-3">
               <Button variant="brand" size="sm" onClick={handleSaveProfile} disabled={isPending}>{isPending ? "Saving…" : "Save changes"}</Button>
@@ -186,18 +180,15 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
         </Card>
 
         <Card className="mt-4">
-          <CardHeader><CardTitle>Sales tax</CardTitle><CardDescription>Added to every order's subtotal when your AI confirms it — shown on the total it quotes and on the kitchen ticket.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="max-w-[200px]">
-              <Label>Tax rate (%)</Label>
-              <Input className="mt-1.5" type="number" step="0.01" min="0" max="25" placeholder="e.g. 8.25" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
-              <p className="mt-1 text-[11px] text-text-faint">Leave at 0 if the order total shouldn't include tax.</p>
-            </div>
-            {taxRateError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{taxRateError}</div>}
-            <div className="flex items-center gap-3">
-              <Button variant="brand" size="sm" onClick={handleSaveTaxRate} disabled={isPending}>{isPending ? "Saving…" : "Save tax rate"}</Button>
-              {taxRateSaved && <span className="text-[12.5px] font-medium text-success">Saved ✓</span>}
-            </div>
+          <CardHeader><CardTitle>Sales tax</CardTitle><CardDescription>Calculated automatically on every order via Stripe Tax — not something you configure here.</CardDescription></CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-[13px] text-text">
+              Every phone order's tax is now looked up live from your restaurant's real address above — the correct combined state, county and city rate, not a flat number you'd have to keep up to date yourself. It shows up on the total your AI quotes, the kitchen ticket, and the <Link href="/dashboard/end-of-day" className="text-brand underline">End of Day report</Link>'s "Tax collected" total, which is what you'd use when filing with your state's Department of Revenue (sales tax isn't an IRS/federal thing — it's remitted to the state).
+            </p>
+            <p className="text-[13px] text-text-faint">
+              Two one-time things need to happen in Stripe's own dashboard before this actually collects anything: turning on Stripe Tax, and adding a tax registration for your state (without a registration, Stripe calculates successfully but returns $0 tax — not an error). Both are done at{" "}
+              <a href="https://dashboard.stripe.com/settings/tax" target="_blank" rel="noreferrer" className="text-brand underline">dashboard.stripe.com/settings/tax</a>.
+            </p>
           </CardContent>
         </Card>
       </TabsContent>

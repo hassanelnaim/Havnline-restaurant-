@@ -28,13 +28,18 @@ export default function BusinessInfoStep() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canContinue = draft.businessName.trim().length > 0 && draft.phone.trim().length > 0;
+  const canContinue =
+    draft.businessName.trim().length > 0 &&
+    draft.phone.trim().length > 0 &&
+    draft.addressCity.trim().length > 0 &&
+    /^[A-Za-z]{2}$/.test(draft.addressState.trim()) &&
+    draft.addressZip.trim().length > 0;
 
   async function handleContinue() {
     setSaving(true);
     setError(null);
     const result = await createBusinessDraftAction({
-      businessName: draft.businessName, businessType: draft.businessType, address: draft.address, phone: draft.phone, description: draft.description, timezone: draft.timezone,
+      businessName: draft.businessName, businessType: draft.businessType, address: draft.address, addressCity: draft.addressCity, addressState: draft.addressState, addressZip: draft.addressZip, phone: draft.phone, description: draft.description, timezone: draft.timezone,
     });
     setSaving(false);
 
@@ -65,6 +70,21 @@ export default function BusinessInfoStep() {
           <Label htmlFor="address">Address</Label>
           <Input id="address" className="mt-1.5" placeholder="412 Riverside Pkwy, Millbrook, NY" value={draft.address} onChange={(e) => update({ address: e.target.value })} />
         </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label htmlFor="addressCity">City</Label>
+            <Input id="addressCity" className="mt-1.5" placeholder="Millbrook" value={draft.addressCity} onChange={(e) => update({ addressCity: e.target.value })} />
+          </div>
+          <div>
+            <Label htmlFor="addressState">State</Label>
+            <Input id="addressState" className="mt-1.5" maxLength={2} placeholder="NY" value={draft.addressState} onChange={(e) => update({ addressState: e.target.value })} />
+          </div>
+          <div>
+            <Label htmlFor="addressZip">ZIP</Label>
+            <Input id="addressZip" className="mt-1.5" placeholder="12545" value={draft.addressZip} onChange={(e) => update({ addressZip: e.target.value })} />
+          </div>
+        </div>
+        <p className="text-[12px] text-text-faint">We use your city, state and ZIP to automatically calculate the right sales tax on every order — no manual tax rate to set up or maintain.</p>
         <div>
           <Label htmlFor="phone">Restaurant phone</Label>
           <Input id="phone" className="mt-1.5" placeholder="(845) 555-0142" value={draft.phone} onChange={(e) => update({ phone: e.target.value })} />

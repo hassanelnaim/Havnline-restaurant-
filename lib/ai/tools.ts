@@ -5,6 +5,7 @@ import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
+import { calculateTaxCents } from "@/lib/billing/stripeTax";
 import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
@@ -274,13 +275,14 @@ async function confirm_and_place_order(
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
   // order.subtotal_cents is already kept current by recomputeOrderSubtotal
-  // on every add/remove, so the real total (including tax) is knowable
-  // before claiming the order — needed below to decide whether this
-  // order actually requires payment at all.
+  // on every add/remove, so whether this order has anything to collect
+  // at all is knowable before claiming it — needed below to decide
+  // whether this order actually requires payment. (A $0 subtotal is
+  // always a $0 total regardless of tax, so this doesn't need an
+  // actual Stripe Tax call — just the subtotal.)
   const business = ctx.context.business;
-  const taxRateBps = business.tax_rate_bps || 0;
   const preClaimSubtotal = order.subtotal_cents || 0;
-  const isFreeOrder = preClaimSubtotal + Math.round((preClaimSubtotal * taxRateBps) / 10000) === 0;
+  const isFreeOrder = preClaimSubtotal === 0;
 
   // Phone payments (Stripe Connect) are mandatory for every REAL phone
   // order with an actual cost — there is no pay-at-pickup path for a
@@ -350,12 +352,13 @@ async function confirm_and_place_order(
     items: (itemsRes.data || []).map((i) => ({ ...i, modifiers: (modifiersRes.data || []).filter((m) => m.order_item_id === i.id) })),
   };
 
-  // Tax rate lives on the business (basis points — see Settings), so
-  // this works the same whether or not a printer tablet is paired: the
-  // AI always quotes and records the real total, and the order shows
-  // up on the dashboard with the right tax/total even if it just sits
-  // at "confirmed" for the owner to ring in manually.
-  const taxCents = Math.round((fullOrder.subtotal_cents * taxRateBps) / 10000);
+  // Real sales tax, calculated live via Stripe Tax from the business's
+  // own address (lib/billing/stripeTax.ts) — not a manually-entered
+  // percentage. Works the same whether or not a printer tablet is
+  // paired: the AI always quotes and records the real total, and the
+  // order shows up on the dashboard with the right tax/total even if
+  // it just sits at "confirmed" for the owner to ring in manually.
+  const taxCents = await calculateTaxCents(business, fullOrder.subtotal_cents);
   const totalCents = fullOrder.subtotal_cents + taxCents;
   fullOrder.tax_cents = taxCents;
   fullOrder.total_cents = totalCents;

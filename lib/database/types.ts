@@ -8,6 +8,13 @@ export interface DbBusiness {
   business_type: string | null;
   description: string | null;
   address: string | null;
+  // Structured address used for real sales-tax calculation via Stripe
+  // Tax (lib/billing/stripeTax.ts) -- see migration 023. `address`
+  // above stays a free-text display string; these are what actually
+  // get sent to Stripe for a rate lookup.
+  address_city: string | null;
+  address_state: string | null;
+  address_zip: string | null;
   phone: string | null;
   website: string | null;
   timezone: string;
@@ -34,10 +41,11 @@ export interface DbBusiness {
   // just the fast, no-extra-query flag lib/ai/tools.ts checks per turn.
   printer_app_paired_at: ISODateTime | null;
 
-  // Sales tax rate applied to every order's subtotal when the AI
-  // confirms it, in basis points (825 = 8.25%). Defaults to 0 — no tax
-  // is added until the owner sets a real rate in Settings. Stored as
-  // an integer (not a float) to avoid rounding drift across orders.
+  // DEPRECATED (see migration 023): used to be a manually-entered sales
+  // tax percentage, in basis points (825 = 8.25%). No longer read or
+  // written anywhere -- tax is now calculated live via Stripe Tax
+  // (lib/billing/stripeTax.ts) from address_city/address_state/
+  // address_zip above. Kept only so old rows/migrations don't break.
   tax_rate_bps: number;
 
   // Stripe CONNECTED account for customer phone-order payments —
