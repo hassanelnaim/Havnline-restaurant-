@@ -26,8 +26,13 @@ export async function synthesizeSpeech(text: string, elevenVoiceId: string): Pro
     throw new Error("ELEVENLABS_API_KEY is not configured.");
   }
 
+  // optimize_streaming_latency only applies to eleven_turbo_v2_5 /
+  // eleven_flash_v2_5 — ElevenLabs rejects it outright (400
+  // unsupported_model) when model_id is eleven_v4_turbo, which is
+  // what's actually used below. v4 models have their own, different
+  // latency behavior and don't take this param at all.
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${elevenVoiceId}?optimize_streaming_latency=4`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${elevenVoiceId}`,
     {
       method: "POST",
       headers: {
