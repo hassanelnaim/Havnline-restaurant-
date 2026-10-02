@@ -4,7 +4,17 @@ import { mockCostBreakdown } from "@/lib/mock/data";
 
 const RATE_NOTE_ANTHROPIC_HAIKU = "Claude Haiku 4.5, Sep 2026: $1.00/$5.00 per MTok (in/out)";
 const RATE_NOTE_ANTHROPIC_SONNET = "Claude Sonnet 5, Sep 2026: $3.00/$15.00 per MTok (in/out)";
-const RATE_NOTE_ELEVENLABS = "ElevenLabs Turbo v2.5, Sep 2026: $0.05 per 1,000 characters";
+// eleven_turbo_v2_5 is now deprecated upstream (ElevenLabs points
+// everyone at eleven_flash_v2_5/eleven_v4_turbo instead — see
+// synthesizeSpeech in lib/integrations/telephony/elevenlabsProvider.ts,
+// which now calls eleven_v4_turbo). This $/1,000-char figure is an
+// ESTIMATE for display on the cost-summary page only — it doesn't
+// drive any actual billing — read from ElevenLabs' public pricing
+// as of Oct 2026 (their standard, non-promotional rate; they were
+// running a temporary discount on this model at the time), not a
+// live account-specific rate, so it can drift from a business's real
+// invoice depending on their plan.
+const RATE_NOTE_ELEVENLABS = "ElevenLabs Eleven v4 Turbo, Oct 2026 (est.): $0.04 per 1,000 characters";
 
 export async function logAnthropicUsage(
   businessId: string,
@@ -35,7 +45,7 @@ export async function logAnthropicUsage(
 }
 
 export async function logElevenLabsUsage(businessId: string, characterCount: number): Promise<void> {
-  const costCents = (characterCount / 1000) * 0.05 * 100;
+  const costCents = (characterCount / 1000) * 0.04 * 100;
 
   try {
     const admin = createAdminClient();

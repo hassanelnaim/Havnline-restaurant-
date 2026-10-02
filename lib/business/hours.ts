@@ -30,13 +30,23 @@ export function isBusinessOpenNow(business: Pick<DbBusiness, "timezone">, hours:
   }).format(new Date());
 
   const todayHours = hours.find((h) => h.weekday === currentWeekday);
-  return Boolean(
-    todayHours?.is_open &&
-      todayHours.open_time &&
-      todayHours.close_time &&
-      currentTimeStr >= todayHours.open_time.slice(0, 5) &&
-      currentTimeStr <= todayHours.close_time.slice(0, 5)
-  );
+  if (!todayHours?.is_open || !todayHours.open_time || !todayHours.close_time) return false;
+
+  const openTime = todayHours.open_time.slice(0, 5);
+  const closeTime = todayHours.close_time.slice(0, 5);
+
+  // Equal open/close time (e.g. 7:00 AM to 7:00 AM) is the convention
+  // for "open 24 hours" — the plain range check below would otherwise
+  // only ever match the single instant equal to that time, which is
+  // exactly backwards from what setting the same time for both fields
+  // is meant to express.
+  if (openTime === closeTime) return true;
+
+  // Same overnight-wrap handling as effectivePriceCents
+  // (lib/business/pricing.ts) — e.g. 10 PM to 2 AM wraps past
+  // midnight, so a close time earlier than the open time doesn't mean
+  // "already closed," it means "still open until that time tomorrow."
+  return openTime <= closeTime ? currentTimeStr >= openTime && currentTimeStr <= closeTime : currentTimeStr >= openTime || currentTimeStr <= closeTime;
 }
 
 /** Human-readable "opens again at [time]" for the AI to read out when closed. */

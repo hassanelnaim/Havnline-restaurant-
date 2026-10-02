@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Play, Square, Check, Loader2, RefreshCw } from "lucide-react";
+import { Play, Square, Check, Loader2, RefreshCw, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,9 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+  const [livePreviewId, setLivePreviewId] = useState<string | null>(null);
+  const [loadingLivePreviewId, setLoadingLivePreviewId] = useState<string | null>(null);
+  const [livePreviewError, setLivePreviewError] = useState<string | null>(null);
 
   async function loadVoices() {
     setLoading(true);
@@ -60,6 +63,48 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
     setPlayingId(voice.voiceId);
   }
 
+  // ElevenLabs' own preview clip above is generated with their
+  // showcase settings, not the ones a real HavnLine call actually
+  // uses (optimized for phone-call latency, which costs a little
+  // naturalness) — this hits our own pipeline instead, so what plays
+  // here is exactly what a customer would hear.
+  async function toggleLivePreview(voice: ElevenLabsVoice) {
+    if (livePreviewId === voice.voiceId) {
+      audioEl?.pause();
+      setLivePreviewId(null);
+      return;
+    }
+    audioEl?.pause();
+    setPlayingId(null);
+    setLivePreviewError(null);
+    setLoadingLivePreviewId(voice.voiceId);
+    try {
+      const res = await fetch("/api/elevenlabs/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voiceId: voice.voiceId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Could not generate a preview.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      setAudioEl(audio);
+      audio.onended = () => {
+        setLivePreviewId(null);
+        URL.revokeObjectURL(url);
+      };
+      audio.play();
+      setLivePreviewId(voice.voiceId);
+    } catch (err) {
+      setLivePreviewError(err instanceof Error ? err.message : "Could not generate a preview.");
+    } finally {
+      setLoadingLivePreviewId(null);
+    }
+  }
+
   if (loading) {
     return <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-paper px-4 py-6 text-[13px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading your ElevenLabs voice library…</div>;
   }
@@ -83,17 +128,33 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
         <p className="text-[12px] text-text-faint">{voices.length} voices in your ElevenLabs library</p>
         <Button size="sm" variant="ghost" onClick={loadVoices}><RefreshCw className="h-3.5 w-3.5" /> Refresh</Button>
       </div>
+      <p className="text-[11.5px] text-text-faint">
+        The round button plays ElevenLabs' own sample. <PhoneCall className="inline h-3 w-3 -mt-0.5" /> plays a quick line through HavnLine's actual phone pipeline — closer to what callers will really hear.
+      </p>
+      {livePreviewError && <p className="text-[12px] text-danger">{livePreviewError}</p>}
       <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
         {voices.map((voice) => {
           const isSelected = selectedVoiceRef === voice.voiceId;
+          const isLoadingLive = loadingLivePreviewId === voice.voiceId;
           return (
             <div key={voice.voiceId} className={cn("flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5", isSelected ? "border-brand bg-brand-soft" : "border-border bg-card")}>
               <div className="flex items-center gap-3">
-                {voice.previewUrl && (
-                  <button type="button" onClick={() => togglePreview(voice)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-text-muted hover:bg-paper">
-                    {playingId === voice.voiceId ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {voice.previewUrl && (
+                    <button type="button" onClick={() => togglePreview(voice)} title="Play ElevenLabs' sample" className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-text-muted hover:bg-paper">
+                      {playingId === voice.voiceId ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => toggleLivePreview(voice)}
+                    disabled={isLoadingLive}
+                    title="Hear this voice through HavnLine's own phone pipeline"
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-text-muted hover:bg-paper disabled:opacity-60"
+                  >
+                    {isLoadingLive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : livePreviewId === voice.voiceId ? <Square className="h-3.5 w-3.5" /> : <PhoneCall className="h-3.5 w-3.5" />}
                   </button>
-                )}
+                </div>
                 <div>
                   <div className="text-[13px] font-medium text-ink">{voice.name}</div>
                   {(voice.category || voice.description) && (

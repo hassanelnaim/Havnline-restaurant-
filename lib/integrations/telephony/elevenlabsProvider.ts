@@ -37,7 +37,14 @@ export async function synthesizeSpeech(text: string, elevenVoiceId: string): Pro
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_turbo_v2_5",
+        // eleven_turbo_v2_5 is deprecated (ElevenLabs now treats it as
+        // just a slower version of eleven_flash_v2_5). eleven_v4_turbo
+        // is the current real-time-appropriate model with noticeably
+        // more natural output than either Turbo or Flash — still fast
+        // enough for a live phone call (~100ms vs. Flash's ~75ms, a
+        // difference a caller won't perceive), so this is a quality
+        // upgrade with no real latency tradeoff for this use case.
+        model_id: "eleven_v4_turbo",
         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       }),
     }

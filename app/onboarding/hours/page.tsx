@@ -31,6 +31,7 @@ export default function HoursStep() {
                 <Input type="time" className="w-32" value={day.openTime} onChange={(e) => setDay(i, { openTime: e.target.value })} />
                 <span className="text-[12.5px] text-text-faint">to</span>
                 <Input type="time" className="w-32" value={day.closeTime} onChange={(e) => setDay(i, { closeTime: e.target.value })} />
+                {day.openTime === day.closeTime && <span className="text-[12px] font-medium text-brand">Open 24 hours</span>}
               </div>
             ) : <span className="flex-1 text-[13px] text-text-faint">Closed</span>}
           </div>
