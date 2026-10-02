@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { startCheckoutAction, openBillingPortalAction } from "@/app/actions/billing";
+import { MONTHLY_PRICE_DISPLAY, DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY } from "@/lib/billing/constants";
 import type { DbBusiness } from "@/lib/database/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,10 @@ export function BillingClient({ business }: { business: DbBusiness }) {
   const [error, setError] = useState<string | null>(null);
   const status = STATUS_META[business.subscription_status] || STATUS_META.none;
   const hasSubscription = business.subscription_status !== "none" && business.subscription_status !== "canceled";
+  // Shows this business's own stored fee when it's been set (an admin
+  // may have customized it), falling back to the standard rate only
+  // for the not-yet-migrated case where platform_fee_bps is still null.
+  const feePercentDisplay = business.platform_fee_bps != null ? `${business.platform_fee_bps / 100}%` : DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY;
 
   async function handleSubscribe() {
     setLoading(true);
@@ -44,6 +49,7 @@ export function BillingClient({ business }: { business: DbBusiness }) {
       <CardContent className="space-y-4">
         <div className="flex items-center gap-2"><Badge variant={status.variant}>{status.label}</Badge></div>
         <p className="text-[13.5px] text-text-muted">{status.description}</p>
+        <p className="text-[12px] text-text-faint">{MONTHLY_PRICE_DISPLAY}/month, plus a {feePercentDisplay} fee on each paid phone order.</p>
         {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
         <div className="flex gap-3 pt-2">
           {hasSubscription ? (

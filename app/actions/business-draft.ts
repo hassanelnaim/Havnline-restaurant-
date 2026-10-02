@@ -4,6 +4,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { isValidTimezone } from "@/lib/business/timezone";
+import { DEFAULT_PLATFORM_FEE_BPS } from "@/lib/billing/constants";
 import { dbErrorResult } from "@/lib/errors";
 
 export interface CreateBusinessDraftResult {
@@ -81,9 +82,13 @@ export async function createBusinessDraftAction(input: {
     return { success: true, businessId: business.id };
   }
 
+  // platform_fee_bps only gets a default here, on first insert — it's
+  // intentionally left out of businessFields above so re-saving the
+  // draft (an update) never overwrites a fee a platform admin already
+  // customized for this business.
   const { data: business, error: businessError } = await admin
     .from("businesses")
-    .insert({ ...businessFields, onboarding_step: "hours" })
+    .insert({ ...businessFields, onboarding_step: "hours", platform_fee_bps: DEFAULT_PLATFORM_FEE_BPS })
     .select()
     .single();
 

@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { OnboardingDraft } from "@/lib/onboarding/context";
+import { DEFAULT_PLATFORM_FEE_BPS } from "@/lib/billing/constants";
 import { dbErrorResult } from "@/lib/errors";
 
 export interface CompleteOnboardingResult {
@@ -73,6 +74,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
         description: draft.description || null,
         onboarding_step: "complete",
         onboarding_completed_at: new Date().toISOString(),
+        platform_fee_bps: DEFAULT_PLATFORM_FEE_BPS,
       })
       .select()
       .single();

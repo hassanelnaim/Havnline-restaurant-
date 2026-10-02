@@ -6,6 +6,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/brand/logo";
 import { getApprovedReviews } from "@/lib/data/reviews";
+import { MONTHLY_PRICE_DISPLAY, DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY } from "@/lib/billing/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -117,7 +118,7 @@ export default async function LandingPage() {
                   <Link href="/login">I have an account</Link>
                 </Button>
               </div>
-              <p className="mt-3 text-[11.5px] text-text-faint">7 days free, then $199/month. Cancel anytime.</p>
+              <p className="mt-3 text-[11.5px] text-text-faint">7 days free, then {MONTHLY_PRICE_DISPLAY}/month. Cancel anytime.</p>
             </div>
 
             <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
@@ -307,7 +308,7 @@ export default async function LandingPage() {
             </div>
             <div className="mx-auto mt-6 max-w-md rounded-2xl border-2 border-brand bg-card p-7 text-center shadow-card">
               <div className="flex items-baseline justify-center gap-1.5">
-                <span className="font-display text-[38px] font-semibold text-ink">$199</span>
+                <span className="font-display text-[38px] font-semibold text-ink">{MONTHLY_PRICE_DISPLAY}</span>
                 <span className="text-[13px] text-text-muted">/month</span>
               </div>
               <p className="mt-1 text-[12px] text-text-muted">7 days free, then billed monthly. Cancel anytime.</p>
@@ -319,6 +320,7 @@ export default async function LandingPage() {
                   </li>
                 ))}
               </ul>
+              <p className="mt-4 text-[11.5px] text-text-faint">Plus a {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} fee on each paid phone order, deducted automatically — no separate bill for it.</p>
               <Button variant="brand" size="lg" className="mt-6 w-full" asChild>
                 <Link href="/signup">Start your free trial <ArrowRight className="h-4 w-4" /></Link>
               </Button>

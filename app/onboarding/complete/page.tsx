@@ -5,6 +5,7 @@ import { PartyPopper, Loader2, CreditCard } from "lucide-react";
 import { useOnboarding } from "@/lib/onboarding/context";
 import { completeOnboardingAction } from "@/app/actions/onboarding";
 import { startCheckoutAction } from "@/app/actions/billing";
+import { MONTHLY_PRICE_DISPLAY } from "@/lib/billing/constants";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -57,7 +58,7 @@ export default function CompleteStep() {
         <Card className="mt-4 flex items-center justify-between p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-dark"><CreditCard className="h-4.5 w-4.5" /></div>
-            <div><div className="text-[13.5px] font-semibold text-ink">Start your free trial</div><div className="text-[12px] text-text-muted">7 days free, then $199/month. Cancel anytime.</div></div>
+            <div><div className="text-[13.5px] font-semibold text-ink">Start your free trial</div><div className="text-[12px] text-text-muted">7 days free, then {MONTHLY_PRICE_DISPLAY}/month. Cancel anytime.</div></div>
           </div>
           <Button size="sm" variant="brand" onClick={handleStartTrial} disabled={startingCheckout}>{startingCheckout ? "Starting…" : "Start free trial"}</Button>
         </Card>
