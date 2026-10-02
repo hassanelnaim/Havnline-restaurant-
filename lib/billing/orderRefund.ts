@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { refundOrderPayment } from "@/lib/billing/stripeConnect";
+import { smsClient } from "@/lib/integrations/sms";
 import { dbErrorResult } from "@/lib/errors";
 
 export interface ProcessOrderRefundResult {
@@ -46,7 +47,7 @@ export async function processOrderRefund(
   }
   if (!order.stripe_payment_intent_id) return { success: false, error: "No payment on file for this order." };
 
-  const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", businessId).single();
+  const { data: business } = await admin.from("businesses").select("name, stripe_connect_account_id").eq("id", businessId).single();
   if (!business?.stripe_connect_account_id) return { success: false, error: "Stripe isn't connected for this business." };
 
   // Keyed on the exact pre-refund state just read: two near-
@@ -85,8 +86,20 @@ export async function processOrderRefund(
   if (!updatedOrder) {
     // Stripe's own idempotency already prevented a double charge (see
     // above) — this just means another request recorded the result
-    // first. Still a success from this caller's point of view.
+    // first. Still a success from this caller's point of view, but
+    // skip the SMS below: whichever request actually wins the update
+    // below sends it, so a near-simultaneous double-tap/retry can't
+    // text the customer twice for the same refund.
     return { success: true, refundedCents: result.refundedCents, fullyRefunded };
+  }
+
+  // Customers get a text when an order is placed and when payment
+  // comes through (see lib/ai/tools.ts and the Stripe Connect
+  // webhook) but, until now, nothing at all when money went back to
+  // their card — silent from their side even though real money moved.
+  if (order.phone && business?.name && result.refundedCents) {
+    const smsBody = `${business.name}: $${(result.refundedCents / 100).toFixed(2)} has been refunded to your card${fullyRefunded ? "" : " for part of your order"}. It can take a few business days to show up on your statement. Msg&data rates may apply.`;
+    smsClient.send(businessId, order.phone, smsBody).catch((err) => console.error("Refund-confirmation SMS failed:", err));
   }
 
   return { success: true, refundedCents: result.refundedCents, fullyRefunded };
