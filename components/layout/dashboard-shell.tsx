@@ -22,7 +22,7 @@ export function DashboardShell({
 
   return (
     <div className="min-h-screen bg-paper print:bg-white">
-      {/* Printing a report (see app/dashboard/end-of-day) should produce a
+      {/* Printing a report (see app/dashboard/orders) should produce a
           plain page of that report, not the sidebar/header chrome around
           it — print:hidden here, and print:pl-0/print:p-0 below, strip
           the dashboard shell down to just the page content on paper. */}
