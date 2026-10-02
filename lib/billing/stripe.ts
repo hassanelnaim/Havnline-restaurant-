@@ -52,7 +52,7 @@ export async function createCheckoutSession(input: {
   }
 }
 
-export async function createBillingPortalSession(customerId: string, returnUrl: string): Promise<{ url: string | null; error?: string }> {
+export async function createBillingPortalSession(customerId: string, returnUrl: string): Promise<{ url: string | null; error?: string; code?: string }> {
   const stripe = getStripeClient();
   if (!stripe) return { url: null, error: "Billing is not configured yet." };
 
@@ -62,6 +62,14 @@ export async function createBillingPortalSession(customerId: string, returnUrl: 
   } catch (err) {
     console.error("Stripe billing portal session failed:", err);
     const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not open billing portal.";
-    return { url: null, error: message };
+    // `code` surfaces Stripe's machine-readable reason (e.g.
+    // "resource_missing" when this customer id doesn't exist under the
+    // currently configured API key — the classic symptom of a stored id
+    // that was created under a different key, most often a test-mode
+    // key swapped for a live one after checkout already ran once) so
+    // the caller can self-heal a stale reference instead of just
+    // showing the raw Stripe error forever.
+    const code = err instanceof Stripe.errors.StripeError ? err.code : undefined;
+    return { url: null, error: message, code };
   }
 }
