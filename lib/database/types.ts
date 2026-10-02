@@ -351,6 +351,8 @@ export interface DbAiVoiceConfig {
   provider: string | null;
   provider_voice_ref: string | null;
   provider_voice_name: string | null;
+  /** 0.7-1.2, 1.0 = normal — see ElevenLabs' voice_settings.speed. Clamped to this range wherever it's used, not just trusted from the DB. */
+  speaking_rate: number;
   created_at: ISODateTime;
 }
 

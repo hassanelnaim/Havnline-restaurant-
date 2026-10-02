@@ -13,7 +13,7 @@ interface ElevenLabsVoice {
   description: string | null;
 }
 
-export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selectedVoiceRef: string | null; onSelect: (voiceId: string, name: string) => void }) {
+export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect, speakingRate }: { selectedVoiceRef: string | null; onSelect: (voiceId: string, name: string) => void; speakingRate?: number }) {
   const [voices, setVoices] = useState<ElevenLabsVoice[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
       const res = await fetch("/api/elevenlabs/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voiceId: voice.voiceId }),
+        body: JSON.stringify({ voiceId: voice.voiceId, speakingRate }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);

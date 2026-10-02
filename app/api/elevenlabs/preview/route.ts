@@ -40,9 +40,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const voiceId = typeof body?.voiceId === "string" ? body.voiceId.trim() : "";
   if (!voiceId) return NextResponse.json({ error: "Missing voiceId." }, { status: 400 });
+  const speakingRate = typeof body?.speakingRate === "number" ? body.speakingRate : undefined;
 
   try {
-    const audioBuffer = await synthesizeSpeech(SAMPLE_TEXT, voiceId);
+    const audioBuffer = await synthesizeSpeech(SAMPLE_TEXT, voiceId, speakingRate);
 
     // Real usage, same as a live call would log — fire-and-forget,
     // never delays the audio response. Best-effort: a business this

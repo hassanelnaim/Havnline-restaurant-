@@ -27,6 +27,7 @@ export interface TtsParams {
   voiceId: string;
   providerVoiceRef?: string | null;
   businessId?: string | null;
+  speakingRate?: number | null;
 }
 
 function canonicalize(params: TtsParams, expiresAt: number): string {
@@ -35,6 +36,7 @@ function canonicalize(params: TtsParams, expiresAt: number): string {
     `voiceId=${params.voiceId}`,
     `providerVoiceRef=${params.providerVoiceRef || ""}`,
     `businessId=${params.businessId || ""}`,
+    `speakingRate=${params.speakingRate ?? ""}`,
     `exp=${expiresAt}`,
   ].join("&");
 }

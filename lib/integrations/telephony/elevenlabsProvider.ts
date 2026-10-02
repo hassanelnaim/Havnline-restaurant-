@@ -20,7 +20,19 @@ export function resolveElevenLabsVoiceId(
   return DEFAULT_VOICE_MAP.alex_professional;
 }
 
-export async function synthesizeSpeech(text: string, elevenVoiceId: string): Promise<ArrayBuffer> {
+// ElevenLabs rejects voice_settings.speed outside this range outright
+// — clamped here (not just at the UI layer) so a bad/stale stored
+// value, or a direct call from anywhere else, can never turn into a
+// live 400 mid-call.
+const MIN_SPEAKING_RATE = 0.7;
+const MAX_SPEAKING_RATE = 1.2;
+
+export function clampSpeakingRate(rate: number | null | undefined): number {
+  if (typeof rate !== "number" || !Number.isFinite(rate)) return 1.0;
+  return Math.min(MAX_SPEAKING_RATE, Math.max(MIN_SPEAKING_RATE, rate));
+}
+
+export async function synthesizeSpeech(text: string, elevenVoiceId: string, speakingRate?: number | null): Promise<ArrayBuffer> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     throw new Error("ELEVENLABS_API_KEY is not configured.");
@@ -50,7 +62,7 @@ export async function synthesizeSpeech(text: string, elevenVoiceId: string): Pro
         // difference a caller won't perceive), so this is a quality
         // upgrade with no real latency tradeoff for this use case.
         model_id: "eleven_v4_turbo",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: clampSpeakingRate(speakingRate) },
       }),
     }
   );
