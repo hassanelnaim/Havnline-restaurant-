@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Plus, Trash2, Globe, Tag, Percent, Pencil, ClipboardPaste } from "lucide-react";
 import type { DbKnowledgeItem, DbPromotion, KnowledgeCategory } from "@/lib/database/types";
 import { addKnowledgeItemAction, updateKnowledgeItemAction, deleteKnowledgeItemAction, importWebsiteKnowledgeAction, importPastedKnowledgeAction, addPromotionAction, togglePromotionAction, deletePromotionAction } from "@/app/actions/knowledge";
@@ -187,6 +188,9 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
       </TabsContent>
 
       <TabsContent value="promotions">
+        <p className="mb-4 text-[12.5px] text-text-muted">
+          A promotion here runs for full calendar days (start date to end date), and is just something your AI can mention. For a special that's only available during part of the day — like a breakfast item priced differently from 7-11am — that's a time-based price on the item itself, set on the <Link href="/dashboard/menu" className="font-medium text-brand hover:underline">Menu</Link> page.
+        </p>
         <Card className="mb-4">
           <CardHeader><CardTitle>Add a promotion</CardTitle></CardHeader>
           <CardContent className="space-y-3">
