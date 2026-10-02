@@ -7,9 +7,10 @@ import { getDeviceToken, getBusinessName } from "./src/lib/storage";
 import { PairingScreen } from "./src/screens/PairingScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { OrdersScreen } from "./src/screens/OrdersScreen";
+import { DashboardScreen } from "./src/screens/DashboardScreen";
 
 type Session = { deviceToken: string; businessName: string | null } | null;
-type Tab = "orders" | "setup";
+type Tab = "orders" | "dashboard" | "setup";
 
 export default function App() {
   // undefined = still checking storage, null = not paired yet
@@ -73,6 +74,8 @@ function PairedShell({ deviceToken, businessName, onUnpaired }: { deviceToken: s
       <View style={styles.tabContent}>
         {tab === "orders" ? (
           <OrdersScreen deviceToken={deviceToken} />
+        ) : tab === "dashboard" ? (
+          <DashboardScreen deviceToken={deviceToken} />
         ) : (
           <HomeScreen deviceToken={deviceToken} businessName={businessName} onUnpaired={onUnpaired} />
         )}
@@ -80,6 +83,9 @@ function PairedShell({ deviceToken, businessName, onUnpaired }: { deviceToken: s
       <View style={styles.tabBar}>
         <TouchableOpacity style={styles.tabButton} onPress={() => setTab("orders")}>
           <Text style={[styles.tabLabel, tab === "orders" && styles.tabLabelActive]}>Orders</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabButton} onPress={() => setTab("dashboard")}>
+          <Text style={[styles.tabLabel, tab === "dashboard" && styles.tabLabelActive]}>Dashboard</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.tabButton} onPress={() => setTab("setup")}>
           <Text style={[styles.tabLabel, tab === "setup" && styles.tabLabelActive]}>Setup</Text>

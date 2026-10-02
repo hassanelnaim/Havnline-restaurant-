@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, FlatList, RefreshControl, StyleSheet, Act
 import { fetchTodayOrders, TodayOrder, MoneyActionType } from "../lib/api";
 import { MoneyActionModal, MoneyActionToken } from "../components/MoneyActionModal";
 import { AddItemModal } from "../components/AddItemModal";
+import { AddSpecialModal } from "../components/AddSpecialModal";
 import { ORDERS_REFRESH_INTERVAL_MS } from "../config";
 
 interface Props {
@@ -147,6 +148,7 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
   const [pendingAction, setPendingAction] = useState<MoneyActionType | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [addingItem, setAddingItem] = useState(false);
+  const [addingSpecial, setAddingSpecial] = useState(false);
 
   const remainingCents = order.total_cents - order.amount_refunded_cents;
   const canMoveMoney = remainingCents > 0 && order.status !== "cancelled" && (order.payment_status === "paid" || order.payment_status === "partially_refunded");
@@ -188,6 +190,9 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.addItemButton} onPress={() => setAddingItem(true)}>
             <Text style={styles.actionButtonText}>+ Add item</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addSpecialButton} onPress={() => setAddingSpecial(true)}>
+            <Text style={styles.actionButtonText}>+ Add a special</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -265,6 +270,15 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
           onItemAdded={onOrderChanged}
         />
       )}
+
+      {addingSpecial && (
+        <AddSpecialModal
+          deviceToken={deviceToken}
+          orderId={order.id}
+          onClose={() => setAddingSpecial(false)}
+          onItemAdded={onOrderChanged}
+        />
+      )}
     </View>
   );
 }
@@ -290,6 +304,7 @@ const styles = StyleSheet.create({
   actionButtonDanger: { backgroundColor: "#3F1D1D", borderColor: "#5C2626" },
   actionButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   addItemButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#14532D", borderWidth: 1, borderColor: "#22C55E" },
+  addSpecialButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#60A5FA" },
   actionSuccess: { color: "#22C55E", fontSize: 12.5, fontWeight: "600", marginBottom: 10 },
   itemRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#131C30", paddingVertical: 12, alignItems: "flex-start" },
   itemName: { color: "#fff", fontSize: 15, fontWeight: "600" },

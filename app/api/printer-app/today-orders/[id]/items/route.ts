@@ -55,6 +55,68 @@ function resolveSelection(menu: MenuItemWithModifiers[], input: SelectionInput):
   return { success: true, menuItem, quantity, matchedModifiers, notes: input.notes };
 }
 
+// A resolved thing-to-add, whether it came from the real menu or was
+// typed in as a one-off "Add a Special" (see resolveSpecial below) —
+// the comp/charge branches further down only ever work with this
+// common shape, so they don't need to know which path produced it.
+interface ResolvedAddition {
+  itemName: string;
+  menuItemId: string | null;
+  quantity: number;
+  unitPriceCents: number;
+  modifiers: { modifierId: string; modifierName: string; priceDeltaCents: number }[];
+  notes: string | null;
+  checkoutLabel: string;
+}
+
+// Sanity ceiling on a hand-typed special amount — not a real limit on
+// what a restaurant could legitimately charge, just a guard against a
+// fat-fingered extra zero (e.g. "500" meant as $5.00 cents-confusion)
+// going out as a live QR charge before anyone notices.
+const MAX_SPECIAL_AMOUNT_CENTS = 100_000; // $1,000.00
+
+interface SpecialInput {
+  name: string;
+  amountCents: number;
+  quantity: number;
+  notes: string | null;
+}
+
+type SpecialResult = { success: true; resolved: ResolvedAddition } | { success: false; reason: string };
+
+/**
+ * "Add a Special" — charging or comping something that isn't on the
+ * menu at all (a one-off catering tray, a split bill adjustment, "the
+ * manager's special" nobody bothered to add as a real menu item).
+ * Deliberately skips loadPricedMenu entirely; staff types the name and
+ * the real amount directly rather than picking from the live menu.
+ */
+function resolveSpecial(input: SpecialInput): SpecialResult {
+  const name = input.name.trim().slice(0, 80);
+  if (!name) return { success: false, reason: "Enter a name for this special." };
+
+  const amountCents = Math.round(input.amountCents);
+  if (!Number.isFinite(amountCents) || amountCents <= 0) return { success: false, reason: "Enter an amount greater than $0." };
+  if (amountCents > MAX_SPECIAL_AMOUNT_CENTS) {
+    return { success: false, reason: `That's over the $${(MAX_SPECIAL_AMOUNT_CENTS / 100).toFixed(2)} limit for a special — double check the amount.` };
+  }
+
+  const quantity = Math.max(1, Math.min(20, Math.round(input.quantity) || 1));
+
+  return {
+    success: true,
+    resolved: {
+      itemName: name,
+      menuItemId: null,
+      quantity,
+      unitPriceCents: amountCents,
+      modifiers: [],
+      notes: input.notes,
+      checkoutLabel: `special — ${name}`,
+    },
+  };
+}
+
 /**
  * POST /api/printer-app/today-orders/[id]/items
  *
@@ -90,11 +152,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const body = await request.json().catch(() => null);
   const mode: AddMode = body?.mode === "charge" ? "charge" : "comp";
-  const menuItemId = typeof body?.menuItemId === "string" ? body.menuItemId : null;
-  if (!menuItemId) return NextResponse.json({ success: false, error: "Choose an item." }, { status: 400 });
-  const modifierIds: string[] = Array.isArray(body?.modifierIds) ? body.modifierIds.filter((x: unknown): x is string => typeof x === "string") : [];
-  const quantity = typeof body?.quantity === "number" && Number.isFinite(body.quantity) ? body.quantity : 1;
   const notes = typeof body?.notes === "string" && body.notes.trim() ? body.notes.trim().slice(0, 500) : null;
+  const quantity = typeof body?.quantity === "number" && Number.isFinite(body.quantity) ? body.quantity : 1;
+
+  // Two ways to arrive at something to add: a real menu item
+  // (menuItemId), or "Add a Special" — a hand-typed name + amount for
+  // something that isn't on the menu at all (body.special).
+  const specialInput = body?.special && typeof body.special === "object" ? body.special : null;
+  const menuItemId = typeof body?.menuItemId === "string" ? body.menuItemId : null;
+  if (!specialInput && !menuItemId) return NextResponse.json({ success: false, error: "Choose an item." }, { status: 400 });
 
   const admin = createAdminClient();
 
@@ -111,17 +177,40 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .single();
   if (!business) return NextResponse.json({ success: false, error: "Business not found." }, { status: 404 });
 
-  const { menu } = await loadPricedMenu(device.businessId);
-  const resolved = resolveSelection(menu, { menuItemId, quantity, modifierIds, notes });
-  if (!resolved.success) return NextResponse.json({ success: false, error: resolved.reason }, { status: 400 });
+  let resolved: ResolvedAddition;
+  if (specialInput) {
+    const specialResult = resolveSpecial({
+      name: typeof specialInput.name === "string" ? specialInput.name : "",
+      amountCents: typeof specialInput.amountCents === "number" ? specialInput.amountCents : NaN,
+      quantity,
+      notes,
+    });
+    if (!specialResult.success) return NextResponse.json({ success: false, error: specialResult.reason }, { status: 400 });
+    resolved = specialResult.resolved;
+  } else {
+    const modifierIds: string[] = Array.isArray(body?.modifierIds) ? body.modifierIds.filter((x: unknown): x is string => typeof x === "string") : [];
+    const { menu } = await loadPricedMenu(device.businessId);
+    const selectionResult = resolveSelection(menu, { menuItemId: menuItemId as string, quantity, modifierIds, notes });
+    if (!selectionResult.success) return NextResponse.json({ success: false, error: selectionResult.reason }, { status: 400 });
 
-  const { menuItem, quantity: qty, matchedModifiers, notes: cleanNotes } = resolved;
+    const { menuItem, quantity: qty, matchedModifiers, notes: cleanNotes } = selectionResult;
+    // menuItem.price_cents is already the REAL, current price —
+    // loadPricedMenu resolves time-based specials (the menu kind, not
+    // the Add-a-Special kind) the same way add_item_to_order does for
+    // a phone order.
+    const realModifiers = matchedModifiers.map((m) => ({ modifierId: m.id, modifierName: m.name, priceDeltaCents: m.price_delta_cents }));
+    resolved = {
+      itemName: menuItem.name,
+      menuItemId: menuItem.id,
+      quantity: qty,
+      unitPriceCents: menuItem.price_cents,
+      modifiers: realModifiers,
+      notes: cleanNotes,
+      checkoutLabel: `added item (${menuItem.name})`,
+    };
+  }
 
-  // menuItem.price_cents is already the REAL, current price —
-  // loadPricedMenu resolves time-based specials the same way
-  // add_item_to_order does for a phone order.
-  const realModifiers = matchedModifiers.map((m) => ({ modifierId: m.id, modifierName: m.name, priceDeltaCents: m.price_delta_cents }));
-  const realAmountCents = (menuItem.price_cents + realModifiers.reduce((sum, m) => sum + m.priceDeltaCents, 0)) * qty;
+  const realAmountCents = (resolved.unitPriceCents + resolved.modifiers.reduce((sum, m) => sum + m.priceDeltaCents, 0)) * resolved.quantity;
 
   // A $0 item (or a "charge" on something that's actually free) has
   // nothing to collect — Stripe refuses a $0 Checkout Session anyway —
@@ -130,12 +219,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   if (effectiveMode === "comp") {
     const pendingItem: PendingAddendumItem = {
-      menuItemId: menuItem.id,
-      itemName: menuItem.name,
+      menuItemId: resolved.menuItemId,
+      itemName: resolved.itemName,
       unitPriceCents: 0,
-      quantity: qty,
-      notes: cleanNotes,
-      modifiers: realModifiers.map((m) => ({ ...m, priceDeltaCents: 0 })),
+      quantity: resolved.quantity,
+      notes: resolved.notes,
+      modifiers: resolved.modifiers.map((m) => ({ ...m, priceDeltaCents: 0 })),
     };
 
     const inserted = await insertOrderItems(order.id, [pendingItem]);
@@ -154,7 +243,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       );
     }
 
-    return NextResponse.json({ success: true, mode: "comp", item: menuItem.name, quantity: qty });
+    return NextResponse.json({ success: true, mode: "comp", item: resolved.itemName, quantity: resolved.quantity });
   }
 
   // Charge path — require Stripe Connect configured, same gate
@@ -164,12 +253,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   const pendingItem: PendingAddendumItem = {
-    menuItemId: menuItem.id,
-    itemName: menuItem.name,
-    unitPriceCents: menuItem.price_cents,
-    quantity: qty,
-    notes: cleanNotes,
-    modifiers: realModifiers,
+    menuItemId: resolved.menuItemId,
+    itemName: resolved.itemName,
+    unitPriceCents: resolved.unitPriceCents,
+    quantity: resolved.quantity,
+    notes: resolved.notes,
+    modifiers: resolved.modifiers,
   };
 
   const { data: addendum, error: addendumError } = await admin
@@ -197,7 +286,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     businessName: business.name,
     totalCents: realAmountCents,
     platformFeeBps: business.platform_fee_bps,
-    productName: `${business.name} — added item (${menuItem.name})`,
+    productName: `${business.name} — ${resolved.checkoutLabel}`,
     successUrl: `${siteUrl}/order-addendum-confirmation?addendum_id=${addendum.id}`,
     cancelUrl: `${siteUrl}/order-addendum-confirmation?addendum_id=${addendum.id}&cancelled=1`,
     // Unique per charge attempt (each addendum row is its own attempt)

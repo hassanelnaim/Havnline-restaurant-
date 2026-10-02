@@ -3,9 +3,16 @@ import { effectivePriceCents } from "@/lib/business/pricing";
 import { safeTimezone } from "@/lib/business/timezone";
 import type { MenuItemWithModifiers } from "@/lib/database/types";
 
+// category_name is resolved here (a join the base DbMenuItem row
+// doesn't carry) specifically for the tablet's Add Item category tabs
+// (printer-app/src/components/AddItemModal.tsx) — the dashboard's own
+// menu management page groups items by category_id directly against
+// already-loaded category data, so it never needed this on the type.
+export type PricedMenuItem = MenuItemWithModifiers & { category_name: string | null };
+
 export interface PricedMenuResult {
   timezone: string;
-  menu: MenuItemWithModifiers[];
+  menu: PricedMenuItem[];
 }
 
 /**
@@ -22,12 +29,13 @@ export interface PricedMenuResult {
 export async function loadPricedMenu(businessId: string): Promise<PricedMenuResult> {
   const admin = createAdminClient();
 
-  const [businessRes, itemsRes, groupsRes, modifiersRes, attachmentsRes] = await Promise.all([
+  const [businessRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, categoriesRes] = await Promise.all([
     admin.from("businesses").select("timezone").eq("id", businessId).single(),
     admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
     admin.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order"),
     admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
     admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId),
+    admin.from("menu_categories").select("id, name").eq("business_id", businessId),
   ]);
 
   const timezone = safeTimezone(businessRes.data?.timezone);
@@ -36,14 +44,16 @@ export async function loadPricedMenu(businessId: string): Promise<PricedMenuResu
   const attachments = attachmentsRes.data || [];
   const templateGroups = groups.filter((g) => g.is_template);
   const oneOffGroups = groups.filter((g) => !g.is_template);
+  const categoryNameById = new Map((categoriesRes.data || []).map((c) => [c.id, c.name]));
 
-  const menu: MenuItemWithModifiers[] = (itemsRes.data || []).map((item) => {
+  const menu: PricedMenuItem[] = (itemsRes.data || []).map((item) => {
     const ownGroups = oneOffGroups.filter((g) => g.menu_item_id === item.id);
     const attachedTemplateIds = attachments.filter((a) => a.menu_item_id === item.id).map((a) => a.modifier_group_id);
     const attachedTemplates = templateGroups.filter((g) => attachedTemplateIds.includes(g.id));
     return {
       ...item,
       price_cents: effectivePriceCents(item, timezone),
+      category_name: (item.category_id && categoryNameById.get(item.category_id)) || null,
       modifier_groups: [...ownGroups, ...attachedTemplates].map((g) => ({ ...g, modifiers: allModifiers.filter((m) => m.modifier_group_id === g.id) })),
     };
   });

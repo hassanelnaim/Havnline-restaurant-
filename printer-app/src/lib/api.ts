@@ -192,6 +192,11 @@ export interface MenuItem {
   name: string;
   description: string | null;
   price_cents: number;
+  // Resolved server-side from the item's category_id — null for an
+  // item with no category assigned. Used purely for the Add Item
+  // screen's category tabs (see AddItemModal); the dashboard's own
+  // menu management page groups by category_id directly instead.
+  category_name: string | null;
   modifier_groups: MenuModifierGroup[];
 }
 
@@ -214,6 +219,14 @@ export interface AddItemInput {
   menuItemId: string;
   quantity: number;
   modifierIds: string[];
+  notes?: string;
+  mode: AddItemMode;
+}
+
+/** "Add a Special" — a hand-typed name + amount for something that isn't on the menu at all. */
+export interface AddSpecialInput {
+  special: { name: string; amountCents: number };
+  quantity: number;
   notes?: string;
   mode: AddItemMode;
 }
@@ -242,6 +255,16 @@ export async function submitItemAddition(deviceToken: string, orderId: string, i
   return res.json();
 }
 
+/** Same endpoint and response shape as submitItemAddition — just a special's name/amount instead of a real menuItemId. */
+export async function submitSpecialAddition(deviceToken: string, orderId: string, input: AddSpecialInput): Promise<AddItemResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+
 export type AddendumChargeStatus = "awaiting_payment" | "paid" | "expired" | "failed";
 
 export interface AddendumChargeStatusResult {
@@ -254,6 +277,33 @@ export interface AddendumChargeStatusResult {
 /** Polled every few seconds while the QR step is on screen — see AddItemModal. */
 export async function pollAddendumCharge(deviceToken: string, orderId: string, chargeId: string): Promise<AddendumChargeStatusResult> {
   const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/addendum-charges/${chargeId}`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  return res.json();
+}
+
+// -- Dashboard (Phase 7 of the tablet redesign) ------------------------------
+// Today's sales plus the previous several days — the same sales math
+// the website's End of Day report uses, bucketed into one response.
+
+export interface DashboardDay {
+  dateKey: string;
+  orderCount: number;
+  cancelledCount: number;
+  grossCents: number;
+  netCents: number;
+  taxCents: number;
+  refundedCents: number;
+}
+
+export interface DashboardResult {
+  success: boolean;
+  days?: DashboardDay[];
+  error?: string;
+}
+
+export async function fetchDashboard(deviceToken: string): Promise<DashboardResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/dashboard`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
   return res.json();

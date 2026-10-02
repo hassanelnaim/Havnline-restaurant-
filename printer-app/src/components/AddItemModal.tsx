@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Modal, View, Text, TextInput, TouchableOpacity, FlatList, Image, StyleSheet, ActivityIndicator } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Modal, View, Text, TextInput, TouchableOpacity, FlatList, Image, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fetchMenu, submitItemAddition, pollAddendumCharge, MenuItem, MenuModifier } from "../lib/api";
 import { ADDENDUM_POLL_INTERVAL_MS } from "../config";
@@ -35,6 +35,8 @@ export function AddItemModal({ deviceToken, orderId, onClose, onItemAdded }: Pro
 
   const [menu, setMenu] = useState<MenuItem[] | null>(null);
   const [menuError, setMenuError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("All");
 
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -61,6 +63,32 @@ export function AddItemModal({ deviceToken, orderId, onClose, onItemAdded }: Pro
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  // Order follows first appearance in the already-sort_order'd menu
+  // (roughly the dashboard's own category layout), not alphabetical —
+  // "All" always leads, "Other" (items with no category) always
+  // trails, since neither is a real category a staff member set an
+  // order for.
+  const categories = useMemo(() => {
+    if (!menu) return ["All"];
+    const seen: string[] = [];
+    for (const item of menu) {
+      const name = item.category_name || "Other";
+      if (!seen.includes(name)) seen.push(name);
+    }
+    const withoutOther = seen.filter((c) => c !== "Other");
+    return ["All", ...withoutOther, ...(seen.includes("Other") ? ["Other"] : [])];
+  }, [menu]);
+
+  const filteredMenu = useMemo(() => {
+    if (!menu) return [];
+    const query = search.trim().toLowerCase();
+    return menu.filter((item) => {
+      const inCategory = activeCategory === "All" || (item.category_name || "Other") === activeCategory;
+      const matchesQuery = !query || item.name.toLowerCase().includes(query);
+      return inCategory && matchesQuery;
+    });
+  }, [menu, search, activeCategory]);
 
   function pickItem(item: MenuItem) {
     setSelectedItem(item);
@@ -169,16 +197,43 @@ export function AddItemModal({ deviceToken, orderId, onClose, onItemAdded }: Pro
             {menu === null ? (
               <ActivityIndicator color="#2563EB" style={{ marginTop: 40 }} />
             ) : (
-              <FlatList
-                data={menu}
-                keyExtractor={(m) => m.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={styles.menuRow} onPress={() => pickItem(item)}>
-                    <Text style={styles.menuItemName}>{item.name}</Text>
-                    <Text style={styles.menuItemPrice}>${centsToDollarsString(item.price_cents)}</Text>
-                  </TouchableOpacity>
+              <>
+                <TextInput
+                  style={styles.searchInput}
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Search menu…"
+                  placeholderTextColor="#5B6472"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {categories.length > 2 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow} contentContainerStyle={{ gap: 8 }}>
+                    {categories.map((category) => {
+                      const selected = activeCategory === category;
+                      return (
+                        <TouchableOpacity key={category} style={[styles.categoryChip, selected && styles.categoryChipSelected]} onPress={() => setActiveCategory(category)}>
+                          <Text style={[styles.categoryChipText, selected && styles.categoryChipTextSelected]}>{category}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
                 )}
-              />
+                {filteredMenu.length === 0 ? (
+                  <Text style={styles.empty}>No items match{search ? ` "${search}"` : ""}.</Text>
+                ) : (
+                  <FlatList
+                    data={filteredMenu}
+                    keyExtractor={(m) => m.id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity style={styles.menuRow} onPress={() => pickItem(item)}>
+                        <Text style={styles.menuItemName}>{item.name}</Text>
+                        <Text style={styles.menuItemPrice}>${centsToDollarsString(item.price_cents)}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                )}
+              </>
             )}
           </>
         )}
@@ -318,6 +373,23 @@ const styles = StyleSheet.create({
   },
   menuItemName: { color: "#fff", fontSize: 15, fontWeight: "600" },
   menuItemPrice: { color: "#B8C0D0", fontSize: 14 },
+  searchInput: {
+    backgroundColor: "#131C30",
+    borderWidth: 1,
+    borderColor: "#25324A",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: "#fff",
+    marginBottom: 10,
+  },
+  categoryRow: { flexGrow: 0, marginBottom: 10 },
+  categoryChip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: "#25324A", backgroundColor: "#131C30" },
+  categoryChipSelected: { backgroundColor: "#2563EB", borderColor: "#2563EB" },
+  categoryChipText: { color: "#B8C0D0", fontSize: 13, fontWeight: "600" },
+  categoryChipTextSelected: { color: "#fff" },
+  empty: { color: "#5B6472", fontSize: 13.5, marginTop: 30, textAlign: "center" },
   label: { color: "#8A93A6", fontSize: 12.5, fontWeight: "600", marginTop: 14, marginBottom: 8 },
   quantityRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   stepper: { flexDirection: "row", alignItems: "center", gap: 14 },
