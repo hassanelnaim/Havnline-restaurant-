@@ -1,7 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import Link from "next/link";
-import { PhoneCall, MessageSquare, AudioLines, Copy, Check, Globe, Tablet, CreditCard } from "lucide-react";
+import { PhoneCall, MessageSquare, Copy, Check, Globe, Tablet, CreditCard } from "lucide-react";
 import type { DbIntegration, IntegrationProvider } from "@/lib/database/types";
 import { provisionPhoneNumberAction, changePhoneNumberAction } from "@/app/actions/business";
 import { generatePrinterAppCodeAction, unpairPrinterAppAction } from "@/app/actions/printer-app";
@@ -14,7 +13,6 @@ import { IntegrationStatusBadge } from "@/components/dashboard/status-badges";
 const PROVIDER_META: Record<IntegrationProvider, { name: string; description: string; icon: typeof PhoneCall }> = {
   twilio: { name: "Phone (Twilio)", description: "Powers your HavnLine phone number and inbound calls.", icon: PhoneCall },
   sms: { name: "SMS confirmations", description: "Sent automatically from your HavnLine number once you have one.", icon: MessageSquare },
-  voice_provider: { name: "Order-taker voice", description: "Pick your AI's voice from AI Employee → Voice.", icon: AudioLines },
   printer_app: { name: "HavnLine Printer App", description: "Prints orders to your kitchen printer, and handles refunds, discounts, and adding items right from the tablet.", icon: Tablet },
 };
 
@@ -129,7 +127,7 @@ export function IntegrationsClient({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  const commsIntegrations = integrations.filter((i) => i.provider === "twilio" || i.provider === "sms" || i.provider === "voice_provider");
+  const commsIntegrations = integrations.filter((i) => i.provider === "twilio" || i.provider === "sms");
 
   function renderCard(integration: DbIntegration) {
     const meta = PROVIDER_META[integration.provider];
@@ -169,8 +167,6 @@ export function IntegrationsClient({
               </div>
               {!areaCodeValid && <p className="text-[11px] font-medium text-amber-600">Enter a 3-digit area code first</p>}
             </div>
-          ) : integration.provider === "voice_provider" ? (
-            <Button size="sm" variant="outline" asChild><Link href="/dashboard/ai-employee">Choose voice</Link></Button>
           ) : integration.provider === "sms" ? (
             <span className="text-[12px] text-text-faint">{integration.status === "connected" ? "Automatic" : "Needs a phone number first"}</span>
           ) : null}

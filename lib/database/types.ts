@@ -395,7 +395,6 @@ export interface DbPromotion {
 export type IntegrationProvider =
   | "twilio"
   | "sms"
-  | "voice_provider"
   | "printer_app";
 
 export type IntegrationStatus = "connected" | "not_connected" | "coming_soon";
