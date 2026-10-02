@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renderEmailLayout } from "@/lib/email/templates";
+import { formatCents } from "@/lib/format";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://havnline.com";
@@ -148,4 +149,44 @@ export async function sendPaymentsDisconnectedEmail(businessId: string): Promise
     footerNote: `This is sent to every member of ${escapeHtml(business.name)}.`,
   });
   await send(recipients, `${business.name}: your Stripe account was disconnected`, html, "payments-disconnected");
+}
+
+/**
+ * Sent from processOrderRefund (lib/billing/orderRefund.ts) once the
+ * refund has actually gone through on Stripe's side and been recorded
+ * on the order — never optimistically before that. Covers both
+ * callers that land there: the dashboard's Refund button and the
+ * tablet's PIN-gated refund/discount flow. Treated like the other
+ * account-email.ts notices (always sent, not gated by
+ * notification_preferences) since it's real money leaving the
+ * business's own payouts, the same category as a failed payment.
+ */
+export async function sendOrderRefundedEmail(input: {
+  businessId: string;
+  orderId: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  refundedCents: number;
+  fullyRefunded: boolean;
+  reason: string;
+}): Promise<void> {
+  const admin = createAdminClient();
+  const { data: business } = await admin.from("businesses").select("name").eq("id", input.businessId).single();
+  if (!business) return;
+
+  const recipients = await getRecipients(admin, input.businessId);
+  const html = renderEmailLayout({
+    preheader: `${formatCents(input.refundedCents)} was refunded on an order at ${business.name}.`,
+    heading: input.fullyRefunded ? "An order was refunded" : "An order was partially refunded",
+    intro: `<strong>${formatCents(input.refundedCents)}</strong> was just refunded back to the customer's card on an order at <strong>${escapeHtml(business.name)}</strong>.`,
+    rows: [
+      { label: "Customer", value: escapeHtml(input.customerName || "Phone order") },
+      ...(input.customerPhone ? [{ label: "Phone", value: `<span style="font-family: 'IBM Plex Mono', Menlo, Consolas, monospace; font-size: 13px;">${escapeHtml(input.customerPhone)}</span>` }] : []),
+      { label: "Amount", value: formatCents(input.refundedCents) },
+      { label: "Reason", value: escapeHtml(input.reason || "No reason given") },
+    ],
+    cta: { label: "View order", url: `${APP_URL}/dashboard/orders` },
+    footerNote: `This is sent to every member of ${escapeHtml(business.name)} whenever a refund actually goes through — billing alerts can't be turned off.`,
+  });
+  await send(recipients, `${business.name}: ${formatCents(input.refundedCents)} refunded on an order`, html, "order-refunded");
 }
