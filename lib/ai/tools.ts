@@ -220,6 +220,41 @@ async function add_item_to_order(
   };
 }
 
+// A dedicated, single-call fix for "actually make that just 2" / "I only
+// want 1" — changing the quantity of an item already on the order.
+// Added because the only prior way to do this was remove_item_from_order
+// followed by a second add_item_to_order call, which depends on the
+// model actually completing BOTH steps; a model that says "I'll fix
+// that" and only completes (or only attempts) one of them leaves the
+// order silently wrong — exactly the real-world failure this closes.
+async function update_item_quantity(input: { item_name: string; quantity: number }, ctx: ToolContext): Promise<ToolResult> {
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("id").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
+  if (!order) return { success: false, reason: "No order in progress." };
+
+  const { data: matches } = await admin
+    .from("order_items")
+    .select("id")
+    .eq("order_id", order.id)
+    .ilike("item_name", input.item_name)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!matches || matches.length === 0) return { success: false, reason: `"${input.item_name}" isn't in the current order.` };
+
+  const newQuantity = Math.round(input.quantity);
+  if (newQuantity <= 0) {
+    // Same end state as remove_item_from_order — "change it to 0" means
+    // take it off the order entirely.
+    await admin.from("order_items").delete().eq("id", matches[0].id);
+  } else {
+    await admin.from("order_items").update({ quantity: newQuantity }).eq("id", matches[0].id);
+  }
+
+  const subtotal = await recomputeOrderSubtotal(order.id);
+  return { success: true, item: input.item_name, new_quantity: newQuantity <= 0 ? 0 : newQuantity, running_subtotal: subtotal / 100 };
+}
+
 async function remove_item_from_order(input: { item_name: string }, ctx: ToolContext): Promise<ToolResult> {
   const admin = createAdminClient();
   const { data: order } = await admin.from("orders").select("id").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
@@ -491,6 +526,7 @@ export const TOOL_HANDLERS: Record<string, (input: any, ctx: ToolContext) => Pro
   create_customer,
   add_item_to_order,
   remove_item_from_order,
+  update_item_quantity,
   get_current_order,
   confirm_and_place_order,
   escalate_to_human,
@@ -517,7 +553,19 @@ export const TOOL_DEFINITIONS = [
       required: ["item_name"],
     },
   },
-  { name: "remove_item_from_order", description: "Remove an item the customer changed their mind about, from the order currently being built.", input_schema: { type: "object" as const, properties: { item_name: { type: "string" } }, required: ["item_name"] } },
+  { name: "remove_item_from_order", description: "Remove an item the customer changed their mind about ENTIRELY, from the order currently being built. If they just want a different amount of something still on the order, use update_item_quantity instead — don't remove and re-add just to change a number.", input_schema: { type: "object" as const, properties: { item_name: { type: "string" } }, required: ["item_name"] } },
+  {
+    name: "update_item_quantity",
+    description: "Change how many of an item already on the order the customer wants (e.g. they said 2 but meant 1, or want to bump it to 3) — use this instead of remove_item_from_order + add_item_to_order for a quantity-only change. Setting quantity to 0 removes it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        item_name: { type: "string", description: "Must match the item's name on the current order exactly." },
+        quantity: { type: "number", description: "The new total quantity for this item, not a delta — e.g. 1, not \"-1\"." },
+      },
+      required: ["item_name", "quantity"],
+    },
+  },
   { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. Use this to read the order back to the customer before confirming.", input_schema: { type: "object" as const, properties: {} } },
   {
     name: "confirm_and_place_order",
