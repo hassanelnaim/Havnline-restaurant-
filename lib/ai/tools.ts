@@ -126,6 +126,40 @@ async function getOrCreateBuildingOrder(ctx: ToolContext): Promise<string> {
   return created.id;
 }
 
+// Speech-to-text and casual phrasing almost never match a menu name's
+// exact punctuation/spacing ("cheese burger" vs "Cheeseburger", a
+// trailing period, double spaces) — the model is still the one
+// deciding WHICH item was meant, this just stops a real menu item
+// from being falsely rejected over formatting alone. Strips everything
+// but letters/digits/spaces, collapses whitespace, lowercases.
+function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Exact normalized match first; if nothing matches, fall back to a
+// substring check in either direction (handles the model passing extra
+// words like "a cheeseburger" or a shortened "burger" for "Cheeseburger
+// Deluxe"). Returns null rather than guessing when more than one item
+// would match the fallback, since picking the wrong item silently is
+// worse than asking the model to try again.
+function findMenuItem<T extends { name: string }>(menu: T[], rawName: string): T | undefined {
+  const target = normalizeForMatch(rawName);
+  if (!target) return undefined;
+
+  const exact = menu.find((m) => normalizeForMatch(m.name) === target);
+  if (exact) return exact;
+
+  const partial = menu.filter((m) => {
+    const name = normalizeForMatch(m.name);
+    return name.includes(target) || target.includes(name);
+  });
+  return partial.length === 1 ? partial[0] : undefined;
+}
+
 async function recomputeOrderSubtotal(orderId: string): Promise<number> {
   const admin = createAdminClient();
   const { data: items } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
@@ -154,16 +188,19 @@ async function add_item_to_order(
   }
 
   // Never invent a menu item or its price — only match against the real
-  // menu loaded for this business.
-  const menuItem = ctx.context.menu.find((m) => m.name.toLowerCase() === input.item_name.toLowerCase());
+  // menu loaded for this business. Matched leniently (see
+  // normalizeForMatch/findMenuItem) because speech-to-text phrasing
+  // ("cheese burger," extra articles, odd punctuation) should never make
+  // a real menu item come back as "not on the menu."
+  const menuItem = findMenuItem(ctx.context.menu, input.item_name);
   if (!menuItem) {
     return { success: false, reason: `"${input.item_name}" isn't on the menu. Only offer items from get_menu.` };
   }
 
   const quantity = Math.max(1, input.quantity || 1);
-  const requestedModifierNames = (input.modifier_names || []).map((n) => n.toLowerCase());
+  const requestedModifierNames = (input.modifier_names || []).map((n) => normalizeForMatch(n));
   const allModifiers = menuItem.modifier_groups.flatMap((g) => g.modifiers);
-  const matchedModifiers = allModifiers.filter((m) => requestedModifierNames.includes(m.name.toLowerCase()));
+  const matchedModifiers = allModifiers.filter((m) => requestedModifierNames.includes(normalizeForMatch(m.name)));
 
   // Check required modifier groups actually got a selection.
   const missingRequired = menuItem.modifier_groups.filter(
@@ -177,6 +214,48 @@ async function add_item_to_order(
   }
 
   const orderId = await getOrCreateBuildingOrder(ctx);
+
+  // Guard against a duplicate call for what's really the same logical
+  // item — e.g. the model adds "Cheeseburger" plain the moment the
+  // customer names it, then a few seconds later calls this AGAIN with
+  // "no onions, no pickles" once it has that detail, instead of using
+  // update_item_modifiers. Without this, that pattern silently doubles
+  // the quantity (two separate rows) and the modifiers only land on
+  // one of them. Only merges when the earlier row is still completely
+  // bare (no modifiers, no notes, quantity 1) and this new call is also
+  // for a single unit — two people deliberately ordering the same
+  // plain item never looks like this, since neither call would be
+  // "detailing" an existing bare row within seconds of it being added.
+  if (quantity === 1) {
+    const recentCutoff = new Date(Date.now() - 15_000).toISOString();
+    const { data: recentRows } = await admin
+      .from("order_items")
+      .select("id, quantity, notes")
+      .eq("order_id", orderId)
+      .eq("item_name", menuItem.name)
+      .gte("created_at", recentCutoff)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const candidate = recentRows?.[0];
+    if (candidate && candidate.quantity === 1 && !candidate.notes) {
+      const { data: existingMods } = await admin.from("order_item_modifiers").select("id").eq("order_item_id", candidate.id).limit(1);
+      if (!existingMods || existingMods.length === 0) {
+        if (input.notes) await admin.from("order_items").update({ notes: input.notes }).eq("id", candidate.id);
+        if (matchedModifiers.length > 0) {
+          await admin.from("order_item_modifiers").insert(
+            matchedModifiers.map((m) => ({ order_item_id: candidate.id, modifier_id: m.id, modifier_name: m.name, price_delta_cents: m.price_delta_cents }))
+          );
+        }
+        const subtotal = await recomputeOrderSubtotal(orderId);
+        return {
+          success: true,
+          added: { item: menuItem.name, quantity: 1, modifiers: matchedModifiers.map((m) => m.name) },
+          running_subtotal: subtotal / 100,
+        };
+      }
+    }
+  }
 
   // Charge whatever this item's real price is RIGHT NOW — for most
   // items that's just price_cents, but an item with time-based pricing
@@ -253,6 +332,53 @@ async function update_item_quantity(input: { item_name: string; quantity: number
 
   const subtotal = await recomputeOrderSubtotal(order.id);
   return { success: true, item: input.item_name, new_quantity: newQuantity <= 0 ? 0 : newQuantity, running_subtotal: subtotal / 100 };
+}
+
+// A dedicated, single-call fix for correcting an item's toppings/notes
+// AFTER it's already on the order ("actually, no onions on that" said
+// a beat after the item itself) — the same reasoning as
+// update_item_quantity above, for the same failure mode: the previous
+// way to do this was remove_item_from_order + add_item_to_order, which
+// depends on the model completing both steps, and skipping the removal
+// silently doubles the item instead of just fixing its modifiers.
+// REPLACES the item's modifiers/notes outright (not additive) — the
+// model should pass the item's full, final set of modifiers each time.
+async function update_item_modifiers(input: { item_name: string; modifier_names?: string[]; notes?: string }, ctx: ToolContext): Promise<ToolResult> {
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("id").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
+  if (!order) return { success: false, reason: "No order in progress." };
+
+  const { data: matches } = await admin
+    .from("order_items")
+    .select("id, menu_item_id")
+    .eq("order_id", order.id)
+    .ilike("item_name", input.item_name)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!matches || matches.length === 0) return { success: false, reason: `"${input.item_name}" isn't in the current order.` };
+
+  const orderItemId = matches[0].id;
+  const menuItem = ctx.context.menu.find((m) => m.id === matches[0].menu_item_id);
+
+  await admin.from("order_items").update({ notes: input.notes || null }).eq("id", orderItemId);
+  await admin.from("order_item_modifiers").delete().eq("order_item_id", orderItemId);
+
+  let matchedModifierNames: string[] = [];
+  if (menuItem && input.modifier_names?.length) {
+    const requestedModifierNames = input.modifier_names.map((n) => normalizeForMatch(n));
+    const allModifiers = menuItem.modifier_groups.flatMap((g) => g.modifiers);
+    const matchedModifiers = allModifiers.filter((m) => requestedModifierNames.includes(normalizeForMatch(m.name)));
+    if (matchedModifiers.length > 0) {
+      await admin.from("order_item_modifiers").insert(
+        matchedModifiers.map((m) => ({ order_item_id: orderItemId, modifier_id: m.id, modifier_name: m.name, price_delta_cents: m.price_delta_cents }))
+      );
+    }
+    matchedModifierNames = matchedModifiers.map((m) => m.name);
+  }
+
+  const subtotal = await recomputeOrderSubtotal(order.id);
+  return { success: true, item: input.item_name, modifiers: matchedModifierNames, notes: input.notes || null, running_subtotal: subtotal / 100 };
 }
 
 async function remove_item_from_order(input: { item_name: string }, ctx: ToolContext): Promise<ToolResult> {
@@ -527,6 +653,7 @@ export const TOOL_HANDLERS: Record<string, (input: any, ctx: ToolContext) => Pro
   add_item_to_order,
   remove_item_from_order,
   update_item_quantity,
+  update_item_modifiers,
   get_current_order,
   confirm_and_place_order,
   escalate_to_human,
@@ -564,6 +691,19 @@ export const TOOL_DEFINITIONS = [
         quantity: { type: "number", description: "The new total quantity for this item, not a delta — e.g. 1, not \"-1\"." },
       },
       required: ["item_name", "quantity"],
+    },
+  },
+  {
+    name: "update_item_modifiers",
+    description: "Change the toppings/add-ons or notes on an item already on the order (e.g. the customer adds \"no onions\" a moment after already ordering the burger) — use this instead of remove_item_from_order + add_item_to_order for a modifiers/notes-only change. This REPLACES the item's full set of modifiers/notes, so pass everything that should apply, not just the new addition. Only use remove_item_from_order + add_item_to_order when the item itself is being swapped for a genuinely different item or size.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        item_name: { type: "string", description: "Must match the item's name on the current order exactly." },
+        modifier_names: { type: "array", items: { type: "string" }, description: "The item's full, final list of add-ons/modifiers — replaces whatever was there before." },
+        notes: { type: "string", description: "The item's full, final free-text note, e.g. \"no onions, no pickles\". Omit or leave blank to clear it." },
+      },
+      required: ["item_name"],
     },
   },
   { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. Use this to read the order back to the customer before confirming.", input_schema: { type: "object" as const, properties: {} } },

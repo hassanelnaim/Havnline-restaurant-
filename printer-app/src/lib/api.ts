@@ -7,6 +7,31 @@ import { API_BASE_URL } from "../config";
 // app/api/printer-app/* in the main HavnLine repo for the server side
 // of every one of these.
 
+// Every call below goes through this instead of a bare fetch+.json().
+// A plain `fetch(...).then(r => r.json())` THROWS on a network drop,
+// a timeout, or a non-JSON response (an HTML error page from a proxy,
+// a 502) — and every caller in this app (OrdersScreen/DashboardScreen's
+// polling, the print-job poller) awaits these without its own
+// try/catch, so an uncaught throw here used to just vanish: the
+// screen's state never updated, no error ever appeared, and a kitchen
+// order that briefly failed to fetch looked exactly like one that was
+// never placed. Catching it here means every call site gets back a
+// real { success: false, error } it can actually show, instead of a
+// silent no-op that looks identical to "nothing happened."
+async function safeFetchJson<T extends { success: boolean; error?: string }>(url: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    return { success: false, error: "Couldn't reach HavnLine — check this tablet's internet connection." } as T;
+  }
+  try {
+    return await res.json();
+  } catch (err) {
+    return { success: false, error: `HavnLine returned an unexpected response (status ${res.status}).` } as T;
+  }
+}
+
 export interface PairResult {
   success: boolean;
   deviceToken?: string;
@@ -15,12 +40,11 @@ export interface PairResult {
 }
 
 export async function pairWithCode(code: string): Promise<PairResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/pair`, {
+  return safeFetchJson<PairResult>(`${API_BASE_URL}/api/printer-app/pair`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
   });
-  return res.json();
 }
 
 export interface SimpleResult {
@@ -29,12 +53,11 @@ export interface SimpleResult {
 }
 
 export async function reportPrinterIp(deviceToken: string, printerIp: string): Promise<SimpleResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/printer-ip`, {
+  return safeFetchJson<SimpleResult>(`${API_BASE_URL}/api/printer-app/printer-ip`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
     body: JSON.stringify({ printerIp }),
   });
-  return res.json();
 }
 
 export interface PrintJob {
@@ -50,19 +73,17 @@ export interface PendingOrdersResult {
 }
 
 export async function fetchPendingOrders(deviceToken: string): Promise<PendingOrdersResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/orders`, {
+  return safeFetchJson<PendingOrdersResult>(`${API_BASE_URL}/api/printer-app/orders`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
-  return res.json();
 }
 
 export async function ackOrder(deviceToken: string, jobId: string, status: "printed" | "failed", error?: string): Promise<SimpleResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/orders/${jobId}`, {
+  return safeFetchJson<SimpleResult>(`${API_BASE_URL}/api/printer-app/orders/${jobId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
     body: JSON.stringify({ status, error }),
   });
-  return res.json();
 }
 
 // -- Today's Orders (Phase 2 of the tablet redesign) ------------------------
@@ -112,10 +133,9 @@ export interface TodayOrdersResult {
 }
 
 export async function fetchTodayOrders(deviceToken: string): Promise<TodayOrdersResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders`, {
+  return safeFetchJson<TodayOrdersResult>(`${API_BASE_URL}/api/printer-app/today-orders`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
-  return res.json();
 }
 
 // -- Money actions (Phase 3 of the tablet redesign) --------------------------
@@ -132,12 +152,11 @@ export interface VerifyPinResult {
 }
 
 export async function verifyMoneyPin(deviceToken: string, pin: string): Promise<VerifyPinResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/verify-pin`, {
+  return safeFetchJson<VerifyPinResult>(`${API_BASE_URL}/api/printer-app/verify-pin`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
     body: JSON.stringify({ pin }),
   });
-  return res.json();
 }
 
 export type MoneyActionType = "refund" | "discount";
@@ -157,7 +176,7 @@ export async function submitMoneyAction(
   orderId: string,
   input: { amountCents?: number; reason: string; actionType: MoneyActionType }
 ): Promise<MoneyActionResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/refund`, {
+  return safeFetchJson<MoneyActionResult>(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/refund`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -166,7 +185,6 @@ export async function submitMoneyAction(
     },
     body: JSON.stringify(input),
   });
-  return res.json();
 }
 
 // -- Add items (Phase 4 of the tablet redesign) ------------------------------
@@ -209,10 +227,9 @@ export interface MenuResult {
 }
 
 export async function fetchMenu(deviceToken: string): Promise<MenuResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/menu`, {
+  return safeFetchJson<MenuResult>(`${API_BASE_URL}/api/printer-app/menu`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
-  return res.json();
 }
 
 export type AddItemMode = "comp" | "charge";
@@ -249,22 +266,20 @@ export interface AddItemResult {
 }
 
 export async function submitItemAddition(deviceToken: string, orderId: string, input: AddItemInput): Promise<AddItemResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/items`, {
+  return safeFetchJson<AddItemResult>(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/items`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
     body: JSON.stringify(input),
   });
-  return res.json();
 }
 
 /** Same endpoint and response shape as submitItemAddition — just a special's name/amount instead of a real menuItemId. */
 export async function submitSpecialAddition(deviceToken: string, orderId: string, input: AddSpecialInput): Promise<AddItemResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/items`, {
+  return safeFetchJson<AddItemResult>(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/items`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
     body: JSON.stringify(input),
   });
-  return res.json();
 }
 
 export type AddendumChargeStatus = "awaiting_payment" | "paid" | "expired" | "failed";
@@ -278,10 +293,9 @@ export interface AddendumChargeStatusResult {
 
 /** Polled every few seconds while the QR step is on screen — see AddItemModal. */
 export async function pollAddendumCharge(deviceToken: string, orderId: string, chargeId: string): Promise<AddendumChargeStatusResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/addendum-charges/${chargeId}`, {
+  return safeFetchJson<AddendumChargeStatusResult>(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/addendum-charges/${chargeId}`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
-  return res.json();
 }
 
 // -- Dashboard (Phase 7 of the tablet redesign) ------------------------------
@@ -307,10 +321,9 @@ export interface DashboardResult {
 }
 
 export async function fetchDashboard(deviceToken: string): Promise<DashboardResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/dashboard`, {
+  return safeFetchJson<DashboardResult>(`${API_BASE_URL}/api/printer-app/dashboard`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
-  return res.json();
 }
 
 export interface DaySummaryResult {
@@ -321,8 +334,7 @@ export interface DaySummaryResult {
 
 /** One arbitrary day's numbers — the Dashboard tab's calendar picker, fetched on demand. dateKey is "YYYY-MM-DD". */
 export async function fetchDaySummary(deviceToken: string, dateKey: string): Promise<DaySummaryResult> {
-  const res = await fetch(`${API_BASE_URL}/api/printer-app/day-summary?date=${encodeURIComponent(dateKey)}`, {
+  return safeFetchJson<DaySummaryResult>(`${API_BASE_URL}/api/printer-app/day-summary?date=${encodeURIComponent(dateKey)}`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
-  return res.json();
 }

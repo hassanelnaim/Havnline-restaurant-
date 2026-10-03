@@ -217,4 +217,25 @@ export function getContextualFiller(text: string, previousTurnUsedTool: boolean)
   return previousTurnUsedTool ? "Sure, one moment." : null;
 }
 
+// Every line of hard-coded, verbatim-repeated speech in this file and
+// its callers — fillers plus the fixed boilerplate lines (goodbye,
+// "didn't catch that," the error fallback, the transfer handoff). The
+// same handful of lines get spoken, unchanged, on nearly every call,
+// in whatever voice a business has picked — so synthesizing them fresh
+// through ElevenLabs every single time is pure wasted latency (and
+// cost) on top of the one piece of audio per turn that can't be
+// avoided: the AI's own dynamic reply. See ttsCache.ts, which this
+// backs — only text in this exact set is ever cached, so a customer's
+// name, phone number, or order total (always part of a dynamic reply)
+// never ends up persisted here.
+export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
+  ...FILLER_CATEGORIES.flatMap((c) => c.fillers),
+  "Sure, one moment.",
+  "Sorry, could you say that again?",
+  "I'm not able to hear you — please call back. Goodbye.",
+  "One moment while I connect you.",
+  "Thanks for calling. Goodbye.",
+  "Sorry, I'm having some technical trouble right now. I've made a note and someone from the team will follow up with you. Thanks for calling!",
+]);
+
 export { resolveTwilioVoice };

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { synthesizeSpeech, resolveElevenLabsVoiceId } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { logElevenLabsUsage } from "@/lib/usage/tracking";
 import { verifyTtsParams } from "@/lib/integrations/telephony/ttsSigning";
+import { getCachedTts, storeCachedTts } from "@/lib/integrations/telephony/ttsCache";
+import { STATIC_TTS_LINES } from "@/lib/ai/twimlHelpers";
 import type { VoiceId } from "@/lib/database/types";
 
 // Generous for any single spoken line — nothing the AI says on a call
@@ -30,12 +32,32 @@ export async function GET(request: NextRequest) {
 
   try {
     const elevenVoiceId = resolveElevenLabsVoiceId(voiceId, providerVoiceRef);
+
+    // Only the fixed filler/boilerplate lines are ever cached — a
+    // dynamic AI reply (anything with a name, number, or order detail
+    // in it) always falls through to a fresh synthesis below and is
+    // never looked up or stored here. See ttsCache.ts.
+    const cacheable = STATIC_TTS_LINES.has(text);
+    if (cacheable) {
+      const cached = await getCachedTts(elevenVoiceId, text);
+      if (cached) {
+        if (businessId) logElevenLabsUsage(businessId, text.length);
+        return new NextResponse(cached, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
+      }
+    }
+
     const audioBuffer = await synthesizeSpeech(text, elevenVoiceId);
 
     // Real usage logging, attributed to whichever business this
     // speech was generated for — fire-and-forget, never delays the
     // actual audio response.
     if (businessId) logElevenLabsUsage(businessId, text.length);
+
+    if (cacheable) {
+      // Fire-and-forget — the caller (Twilio) is waiting on the audio
+      // response below, not on this write ever completing.
+      storeCachedTts(elevenVoiceId, text, audioBuffer).catch((err) => console.error("TTS cache store failed:", err));
+    }
 
     return new NextResponse(audioBuffer, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
   } catch (err) {
