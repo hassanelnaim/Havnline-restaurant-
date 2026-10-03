@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { safeTimezone } from "@/lib/business/timezone";
+import { getVoiceConfigForCall } from "@/lib/ai/voiceSelection";
 import type {
   DbAiReceptionist, DbAiVoiceConfig, DbBusiness, DbBusinessHours,
   DbKnowledgeItem, DbPromotion, MenuItemWithModifiers,
@@ -10,7 +11,7 @@ export interface BusinessContext {
   hours: DbBusinessHours[];
   menu: MenuItemWithModifiers[];
   ai: DbAiReceptionist;
-  voice: DbAiVoiceConfig | null;
+  voice: Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref" | "speaking_rate"> | null;
   knowledge: DbKnowledgeItem[];
   activePromotions: DbPromotion[];
 }
@@ -18,7 +19,7 @@ export interface BusinessContext {
 export async function loadBusinessContext(businessId: string): Promise<BusinessContext | null> {
   const admin = createAdminClient();
 
-  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voiceRes, knowledgeRes, promotionsRes] = await Promise.all([
+  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voice, knowledgeRes, promotionsRes] = await Promise.all([
     admin.from("businesses").select("*").eq("id", businessId).single(),
     admin.from("business_hours").select("*").eq("business_id", businessId),
     admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
@@ -26,7 +27,7 @@ export async function loadBusinessContext(businessId: string): Promise<BusinessC
     admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
     admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId),
     admin.from("ai_receptionists").select("*").eq("business_id", businessId).single(),
-    admin.from("ai_voice_configs").select("*").eq("business_id", businessId).maybeSingle(),
+    getVoiceConfigForCall(businessId, "loadBusinessContext"),
     admin.from("knowledge_items").select("*").eq("business_id", businessId),
     admin.from("promotions").select("*").eq("business_id", businessId).eq("is_active", true),
   ]);
@@ -81,7 +82,7 @@ export async function loadBusinessContext(businessId: string): Promise<BusinessC
     hours: hoursRes.data || [],
     menu,
     ai: aiRes.data,
-    voice: voiceRes.data || null,
+    voice,
     knowledge: knowledgeRes.data || [],
     activePromotions,
   };

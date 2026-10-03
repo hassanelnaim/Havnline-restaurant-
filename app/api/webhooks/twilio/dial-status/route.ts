@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
+import { getVoiceConfigForCall } from "@/lib/ai/voiceSelection";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
 
@@ -51,9 +52,7 @@ export async function POST(request: NextRequest) {
       .eq("id", callId);
   }
 
-  const { data: voiceConfig } = call
-    ? await admin.from("ai_voice_configs").select("voice_id, provider_voice_ref, speaking_rate").eq("business_id", call.business_id).maybeSingle()
-    : { data: null };
+  const voiceConfig = call ? await getVoiceConfigForCall(call.business_id, "dial-status") : null;
   const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref, speakingRate: voiceConfig?.speaking_rate };
 
   return twiml(`<Response>
