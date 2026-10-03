@@ -33,6 +33,32 @@ export async function getOrdersForBusiness(businessId: string, limit = 100): Pro
 }
 
 /**
+ * Just enough of each order to total up revenue over a rolling window
+ * (Overview's "this week" stats) — not the full items/modifiers
+ * getOrdersForBusiness fetches, and not capped at 100 rows the way
+ * that is, since a busy week can legitimately have more orders than
+ * that and this still needs every one of them to total correctly.
+ */
+export async function getOrderTotalsSince(
+  businessId: string,
+  sinceIso: string
+): Promise<{ status: string; payment_status: string; total_cents: number }[]> {
+  if (!isSupabaseConfigured()) {
+    return mockOrders
+      .filter((o) => o.created_at >= sinceIso)
+      .map((o) => ({ status: o.status, payment_status: o.payment_status, total_cents: o.total_cents }));
+  }
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("orders")
+    .select("status, payment_status, total_cents")
+    .eq("business_id", businessId)
+    .neq("status", "building")
+    .gte("created_at", sinceIso);
+  return data || [];
+}
+
+/**
  * All of a business's orders for one calendar day, in the business's
  * own timezone — for an end-of-day report on any past day, not just
  * "today." getOrdersForBusiness above only ever sees its most recent

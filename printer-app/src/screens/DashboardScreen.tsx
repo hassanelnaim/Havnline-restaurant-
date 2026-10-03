@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from "react-native";
-import { fetchDashboard, DashboardDay } from "../lib/api";
+import { View, Text, ScrollView, RefreshControl, StyleSheet, ActivityIndicator, TouchableOpacity } from "react-native";
+import { fetchDashboard, fetchDaySummary, DashboardDay } from "../lib/api";
+import { getPrinterIp } from "../lib/storage";
+import { printTicket } from "../lib/printer";
+import { DaySummaryCard, buildDaySummaryTicket } from "../components/DaySummaryCard";
+import { CalendarPicker } from "../components/CalendarPicker";
 
 interface Props {
   deviceToken: string;
-}
-
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  businessName: string;
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -19,32 +20,42 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  * (not local ones) so the label never shifts by a day depending on
  * what timezone this tablet itself happens to be in.
  */
-function formatDayLabel(dateKey: string, index: number): string {
-  if (index === 0) return "Today";
-  if (index === 1) return "Yesterday";
+function formatDayLabel(dateKey: string): string {
   const d = new Date(`${dateKey}T00:00:00Z`);
   return `${WEEKDAYS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
 /**
- * Dashboard — Phase 7 of the tablet redesign: a quick "how's today
- * going, and how does it compare" view for staff/the owner, without
- * having to pull out a laptop and open the website's End of Day
- * report. Today's card leads, same shape as every day below it so
- * there's one visual pattern to learn, not a special "today" layout.
+ * Dashboard — Phase 7 of the tablet redesign, reworked: Today and
+ * Yesterday are always their own clearly separated sections (not two
+ * cards buried in a longer scrolling list), with a calendar below for
+ * any other day instead of scrolling further back through history.
+ * Each section can print its own summary straight to the paired
+ * kitchen printer.
  */
-export function DashboardScreen({ deviceToken }: Props) {
-  const [days, setDays] = useState<DashboardDay[] | null>(null);
+export function DashboardScreen({ deviceToken, businessName }: Props) {
+  const [today, setToday] = useState<DashboardDay | null>(null);
+  const [yesterday, setYesterday] = useState<DashboardDay | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const mountedRef = useRef(true);
+
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [otherDateKey, setOtherDateKey] = useState<string | null>(null);
+  const [otherDay, setOtherDay] = useState<DashboardDay | null>(null);
+  const [otherLoading, setOtherLoading] = useState(false);
+  const [otherError, setOtherError] = useState<string | null>(null);
+
+  const [printingKey, setPrintingKey] = useState<string | null>(null);
+  const [printMessage, setPrintMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     const result = await fetchDashboard(deviceToken);
     if (!mountedRef.current) return;
-    if (result.success) {
-      setDays(result.days || []);
+    if (result.success && result.days && result.days.length >= 2) {
+      setToday(result.days[0]);
+      setYesterday(result.days[1]);
       setError(null);
     } else {
       setError(result.error || "Couldn't reach HavnLine.");
@@ -60,70 +71,103 @@ export function DashboardScreen({ deviceToken }: Props) {
     };
   }, [load]);
 
+  function pickOtherDate(dateKey: string) {
+    setOtherDateKey(dateKey);
+    setOtherError(null);
+    setOtherLoading(true);
+    fetchDaySummary(deviceToken, dateKey).then((result) => {
+      if (!mountedRef.current) return;
+      setOtherLoading(false);
+      if (result.success && result.summary) {
+        setOtherDay(result.summary);
+      } else {
+        setOtherError(result.error || "Could not load that day.");
+        setOtherDay(null);
+      }
+    });
+  }
+
+  async function handlePrint(label: string, day: DashboardDay) {
+    setPrintMessage(null);
+    const printerIp = await getPrinterIp();
+    if (!printerIp) {
+      setPrintMessage("Pair a kitchen printer in the Home tab first.");
+      return;
+    }
+    setPrintingKey(day.dateKey);
+    try {
+      await printTicket(printerIp, buildDaySummaryTicket(businessName, label, day));
+      setPrintMessage(`${label} summary sent to the printer.`);
+    } catch (err) {
+      setPrintMessage(err instanceof Error ? `Print failed: ${err.message}` : "Print failed.");
+    } finally {
+      setPrintingKey(null);
+    }
+  }
+
+  const todayKey = today?.dateKey;
+
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor="#60A5FA" />}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Dashboard</Text>
-        <Text style={styles.subtitle}>Today's sales and the week behind it.</Text>
+        <Text style={styles.subtitle}>Today and yesterday — pick any other day below.</Text>
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
+      {printMessage && <Text style={styles.printMessage}>{printMessage}</Text>}
 
-      {days === null ? (
+      {today === null || yesterday === null ? (
         <ActivityIndicator color="#2563EB" style={{ marginTop: 40 }} />
       ) : (
-        <FlatList
-          data={days}
-          keyExtractor={(d) => d.dateKey}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor="#60A5FA" />}
-          renderItem={({ item, index }) => <DayCard day={item} label={formatDayLabel(item.dateKey, index)} isToday={index === 0} />}
-        />
+        <View style={styles.cardsWrap}>
+          <DaySummaryCard label="Today" day={today} isToday onPrint={() => handlePrint("Today", today)} printing={printingKey === today.dateKey} />
+          <DaySummaryCard label="Yesterday" day={yesterday} onPrint={() => handlePrint("Yesterday", yesterday)} printing={printingKey === yesterday.dateKey} />
+
+          <TouchableOpacity style={styles.calendarToggle} onPress={() => setShowCalendar((v) => !v)}>
+            <Text style={styles.calendarToggleText}>{showCalendar ? "Hide calendar" : "Look up another day"}</Text>
+          </TouchableOpacity>
+
+          {showCalendar && todayKey && (
+            <View style={styles.calendarWrap}>
+              <CalendarPicker maxDateKey={todayKey} selectedDateKey={otherDateKey} onSelect={pickOtherDate} />
+            </View>
+          )}
+
+          {otherDateKey && (
+            <View style={styles.otherSection}>
+              {otherLoading && <ActivityIndicator color="#2563EB" style={{ marginTop: 10 }} />}
+              {otherError && <Text style={styles.error}>{otherError}</Text>}
+              {otherDay && !otherLoading && (
+                <DaySummaryCard
+                  label={formatDayLabel(otherDay.dateKey)}
+                  day={otherDay}
+                  onPrint={() => handlePrint(formatDayLabel(otherDay.dateKey), otherDay)}
+                  printing={printingKey === otherDay.dateKey}
+                />
+              )}
+            </View>
+          )}
+        </View>
       )}
-    </View>
-  );
-}
-
-function DayCard({ day, label, isToday }: { day: DashboardDay; label: string; isToday: boolean }) {
-  return (
-    <View style={[styles.card, isToday && styles.cardToday]}>
-      <Text style={[styles.cardLabel, isToday && styles.cardLabelToday]}>{label}</Text>
-      <View style={styles.statRow}>
-        <Stat label="Orders" value={String(day.orderCount)} />
-        <Stat label="Gross sales" value={formatCents(day.grossCents)} emphasize />
-        <Stat label="Net sales" value={formatCents(day.netCents)} />
-      </View>
-      <View style={styles.statRow}>
-        <Stat label="Sales tax" value={formatCents(day.taxCents)} />
-        <Stat label="Refunded" value={formatCents(day.refundedCents)} warn={day.refundedCents > 0} />
-        <Stat label="Cancelled" value={String(day.cancelledCount)} />
-      </View>
-    </View>
-  );
-}
-
-function Stat({ label, value, emphasize, warn }: { label: string; value: string; emphasize?: boolean; warn?: boolean }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={[styles.statValue, emphasize && styles.statValueEmphasis, warn && styles.statValueWarn]}>{value}</Text>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0B1220", padding: 20 },
-  header: { marginBottom: 16, marginTop: 8 },
+  container: { flex: 1, backgroundColor: "#0B1220" },
+  header: { marginBottom: 16, marginTop: 8, paddingHorizontal: 20, paddingTop: 20 },
   title: { fontSize: 22, fontWeight: "700", color: "#fff" },
   subtitle: { fontSize: 13, color: "#B8C0D0", marginTop: 2 },
-  error: { color: "#F87171", fontSize: 12.5, marginBottom: 10 },
-  card: { backgroundColor: "#131C30", borderRadius: 14, borderWidth: 1, borderColor: "#25324A", padding: 16, marginBottom: 12 },
-  cardToday: { borderColor: "#2563EB", backgroundColor: "#111E36" },
-  cardLabel: { color: "#B8C0D0", fontSize: 13, fontWeight: "700", marginBottom: 12 },
-  cardLabelToday: { color: "#60A5FA" },
-  statRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
-  stat: { flex: 1 },
-  statLabel: { color: "#8A93A6", fontSize: 11, fontWeight: "600" },
-  statValue: { color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 3 },
-  statValueEmphasis: { color: "#22C55E" },
-  statValueWarn: { color: "#F87171" },
+  error: { color: "#F87171", fontSize: 12.5, marginBottom: 10, marginHorizontal: 20 },
+  printMessage: { color: "#60A5FA", fontSize: 12.5, marginBottom: 10, marginHorizontal: 20 },
+  cardsWrap: { paddingHorizontal: 20 },
+  calendarToggle: { marginTop: 4, marginBottom: 14, alignSelf: "flex-start" },
+  calendarToggleText: { color: "#60A5FA", fontSize: 13.5, fontWeight: "600" },
+  calendarWrap: { marginBottom: 16 },
+  otherSection: {},
 });

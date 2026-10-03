@@ -4,6 +4,7 @@ import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { dbErrorResult } from "@/lib/errors";
 import { localDateKey, localDayBoundsUtc } from "@/lib/format";
 import { safeTimezone } from "@/lib/business/timezone";
+import { buildDailySummary } from "@/lib/orders/dailySummary";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false }); // newest first — kitchen staff care about what just came in
 
   if (error) return NextResponse.json(dbErrorResult(error, "printer-app/today-orders GET", "Could not fetch today's orders."), { status: 500 });
-  if (!orders || orders.length === 0) return NextResponse.json({ success: true, orders: [] });
+  if (!orders || orders.length === 0) return NextResponse.json({ success: true, orders: [], summary: buildDailySummary(todayKey, []) });
 
   const orderIds = orders.map((o) => o.id);
   const { data: items } = await admin
@@ -84,5 +85,5 @@ export async function GET(request: NextRequest) {
       })),
   }));
 
-  return NextResponse.json({ success: true, orders: result });
+  return NextResponse.json({ success: true, orders: result, summary: buildDailySummary(todayKey, orders) });
 }

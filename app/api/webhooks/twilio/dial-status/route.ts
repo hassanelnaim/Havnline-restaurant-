@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   }
 
   const voiceConfig = call ? await getVoiceConfigForCall(call.business_id, "dial-status") : null;
-  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref, speakingRate: voiceConfig?.speaking_rate };
+  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref };
 
   return twiml(`<Response>
   ${sayLine(voice, "Sorry, no one's available to take your call right now, but I've made a note and someone will get back to you soon. Thanks for calling!", call?.business_id)}

@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
   // itself, same as a human answering the phone would.
   const greeting = `${context.business.name}. There may be a few seconds' delay between answers, so please be patient. How can I help?`;
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
-  const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, speakingRate: context.voice?.speaking_rate };
+  const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref };
 
   return twiml(`<Response>
   <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">

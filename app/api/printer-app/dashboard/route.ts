@@ -4,7 +4,7 @@ import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { dbErrorResult } from "@/lib/errors";
 import { localDateKey, localDayBoundsUtc } from "@/lib/format";
 import { safeTimezone } from "@/lib/business/timezone";
-import { countsTowardSales } from "@/lib/orders/sales";
+import { buildDailySummary } from "@/lib/orders/dailySummary";
 
 export const dynamic = "force-dynamic";
 
@@ -13,34 +13,23 @@ function bearerToken(request: NextRequest): string | null {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : null;
 }
 
-// How many calendar days (including today) the tablet's Dashboard tab
-// shows. A week is enough to catch "is this week slower than usual"
-// without the response growing much — each extra day costs nothing
-// beyond one bucket, since every day's orders come back in the same
-// single range query below.
-const DASHBOARD_DAYS = 7;
-
-interface DaySummary {
-  dateKey: string;
-  orderCount: number;
-  cancelledCount: number;
-  grossCents: number;
-  netCents: number;
-  taxCents: number;
-  refundedCents: number;
-}
+// Today and yesterday — the two days the Dashboard tab always shows as
+// their own sections. Anything further back goes through
+// /api/printer-app/day-summary instead (the tablet's calendar picker),
+// rather than this route growing a long scrollable list of days.
+const DASHBOARD_DAYS = 2;
 
 /**
  * GET /api/printer-app/dashboard
  *
- * The tablet's money dashboard tab: today's sales plus the previous
- * DASHBOARD_DAYS-1 days, same underlying sales math as the website's
- * End of Day report (countsTowardSales — an order only counts once
- * it's actually paid, or never needed payment up front) but bucketed
- * into several days from ONE query rather than calling that report's
- * per-day logic N times, since this only needs the totals already
- * sitting on each order row (subtotal/tax/total/refunded), never the
- * individual line items an End of Day drill-down would.
+ * The tablet's money dashboard tab: today's and yesterday's sales,
+ * same underlying sales math as the website's End of Day report
+ * (buildDailySummary — an order only counts once it's actually paid,
+ * or never needed payment up front) but bucketed from ONE query rather
+ * than calling that report's per-day logic twice, since this only
+ * needs the totals already sitting on each order row
+ * (subtotal/tax/total/refunded), never the individual line items an
+ * End of Day drill-down would.
  *
  * refundedCents is bucketed by the ORDER's created_at date, not by
  * when the refund itself happened — a refund issued today on an order
@@ -83,19 +72,7 @@ export async function GET(request: NextRequest) {
     else byDate.set(key, [order]);
   }
 
-  const days: DaySummary[] = dateKeys.map((dateKey) => {
-    const dayOrders = byDate.get(dateKey) || [];
-    const salesOrders = dayOrders.filter(countsTowardSales);
-    return {
-      dateKey,
-      orderCount: salesOrders.length,
-      cancelledCount: dayOrders.filter((o) => o.status === "cancelled").length,
-      grossCents: salesOrders.reduce((sum, o) => sum + o.total_cents, 0),
-      netCents: salesOrders.reduce((sum, o) => sum + o.subtotal_cents, 0),
-      taxCents: salesOrders.reduce((sum, o) => sum + o.tax_cents, 0),
-      refundedCents: dayOrders.reduce((sum, o) => sum + (o.amount_refunded_cents || 0), 0),
-    };
-  });
+  const days = dateKeys.map((dateKey) => buildDailySummary(dateKey, byDate.get(dateKey) || []));
 
   return NextResponse.json({ success: true, days });
 }

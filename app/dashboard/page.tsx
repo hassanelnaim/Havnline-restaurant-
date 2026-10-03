@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { PhoneCall, ClipboardList, AlertTriangle, ArrowUpRight, DollarSign } from "lucide-react";
+import { PhoneCall, ClipboardList, AlertTriangle, ArrowUpRight, DollarSign, Receipt, TrendingUp } from "lucide-react";
 import { getBusiness } from "@/lib/data/business";
 import { getCalls } from "@/lib/data/calls";
-import { getOrdersForBusiness } from "@/lib/data/orders";
+import { getOrdersForBusiness, getOrderTotalsSince } from "@/lib/data/orders";
 import { countsTowardSales } from "@/lib/orders/sales";
 import { CallOutcomeBadge, OrderStatusBadge } from "@/components/dashboard/status-badges";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -16,9 +16,20 @@ function toBizDateString(iso: string, timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
 }
 
+// Rolling, not calendar-aligned, so it visibly moves week to week
+// instead of settling into one flat number — see the "This week" cards
+// below.
+const TRAILING_WINDOW_DAYS = 7;
+const PROJECTED_MONTH_DAYS = 30;
+
 export default async function OverviewPage() {
   const business = await getBusiness();
-  const [calls, orders] = await Promise.all([getCalls(), getOrdersForBusiness(business.id)]);
+  const sinceIso = new Date(Date.now() - TRAILING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const [calls, orders, weekOrders] = await Promise.all([
+    getCalls(),
+    getOrdersForBusiness(business.id),
+    getOrderTotalsSince(business.id, sinceIso),
+  ]);
 
   const timezone = business.timezone || "America/New_York";
   const todayInBizTz = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -32,6 +43,16 @@ export default async function OverviewPage() {
   // still waiting on an unpaid phone-payments link).
   const salesTodayCents = ordersTodayList.filter(countsTowardSales).reduce((sum, o) => sum + o.total_cents, 0);
   const escalationsToday = calls.filter((c) => c.outcome === "escalated" && toBizDateString(c.started_at, timezone) === todayInBizTz).length;
+
+  // Rolling trailing-week figures, not lifetime averages — a
+  // lifetime average flattens out and stops moving once a business has
+  // enough history; these stay responsive to how the last 7 days
+  // actually went, which is what makes them useful for judging "is the
+  // AI paying for itself" on an ongoing basis.
+  const weekSalesOrders = weekOrders.filter(countsTowardSales);
+  const weekRevenueCents = weekSalesOrders.reduce((sum, o) => sum + o.total_cents, 0);
+  const avgOrderValueCents = weekSalesOrders.length > 0 ? Math.round(weekRevenueCents / weekSalesOrders.length) : 0;
+  const projectedMonthlyIncomeCents = Math.round((weekRevenueCents / TRAILING_WINDOW_DAYS) * PROJECTED_MONTH_DAYS);
 
   const recentCalls = calls.slice(0, 5);
   // "Recent orders" here means recent AND today's — otherwise a quiet
@@ -80,6 +101,29 @@ export default async function OverviewPage() {
           </div>
           <div className="mt-1 text-[11.5px] text-text-faint">Today — click to view</div>
         </Link>
+      </div>
+
+      <div className="mt-6">
+        <h2 className="font-display text-[15px] font-semibold text-ink">This week</h2>
+        <p className="mt-0.5 text-[12px] text-text-faint">Based on the last 7 days — moves as the week does, instead of settling into one number forever.</p>
+        <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Average order value</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Receipt className="h-4 w-4" /></div>
+            </div>
+            <div className="mt-2 font-display text-[28px] font-semibold text-ink">${(avgOrderValueCents / 100).toFixed(2)}</div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Projected monthly income</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><TrendingUp className="h-4 w-4" /></div>
+            </div>
+            <div className="mt-2 font-display text-[28px] font-semibold text-ink">${(projectedMonthlyIncomeCents / 100).toFixed(2)}</div>
+            <div className="mt-1 text-[11.5px] text-text-faint">At this week's pace</div>
+          </div>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">

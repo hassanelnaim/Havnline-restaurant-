@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   }
 
   const voiceConfig = await getVoiceConfigForCall(call.business_id, "process");
-  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref, speakingRate: voiceConfig?.speaking_rate };
+  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref };
 
   try {
     const result = await handleTurn(call.business_id, callId, speechResult, "phone");

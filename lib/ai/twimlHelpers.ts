@@ -11,7 +11,6 @@ const SITE_URL = getSiteUrl();
 export interface VoiceSelection {
   voiceId: VoiceId | null | undefined;
   providerVoiceRef?: string | null;
-  speakingRate?: number | null;
 }
 
 export function twiml(body: string) {
@@ -41,12 +40,10 @@ export function sayLine(voice: VoiceSelection, text: string, businessId?: string
   if (isElevenLabsConfigured()) {
     const voiceId = voice.voiceId || "alex_professional";
     const providerVoiceRef = voice.providerVoiceRef || undefined;
-    const speakingRate = voice.speakingRate ?? undefined;
-    const { signature, expiresAt } = signTtsParams({ text, voiceId, providerVoiceRef, businessId, speakingRate });
+    const { signature, expiresAt } = signTtsParams({ text, voiceId, providerVoiceRef, businessId });
     const params = new URLSearchParams({ text, voiceId, exp: String(expiresAt), sig: signature });
     if (providerVoiceRef) params.set("providerVoiceRef", providerVoiceRef);
     if (businessId) params.set("businessId", businessId);
-    if (speakingRate != null) params.set("speakingRate", String(speakingRate));
     const ttsUrl = `${SITE_URL}/api/tts?${params.toString()}`;
     return `<Play>${escapeXml(ttsUrl)}</Play>`;
   }

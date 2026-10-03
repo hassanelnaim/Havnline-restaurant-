@@ -75,7 +75,7 @@ function PairedShell({ deviceToken, businessName, onUnpaired }: { deviceToken: s
         {tab === "orders" ? (
           <OrdersScreen deviceToken={deviceToken} />
         ) : tab === "dashboard" ? (
-          <DashboardScreen deviceToken={deviceToken} />
+          <DashboardScreen deviceToken={deviceToken} businessName={businessName || "HavnLine"} />
         ) : (
           <HomeScreen deviceToken={deviceToken} businessName={businessName} onUnpaired={onUnpaired} />
         )}

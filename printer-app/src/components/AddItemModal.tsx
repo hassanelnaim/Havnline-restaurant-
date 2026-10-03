@@ -208,7 +208,7 @@ export function AddItemModal({ deviceToken, orderId, onClose, onItemAdded }: Pro
                   returnKeyType="search"
                 />
                 {categories.length > 2 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow} contentContainerStyle={{ gap: 8 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow} contentContainerStyle={styles.categoryRowContent}>
                     {categories.map((category) => {
                       const selected = activeCategory === category;
                       return (
@@ -384,10 +384,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 10,
   },
-  categoryRow: { flexGrow: 0, marginBottom: 10 },
-  categoryChip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: "#25324A", backgroundColor: "#131C30" },
+  // Fixed height (comfortably taller than one chip) rather than letting
+  // the ScrollView auto-size to its content — a horizontal ScrollView
+  // left to size itself here was clipping each chip's label to its
+  // top half instead of its full line height.
+  categoryRow: { flexGrow: 0, height: 44, marginBottom: 10 },
+  categoryRowContent: { alignItems: "center", gap: 8 },
+  categoryChip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: "#25324A", backgroundColor: "#131C30", justifyContent: "center" },
   categoryChipSelected: { backgroundColor: "#2563EB", borderColor: "#2563EB" },
-  categoryChipText: { color: "#B8C0D0", fontSize: 13, fontWeight: "600" },
+  categoryChipText: { color: "#B8C0D0", fontSize: 13, lineHeight: 18, fontWeight: "600" },
   categoryChipTextSelected: { color: "#fff" },
   empty: { color: "#5B6472", fontSize: 13.5, marginTop: 30, textAlign: "center" },
   label: { color: "#8A93A6", fontSize: 12.5, fontWeight: "600", marginTop: 14, marginBottom: 8 },

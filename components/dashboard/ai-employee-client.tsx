@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { Sparkles, Mic, Gauge } from "lucide-react";
+import { Sparkles, Mic } from "lucide-react";
 import type { AiResponsibilities, DbAiReceptionist, DbAiVoiceConfig, DbBusinessHours, Personality } from "@/lib/database/types";
 import { updateAiEmployeeAction } from "@/app/actions/business";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -37,7 +37,6 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
   const [voiceId, setVoiceId] = useState(voice.voice_id);
   const [customVoiceRef, setCustomVoiceRef] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_ref : null);
   const [customVoiceName, setCustomVoiceName] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_name : null);
-  const [speakingRate, setSpeakingRate] = useState(voice.speaking_rate ?? 1.0);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -48,7 +47,6 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
       const result = await updateAiEmployeeAction({
         personality, responsibilities, voiceId, orderingRules, escalationRules,
         customVoice: customVoiceRef && customVoiceName ? { providerVoiceRef: customVoiceRef, providerVoiceName: customVoiceName } : null,
-        speakingRate,
       });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
       if (result.generatedInstructions) setGeneratedInstructions(result.generatedInstructions);
@@ -105,38 +103,13 @@ export function AiEmployeeClient({ ai, voice, hours }: { ai: DbAiReceptionist; v
       </TabsContent>
 
       <TabsContent value="voice">
-        <Card className="mb-4">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Gauge className="h-4 w-4 text-brand" /> Speaking speed</CardTitle>
-            <CardDescription>How fast your AI talks on a real call. Most callers do fine around normal — a noticeably slower pace can help with older customers or a complicated order; faster can help if your crowd just wants to get in and out.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <span className="w-14 text-[12px] text-text-faint">Slower</span>
-              <input
-                type="range"
-                min={0.7}
-                max={1.2}
-                step={0.05}
-                value={speakingRate}
-                onChange={(e) => setSpeakingRate(parseFloat(e.target.value))}
-                className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-brand"
-              />
-              <span className="w-14 text-right text-[12px] text-text-faint">Faster</span>
-              <span className="w-16 shrink-0 rounded-lg border border-border bg-paper px-2.5 py-1 text-center font-mono text-[12.5px] font-semibold text-ink">{speakingRate.toFixed(2)}x</span>
-            </div>
-            <p className="mt-2.5 text-[11.5px] text-text-faint">
-              Use the <Mic className="inline h-3 w-3 -mt-0.5" /> preview button below on any voice to hear it at this exact speed before saving.
-            </p>
-          </CardContent>
-        </Card>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-brand" /> Voice</CardTitle>
             <CardDescription>{customVoiceName ? `Currently using: ${customVoiceName}` : "Browse your ElevenLabs voice library and pick a voice."}</CardDescription>
           </CardHeader>
           <CardContent>
-            <ElevenLabsVoiceBrowser selectedVoiceRef={customVoiceRef} onSelect={(id, name) => { setCustomVoiceRef(id); setCustomVoiceName(name); }} speakingRate={speakingRate} />
+            <ElevenLabsVoiceBrowser selectedVoiceRef={customVoiceRef} onSelect={(id, name) => { setCustomVoiceRef(id); setCustomVoiceName(name); }} />
           </CardContent>
         </Card>
       </TabsContent>

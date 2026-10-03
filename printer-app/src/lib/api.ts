@@ -106,6 +106,8 @@ export interface TodayOrder {
 export interface TodayOrdersResult {
   success: boolean;
   orders?: TodayOrder[];
+  /** Today's totals, computed server-side from the same orders — shown as a stat row above the list. */
+  summary?: DashboardDay;
   error?: string;
 }
 
@@ -283,8 +285,10 @@ export async function pollAddendumCharge(deviceToken: string, orderId: string, c
 }
 
 // -- Dashboard (Phase 7 of the tablet redesign) ------------------------------
-// Today's sales plus the previous several days — the same sales math
-// the website's End of Day report uses, bucketed into one response.
+// Today's and yesterday's sales — the same sales math the website's
+// End of Day report uses. Anything further back goes through
+// fetchDaySummary (the calendar picker below) rather than this
+// endpoint growing into a long scrollable history.
 
 export interface DashboardDay {
   dateKey: string;
@@ -304,6 +308,20 @@ export interface DashboardResult {
 
 export async function fetchDashboard(deviceToken: string): Promise<DashboardResult> {
   const res = await fetch(`${API_BASE_URL}/api/printer-app/dashboard`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  return res.json();
+}
+
+export interface DaySummaryResult {
+  success: boolean;
+  summary?: DashboardDay;
+  error?: string;
+}
+
+/** One arbitrary day's numbers — the Dashboard tab's calendar picker, fetched on demand. dateKey is "YYYY-MM-DD". */
+export async function fetchDaySummary(deviceToken: string, dateKey: string): Promise<DaySummaryResult> {
+  const res = await fetch(`${API_BASE_URL}/api/printer-app/day-summary?date=${encodeURIComponent(dateKey)}`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
   return res.json();

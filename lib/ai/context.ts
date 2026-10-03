@@ -11,7 +11,7 @@ export interface BusinessContext {
   hours: DbBusinessHours[];
   menu: MenuItemWithModifiers[];
   ai: DbAiReceptionist;
-  voice: Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref" | "speaking_rate"> | null;
+  voice: Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref"> | null;
   knowledge: DbKnowledgeItem[];
   activePromotions: DbPromotion[];
 }

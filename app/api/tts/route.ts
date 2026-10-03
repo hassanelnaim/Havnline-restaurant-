@@ -14,8 +14,6 @@ export async function GET(request: NextRequest) {
   const voiceId = request.nextUrl.searchParams.get("voiceId") as VoiceId | null;
   const providerVoiceRef = request.nextUrl.searchParams.get("providerVoiceRef");
   const businessId = request.nextUrl.searchParams.get("businessId");
-  const speakingRateParam = request.nextUrl.searchParams.get("speakingRate");
-  const speakingRate = speakingRateParam ? Number(speakingRateParam) : undefined;
   const exp = Number(request.nextUrl.searchParams.get("exp"));
   const sig = request.nextUrl.searchParams.get("sig");
 
@@ -26,13 +24,13 @@ export async function GET(request: NextRequest) {
   // thing standing between the public internet and a real ElevenLabs
   // charge — it must have been signed by us, for these exact params,
   // and not have expired. See lib/integrations/telephony/ttsSigning.ts.
-  if (!verifyTtsParams({ text, voiceId: voiceId || "", providerVoiceRef, businessId, speakingRate }, exp, sig)) {
+  if (!verifyTtsParams({ text, voiceId: voiceId || "", providerVoiceRef, businessId }, exp, sig)) {
     return new NextResponse("Invalid or expired request", { status: 403 });
   }
 
   try {
     const elevenVoiceId = resolveElevenLabsVoiceId(voiceId, providerVoiceRef);
-    const audioBuffer = await synthesizeSpeech(text, elevenVoiceId, speakingRate);
+    const audioBuffer = await synthesizeSpeech(text, elevenVoiceId);
 
     // Real usage logging, attributed to whichever business this
     // speech was generated for — fire-and-forget, never delays the

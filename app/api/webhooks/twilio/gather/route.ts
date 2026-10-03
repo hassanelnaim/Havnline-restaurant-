@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   }
 
   const voiceConfig = await getVoiceConfigForCall(call.business_id, "gather");
-  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref, speakingRate: voiceConfig?.speaking_rate };
+  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref };
 
   const speechResult = params.SpeechResult;
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;

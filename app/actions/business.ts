@@ -7,7 +7,6 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { provisionNumber, releaseNumber, createSubAccount } from "@/lib/integrations/telephony/twilioProvider";
 import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { AiResponsibilities, Personality, VoiceId } from "@/lib/database/types";
-import { clampSpeakingRate } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { dbErrorResult } from "@/lib/errors";
 import { setMoneyPin } from "@/lib/security/moneyPin";
 
@@ -176,7 +175,6 @@ export async function updateAiEmployeeAction(input: {
   orderingRules: string;
   escalationRules: string;
   customVoice?: { providerVoiceRef: string; providerVoiceName: string } | null;
-  speakingRate?: number;
 }): Promise<UpdateAiEmployeeResult> {
   let businessId: string;
   try {
@@ -217,7 +215,6 @@ export async function updateAiEmployeeAction(input: {
     .eq("business_id", businessId);
   if (aiError) return dbErrorResult(aiError, "updateAiEmployeeAction:ai", "Could not save your AI employee's settings.");
 
-  const speakingRate = clampSpeakingRate(input.speakingRate);
   const { error: voiceError } = await admin.from("ai_voice_configs").upsert(
     input.customVoice
       ? {
@@ -226,9 +223,8 @@ export async function updateAiEmployeeAction(input: {
           provider: "elevenlabs",
           provider_voice_ref: input.customVoice.providerVoiceRef,
           provider_voice_name: input.customVoice.providerVoiceName,
-          speaking_rate: speakingRate,
         }
-      : { business_id: businessId, voice_id: input.voiceId, provider: null, provider_voice_ref: null, provider_voice_name: null, speaking_rate: speakingRate },
+      : { business_id: businessId, voice_id: input.voiceId, provider: null, provider_voice_ref: null, provider_voice_name: null },
     { onConflict: "business_id" }
   );
   if (voiceError) return dbErrorResult(voiceError, "updateAiEmployeeAction:voice", "Could not save the selected voice.");

@@ -161,7 +161,6 @@ export const mockVoiceConfig: DbAiVoiceConfig = {
   provider: null,
   provider_voice_ref: null,
   provider_voice_name: null,
-  speaking_rate: 1.0,
   created_at: new Date().toISOString(),
 };
 

@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbAiVoiceConfig } from "@/lib/database/types";
 
-type VoiceColumns = Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref" | "speaking_rate">;
+type VoiceColumns = Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref">;
 
 // Every webhook turn in a live call (voice/gather/process/dial-status)
 // re-fetches this business's voice config fresh rather than resolving it
@@ -20,7 +20,7 @@ export async function getVoiceConfigForCall(
   context: string
 ): Promise<VoiceColumns | null> {
   const admin = createAdminClient();
-  const columns = "voice_id, provider_voice_ref, speaking_rate";
+  const columns = "voice_id, provider_voice_ref";
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     const { data, error } = await admin

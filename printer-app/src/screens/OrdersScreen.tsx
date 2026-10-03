@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from "react-native";
-import { fetchTodayOrders, TodayOrder, MoneyActionType } from "../lib/api";
+import { fetchTodayOrders, TodayOrder, MoneyActionType, DashboardDay } from "../lib/api";
 import { MoneyActionModal, MoneyActionToken } from "../components/MoneyActionModal";
 import { AddItemModal } from "../components/AddItemModal";
 import { AddSpecialModal } from "../components/AddSpecialModal";
+import { DaySummaryCard } from "../components/DaySummaryCard";
 import { ORDERS_REFRESH_INTERVAL_MS } from "../config";
 
 interface Props {
@@ -42,6 +43,7 @@ function statusLabel(order: TodayOrder): { text: string; color: string } {
  */
 export function OrdersScreen({ deviceToken }: Props) {
   const [orders, setOrders] = useState<TodayOrder[] | null>(null);
+  const [summary, setSummary] = useState<DashboardDay | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -59,6 +61,7 @@ export function OrdersScreen({ deviceToken }: Props) {
       if (!mountedRef.current) return;
       if (result.success) {
         setOrders(result.orders || []);
+        setSummary(result.summary || null);
         setError(null);
       } else {
         setError(result.error || "Couldn't reach HavnLine.");
@@ -100,6 +103,8 @@ export function OrdersScreen({ deviceToken }: Props) {
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
+
+      {summary && <DaySummaryCard label="Today" day={summary} isToday />}
 
       {orders === null ? (
         <ActivityIndicator color="#2563EB" style={{ marginTop: 40 }} />
