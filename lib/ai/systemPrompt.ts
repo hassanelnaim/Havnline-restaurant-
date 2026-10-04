@@ -1,6 +1,6 @@
 import type { BusinessContext } from "./context";
 import type { AiResponsibilities } from "@/lib/database/types";
-import { isBusinessOpenNow } from "@/lib/business/hours";
+import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech } from "@/lib/business/hours";
 import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
 
 const PERSONALITY_COPY: Record<string, string> = {
@@ -50,8 +50,19 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
         .join("\n")
     : "(no menu configured yet — escalate any order request)";
 
+  // Formatted here, once, into plain spoken AM/PM — never hand the
+  // model a raw "19:00:00" and rely on it to convert 24-hour time to
+  // AM/PM correctly itself under the time pressure of a live phone
+  // call; see formatTimeForSpeech for why that was the actual cause of
+  // hours getting garbled ("7 AM to 7 AM" instead of "7 AM to 7 PM").
   const hoursText = hours.length
-    ? hours.map((h) => (h.is_open ? `- ${capitalize(h.weekday)}: ${h.open_time} – ${h.close_time}` : `- ${capitalize(h.weekday)}: Closed`)).join("\n")
+    ? hours
+        .map((h) =>
+          h.is_open && h.open_time && h.close_time
+            ? `- ${capitalize(h.weekday)}: ${formatTimeForSpeech(h.open_time)} – ${formatTimeForSpeech(h.close_time)}`
+            : `- ${capitalize(h.weekday)}: Closed`
+        )
+        .join("\n")
     : "(no hours configured yet)";
 
   const knowledgeText = knowledge.length
@@ -73,6 +84,10 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
   }).format(now);
 
   const isOpenRightNow = isBusinessOpenNow(business, hours);
+  // Precomputed so the model never has to work out which day's row
+  // applies (today vs. tomorrow) or convert its time to AM/PM itself —
+  // null only when closed with no valid hours configured at all.
+  const reopensAtText = !isOpenRightNow ? nextOpenTimeText(business, hours) : null;
 
   return `You are the automated phone order-taking assistant for ${business.name}, a restaurant. You do not have a personal name — you're an answering service, not a person. If a caller asks for your name, say something like "I'm just the automated assistant here at ${business.name} — no name, just here to help with your order." Never invent or adopt a name for yourself.
 
@@ -80,7 +95,9 @@ ${channelNote}
 
 Current date and time: Today is ${todayInBusinessTz}, in the business's timezone (${business.timezone}).
 
-Right now, this business is ${isOpenRightNow ? "OPEN" : "CLOSED"}. If the business is CLOSED, tell the customer plainly that you're currently closed and can't take an order right now — never take a pickup order for a restaurant that isn't open. Say something like "We're actually closed right now — we're open again at [time]." Do not offer to place the order anyway, and do not try adding items or confirming an order while closed — the system will reject it regardless, so there's no point walking the customer through building one first. You can still answer questions, take a message, or escalate while closed.
+Right now, this business is ${isOpenRightNow ? "OPEN" : "CLOSED"}.${
+    reopensAtText ? ` It reopens ${reopensAtText}.` : ""
+  } If the business is CLOSED, tell the customer plainly that you're currently closed and can't take an order right now — never take a pickup order for a restaurant that isn't open. Say something like "We're actually closed right now — we're open again ${reopensAtText || "later"}." Use the exact reopening time given above — never calculate or guess it yourself from the weekly hours list below. Do not offer to place the order anyway, and do not try adding items or confirming an order while closed — the system will reject it regardless, so there's no point walking the customer through building one first. You can still answer questions, take a message, or escalate while closed.
 
 Personality: ${PERSONALITY_COPY[ai.personality] || ai.personality}
 
