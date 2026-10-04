@@ -4,8 +4,12 @@ import { pairWithCode } from "../lib/api";
 import { setDeviceToken } from "../lib/storage";
 
 /**
- * The very first thing anyone sees on a fresh install: enter the 6-digit
- * code shown on the restaurant's HavnLine Integrations dashboard. On
+ * The very first thing anyone sees on a fresh install: enter the
+ * 8-digit code shown on the restaurant's HavnLine Integrations
+ * dashboard (widened from 6 digits a while back — see randomCode in
+ * lib/integrations/printer-app.ts — to resist brute-forcing within
+ * the code's 15-minute lifetime; this screen must accept the same
+ * length or a real code just gets truncated and never matches). On
  * success this is the only screen this tablet ever needs to show
  * again — see App.tsx.
  */
@@ -46,11 +50,11 @@ export function PairingScreen({ onPaired }: { onPaired: () => void }) {
       <TextInput
         style={styles.input}
         value={code}
-        onChangeText={(text) => setCode(text.replace(/\D/g, "").slice(0, 6))}
-        placeholder="000000"
+        onChangeText={(text) => setCode(text.replace(/\D/g, "").slice(0, 8))}
+        placeholder="00000000"
         placeholderTextColor="#9AA3B2"
         keyboardType="number-pad"
-        maxLength={6}
+        maxLength={8}
         autoFocus
       />
 
@@ -68,15 +72,18 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: "700", color: "#fff", marginBottom: 12 },
   subtitle: { fontSize: 14, color: "#B8C0D0", textAlign: "center", marginBottom: 32, maxWidth: 380, lineHeight: 20 },
   input: {
-    width: 220,
+    // Wide enough for 8 digits at this letter-spacing without
+    // wrapping or getting clipped — was sized for 6 digits before the
+    // code length changed.
+    width: 280,
     borderWidth: 2,
     borderColor: "#25324A",
     backgroundColor: "#131C30",
     borderRadius: 12,
     paddingVertical: 14,
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "700",
-    letterSpacing: 8,
+    letterSpacing: 6,
     textAlign: "center",
     color: "#fff",
     marginBottom: 20,
