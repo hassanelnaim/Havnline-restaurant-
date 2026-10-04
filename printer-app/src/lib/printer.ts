@@ -16,6 +16,30 @@ function buildEscPosPayload(ticketText: string): string {
   return init + body + feedAndCut;
 }
 
+// react-native-tcp-socket's "error" event (and a write callback's err)
+// crosses the native-bridge boundary, and what actually lands in JS
+// isn't reliably a real Error instance with a usable .message — it can
+// be a plain { code, message } object, a bare string, or something
+// else entirely depending on platform/version. Every caller downstream
+// (this screen's test print, the print-job poller) does
+// `err instanceof Error ? err.message : "<generic>"`, so whenever the
+// rejected value fails that check, the real reason is silently
+// replaced with a useless generic message — exactly what happened when
+// a test print failed with no detail at all. Normalizing to a real
+// Error here, with the best message we can pull out of whatever shape
+// came in, means every one of those existing `instanceof Error` checks
+// downstream actually succeeds and shows something diagnosable.
+function toError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  if (typeof err === "string") return new Error(err);
+  if (err && typeof err === "object") {
+    const anyErr = err as Record<string, unknown>;
+    const message = (typeof anyErr.message === "string" && anyErr.message) || (typeof anyErr.code === "string" && anyErr.code);
+    return new Error(message || JSON.stringify(err));
+  }
+  return new Error("Unknown printer error.");
+}
+
 /**
  * Opens a connection to the printer, sends one ticket, and closes it —
  * one job per connection rather than holding it open, since jobs
@@ -26,7 +50,7 @@ export function printTicket(printerIp: string, ticketText: string): Promise<void
   return new Promise((resolve, reject) => {
     let settled = false;
 
-    const fail = (err: Error) => {
+    const fail = (err: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(hardTimeout);
@@ -35,7 +59,7 @@ export function printTicket(printerIp: string, ticketText: string): Promise<void
       } catch {
         // already gone — nothing to clean up
       }
-      reject(err);
+      reject(toError(err));
     };
 
     const succeed = () => {
@@ -52,7 +76,7 @@ export function printTicket(printerIp: string, ticketText: string): Promise<void
     const hardTimeout = setTimeout(() => fail(new Error("Timed out waiting for the printer to respond.")), 8000);
 
     const socket = TcpSocket.createConnection({ port: PRINTER_PORT, host: printerIp, connectTimeout: 5000 }, () => {
-      socket.write(buildEscPosPayload(ticketText), "ascii", (err?: Error) => {
+      socket.write(buildEscPosPayload(ticketText), "ascii", (err?: unknown) => {
         if (err) {
           fail(err);
           return;
@@ -63,7 +87,7 @@ export function printTicket(printerIp: string, ticketText: string): Promise<void
       });
     });
 
-    socket.on("error", (err: Error) => fail(err));
+    socket.on("error", (err: unknown) => fail(err));
     socket.on("close", () => succeed());
   });
 }
