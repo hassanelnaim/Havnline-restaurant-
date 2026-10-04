@@ -59,6 +59,44 @@ export async function getOrderTotalsSince(
 }
 
 /**
+ * Full orders (with items + modifiers) over a rolling window, with no
+ * row cap — unlike getOrdersForBusiness, which is capped at 100 and
+ * sorted most-recent-first for the Orders list UI. The Overview
+ * dashboard's specials-suggestion engine needs every order in a 28-day
+ * window to compute real per-weekday and per-item patterns; a busy
+ * restaurant can easily clear 100 orders well inside that window, and
+ * silently truncating would skew those patterns toward whatever's most
+ * recent rather than reflecting the whole window.
+ */
+export async function getOrdersWithItemsSince(businessId: string, sinceIso: string): Promise<OrderWithItems[]> {
+  if (!isSupabaseConfigured()) return mockOrders.filter((o) => o.created_at >= sinceIso);
+  const supabase = createClient();
+
+  const { data: orders } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("business_id", businessId)
+    .neq("status", "building")
+    .gte("created_at", sinceIso);
+
+  if (!orders || orders.length === 0) return [];
+
+  const orderIds = orders.map((o) => o.id);
+  const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
+  const itemIds = (items || []).map((i) => i.id);
+  const { data: modifiers } = itemIds.length
+    ? await supabase.from("order_item_modifiers").select("*").in("order_item_id", itemIds)
+    : { data: [] };
+
+  return orders.map((order) => ({
+    ...order,
+    items: (items || [])
+      .filter((i) => i.order_id === order.id)
+      .map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
+  }));
+}
+
+/**
  * All of a business's orders for one calendar day, in the business's
  * own timezone — for an end-of-day report on any past day, not just
  * "today." getOrdersForBusiness above only ever sees its most recent

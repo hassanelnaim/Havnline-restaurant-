@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowRight, Phone, PhoneIncoming, MessageSquareText, DoorOpen, ChefHat, UserRound,
   Mic2, ClipboardList, Check, Globe, UtensilsCrossed, Pizza, Coffee, Beef, Soup, Star, Printer, PhoneOutgoing,
+  Utensils, Truck, Croissant, Sandwich,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/brand/logo";
@@ -25,12 +26,22 @@ const DISRUPTIONS = [
   { icon: ChefHat, who: "Your cook", cost: "Comes off the line to grab a handwritten order — and the ticket already in front of them slows down." },
 ];
 
-const CUISINES = [
+// The root of the "applies to every restaurant" tree below — rendered
+// on its own, on top, with CUISINE_TYPES branching down from it. Kept
+// separate from the leaves rather than as a 5th item in that list,
+// which is what made it read as just another flat card before instead
+// of the thing all the others fall under.
+const ANY_RESTAURANT = { icon: UtensilsCrossed, label: "Any Restaurant" };
+
+const CUISINE_TYPES = [
   { icon: Pizza, label: "Pizzerias" },
   { icon: Beef, label: "Burger Joints" },
   { icon: Soup, label: "Casual Dining" },
   { icon: Coffee, label: "Cafes" },
-  { icon: UtensilsCrossed, label: "Any Restaurant" },
+  { icon: Utensils, label: "Diners" },
+  { icon: Truck, label: "Food Trucks" },
+  { icon: Croissant, label: "Bakeries" },
+  { icon: Sandwich, label: "Delis" },
 ];
 
 const STEPS = [
@@ -69,7 +80,7 @@ export default async function LandingPage() {
       <main>
         {/* 1. Problem — the page opens on the pain, not the pitch. Dark, no CTA yet. */}
         <section className="bg-ink py-14">
-          <div className="mx-auto max-w-5xl px-6">
+          <div className="mx-auto max-w-6xl px-6">
             <div className="text-center">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-[#B8C0D0]">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-ring" />
@@ -206,18 +217,36 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        {/* 4. Applies to all restaurants — universality, tied back to the problem section. */}
-        <section className="mx-auto max-w-5xl px-6 py-14 text-center">
+        {/* 4. Applies to all restaurants — tree layout makes "Any Restaurant" read as the thing every category below falls under, instead of just another card in the row. */}
+        <section className="mx-auto max-w-6xl px-6 py-14 text-center">
           <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Built for restaurants</p>
           <h2 className="mt-2.5 font-display text-[22px] font-semibold text-ink">If you take phone orders, this is for you.</h2>
-          <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {CUISINES.map((ind) => (
-              <div key={ind.label} className="flex flex-col items-center gap-2.5 rounded-2xl border border-border bg-card px-4 py-6">
-                <ind.icon className="h-7 w-7 text-brand" />
-                <span className="text-[14px] font-semibold text-ink">{ind.label}</span>
+
+          <div className="mt-9 flex flex-col items-center">
+            <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-brand bg-brand-soft px-7 py-5 shadow-card">
+              <ANY_RESTAURANT.icon className="h-8 w-8 text-brand-dark" />
+              <span className="font-display text-[15px] font-semibold text-ink">{ANY_RESTAURANT.label}</span>
+            </div>
+
+            {/* Trunk down from the root node to the branch line — lines only read cleanly at lg+, where the grid below is a stable 4-wide shape; smaller breakpoints just show root-then-grid, which still conveys the hierarchy. */}
+            <div className="h-7 w-px bg-border" aria-hidden />
+
+            <div className="relative w-full">
+              <div aria-hidden className="absolute inset-x-6 top-0 hidden h-px bg-border lg:block" />
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                {CUISINE_TYPES.map((c) => (
+                  <div key={c.label} className="flex flex-col items-center">
+                    <div className="hidden h-5 w-px bg-border lg:block" aria-hidden />
+                    <div className="flex w-full flex-col items-center gap-2.5 rounded-2xl border border-border bg-card px-4 py-6">
+                      <c.icon className="h-7 w-7 text-brand" />
+                      <span className="text-[14px] font-semibold text-ink">{c.label}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
+
           <p className="mx-auto mt-7 max-w-md text-[13px] leading-relaxed text-text-muted">
             Every one of these deals with the same interruption — a host, a server, a cook pulled away mid-task.
             HavnLine fixes it the same way for all of them.
@@ -263,8 +292,8 @@ export default async function LandingPage() {
 
         {/* 6. Reviews — real submissions only, checked before appearing here. Honest empty state kept live. */}
         <section className="border-y border-border bg-card py-14">
-          <div className="mx-auto max-w-4xl px-6">
-            <div className="text-center">
+          <div className="mx-auto max-w-6xl px-6">
+            <div className="mx-auto max-w-4xl text-center">
               <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">From real restaurant owners</p>
               <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">What it's actually like to use HavnLine</h2>
             </div>
@@ -328,19 +357,21 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        {/* 8. FAQ — mops up remaining objections, now including ones raised by the harder problem-first opening. */}
-        <section className="border-t border-border bg-card mx-auto max-w-3xl px-6 py-14">
-          <div className="text-center">
-            <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Questions</p>
-            <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">Before you get started</h2>
-          </div>
-          <div className="mt-7 divide-y divide-border-soft">
-            {FAQS.map((item) => (
-              <div key={item.q} className="py-4">
-                <div className="font-display text-[14px] font-semibold text-ink">{item.q}</div>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-text-muted">{item.a}</p>
-              </div>
-            ))}
+        {/* 8. FAQ — mops up remaining objections, now including ones raised by the harder problem-first opening. The width/padding used to sit directly on this <section>, so its bg-card band and top border only ever spanned 3xl instead of the full width every other banded section gets — moved onto a nested div, same pattern as the other border-y/bg-card sections above. */}
+        <section className="border-t border-border bg-card py-14">
+          <div className="mx-auto max-w-3xl px-6">
+            <div className="text-center">
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Questions</p>
+              <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">Before you get started</h2>
+            </div>
+            <div className="mt-7 divide-y divide-border-soft">
+              {FAQS.map((item) => (
+                <div key={item.q} className="py-4">
+                  <div className="font-display text-[14px] font-semibold text-ink">{item.q}</div>
+                  <p className="mt-1 text-[12.5px] leading-relaxed text-text-muted">{item.a}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
