@@ -58,6 +58,31 @@ function StatTile({ href, label, value, icon: Icon, hint, accentClass }: StatTil
   );
 }
 
+interface StaticStatTileProps {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  hint?: string;
+}
+
+// "Projected monthly income" is a forward-looking estimate (this week's
+// pace × 30), not a record of anything that already happened — unlike
+// every other tile here, there's no page it actually corresponds to, so
+// it stays a plain, non-clickable card instead of linking somewhere
+// that isn't really "more detail on this number."
+function StaticStatTile({ label, value, icon: Icon, hint }: StaticStatTileProps) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">{label}</span>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Icon className="h-4 w-4" /></div>
+      </div>
+      <div className="mt-2 font-display text-[28px] font-semibold text-ink">{value}</div>
+      {hint && <div className="mt-1 text-[11.5px] text-text-faint">{hint}</div>}
+    </div>
+  );
+}
+
 export default async function OverviewPage() {
   const business = await getBusiness();
   const sinceIso = new Date(Date.now() - TRAILING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -122,7 +147,7 @@ export default async function OverviewPage() {
       <p className="mt-1 text-[13.5px] text-text-muted">Here&apos;s what&apos;s happened on your phone line recently.</p>
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile href="/dashboard/calls" label="Calls today" value={String(callsToday)} icon={PhoneCall} />
+        <StatTile href="/dashboard/customers" label="Calls today" value={String(callsToday)} icon={PhoneCall} />
         <StatTile href="/dashboard/orders" label="Orders today" value={String(ordersToday)} icon={ClipboardList} />
         <StatTile href="/dashboard/orders" label="Total sales today" value={`$${(salesTodayCents / 100).toFixed(2)}`} icon={DollarSign} />
         <StatTile
@@ -140,8 +165,7 @@ export default async function OverviewPage() {
         <p className="mt-0.5 text-[12px] text-text-faint">Based on the last 7 days — moves as the week does, instead of settling into one number forever.</p>
         <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatTile href="/dashboard/orders" label="Average order value" value={`$${(avgOrderValueCents / 100).toFixed(2)}`} icon={Receipt} />
-          <StatTile
-            href="/dashboard/billing"
+          <StaticStatTile
             label="Projected monthly income"
             value={`$${(projectedMonthlyIncomeCents / 100).toFixed(2)}`}
             icon={TrendingUp}

@@ -16,8 +16,8 @@
  *   changes the default new businesses get; it does not retroactively
  *   change any existing business's stored fee.
  */
-export const MONTHLY_PRICE_DISPLAY = "$100";
-export const MONTHLY_PRICE_CENTS = 10000;
+export const MONTHLY_PRICE_DISPLAY = "$99";
+export const MONTHLY_PRICE_CENTS = 9900;
 
 export const DEFAULT_PLATFORM_FEE_BPS = 300; // 3%
 export const DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY = "3%";
