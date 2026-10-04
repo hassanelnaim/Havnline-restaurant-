@@ -133,25 +133,39 @@ export async function lastTurnUsedTool(callId: string): Promise<boolean> {
   return Boolean(data?.tool_call);
 }
 
-// Previously this matched on a very broad keyword list ("menu", "price",
-// "hours", "open", "pickup", ...) that fires on almost any food-related
-// sentence, even ones the AI answers instantly from the system prompt
-// with no tool call at all (the menu and hours are already right there
-// in its instructions). That made the filler line play constantly and
-// for the wrong reason — the caller hears "let me check that" before a
-// question that needed no checking.
-//
-// This now only matches turns that actually trigger a real, slower tool
-// round-trip — a DB write, a Stripe Checkout Session, an SMS send, a
-// live transfer — and picks a filler that's actually about what's
-// happening, instead of one random generic line every time.
+// Originally this only matched turns that triggered a real, slower
+// tool round-trip (a DB write, a Stripe Checkout Session, an SMS send)
+// because a broader list made the filler play before questions the AI
+// answers instantly from the system prompt with no tool call at all —
+// menu/hours/recommendation questions, which cost nothing in the
+// database but still cost a full Claude round-trip plus fresh TTS
+// synthesis of a never-seen-before reply (nothing to cache there,
+// unlike these fixed filler lines). That's real, noticeable latency
+// too — a caller asking "what do you recommend?" sat through dead air
+// with nothing covering it. So this now covers both: real tool-backed
+// turns (grouped first, since those are genuinely the slowest) AND the
+// common question/conversation shapes that still take a real model
+// round-trip, each with a filler that reads as the natural lead-in to
+// that *kind* of answer — never the exact answer, since the filler is
+// chosen before the model has generated anything.
 const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
   {
-    // add_item_to_order on a NEW item — ordinary ordering phrases
-    // ("I'll have a burger," "can I get fries") that trigger a menu
-    // lookup + a DB write, same as the modify-order category below,
-    // but worth its own line since this is the single most common
-    // thing said on a call.
+    // Customer says they want to order but hasn't named anything yet
+    // ("I'd like to order," "can I place an order") — distinct from
+    // naming an item directly below. No tool call yet; the AI's own
+    // next line is naturally something like "what can I get for you,"
+    // so the filler should read as the lead-in to that, not a
+    // standalone "got it."
+    keywords: [
+      "like to order", "want to order", "place an order", "make an order", "start an order",
+      "order something", "ready to order", "take my order",
+    ],
+    fillers: ["I'd love to take your order!", "Sure thing, let's get you set up.", "Happy to help with that."],
+  },
+  {
+    // add_item_to_order on a NEW, already-named item ("I'll have a
+    // burger," "can I get fries") — a menu lookup + a DB write, and
+    // the single most common thing said on a call.
     keywords: [
       "i want", "i'd like", "i would like", "i'll have", "i will have", "i'll take",
       "i will take", "i'll get", "can i get", "can i have", "could i get", "could i have",
@@ -160,9 +174,9 @@ const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
     fillers: ["Sure, adding that now.", "Got it, one sec.", "Okay, putting that in."],
   },
   {
-    // add_item_to_order / remove_item_from_order on something already
-    // in the order — a real DB write per item, plus a menu/modifier
-    // lookup.
+    // add_item_to_order / remove_item_from_order / update_item_quantity
+    // / update_item_modifiers on something already in the order — a
+    // real DB write per item, plus a menu/modifier lookup.
     keywords: [
       "add", "remove", "instead", "substitute", "change my order", "change that",
       "make that", "make it", "actually", "no onions", "extra", "swap", "cancel that",
@@ -198,11 +212,55 @@ const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
     ],
     fillers: ["Okay, let me get that handled.", "Sure, one moment."],
   },
+  {
+    // No tool call at all — answered straight from the menu already in
+    // the system prompt — but asking for a recommendation specifically
+    // deserves its own warmer lead-in rather than the generic
+    // "let me check" lines below, which read oddly before an opinion.
+    keywords: [
+      "recommend", "what's good", "what is good", "what do you suggest", "any suggestions",
+      "what should i get", "what should i order", "favorite", "best seller", "most popular",
+      "what's your favorite",
+    ],
+    fillers: ["Ooh, good question — let me think.", "Happy to suggest something.", "Let's see what I'd pick for you."],
+  },
+  {
+    // No tool call — a factual lookup the AI already has (an item, a
+    // price, what's in something, an ingredient/allergy question).
+    keywords: [
+      "how much is", "how much are", "what comes with", "what's in", "what is in", "does it come with",
+      "do you have", "is there", "what kind of", "what size", "how big is", "allerg", "gluten", "vegan",
+      "vegetarian", "calorie",
+    ],
+    fillers: ["Good question, let me check.", "Let's see here.", "One sec, let me take a look."],
+  },
+  {
+    // No tool call — hours/location/general business info, already in
+    // the system prompt.
+    keywords: [
+      "what time", "are you open", "when do you open", "when do you close", "how late", "what hours",
+      "where are you", "your address", "your location", "do you deliver", "is this pickup only",
+    ],
+    fillers: ["Let me check that for you.", "One sec, let me look that up."],
+  },
+  {
+    // No tool call — discounts/promos, already in the system prompt.
+    keywords: ["discount", "deal", "special", "coupon", "promo", "any offers"],
+    fillers: ["Let me see what we've got going on.", "Good question — one sec."],
+  },
 ];
+
+// Words that, alone, are too short to tell much from — "yes," "no,"
+// "okay," "that's right" — and are genuinely fast (a trivial text
+// reply, nothing novel to say). Keeping these filler-free is the one
+// deliberate gap left in "basically every turn gets a filler," so the
+// AI doesn't add a pause to the one case where it really would feel
+// sluggish and repetitive rather than helpful.
+const TRIVIAL_REPLY_WORD_LIMIT = 3;
 
 /**
  * Returns a filler line to say before the slower work happens, or null
- * if this turn is likely fast enough to just answer directly. Checking
+ * for the rare turn genuinely too short/trivial to need one. Checking
  * whether the *previous* turn used a tool still matters on its own —
  * mid-order-building conversations often continue across several fast
  * back-and-forth turns where only some invoke a tool.
@@ -214,7 +272,15 @@ export function getContextualFiller(text: string, previousTurnUsedTool: boolean)
       return category.fillers[Math.floor(Math.random() * category.fillers.length)];
     }
   }
-  return previousTurnUsedTool ? "Sure, one moment." : null;
+  if (previousTurnUsedTool) return "Sure, one moment.";
+
+  // Nothing matched a specific category — still almost always worth a
+  // generic lead-in, since even a no-tool-call reply costs a full
+  // model round trip plus fresh (uncached) speech synthesis. Only skip
+  // it for a genuinely trivial, very short reply.
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  if (wordCount <= TRIVIAL_REPLY_WORD_LIMIT) return null;
+  return "Let's see.";
 }
 
 // Every line of hard-coded, verbatim-repeated speech in this file and
@@ -231,6 +297,7 @@ export function getContextualFiller(text: string, previousTurnUsedTool: boolean)
 export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   ...FILLER_CATEGORIES.flatMap((c) => c.fillers),
   "Sure, one moment.",
+  "Let's see.",
   "Sorry, could you say that again?",
   "I'm not able to hear you — please call back. Goodbye.",
   "One moment while I connect you.",

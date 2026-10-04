@@ -59,8 +59,25 @@ export async function POST(request: NextRequest) {
 
   const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}`;
 
+  // The filler used to be a bare <Say> with no <Gather> around it —
+  // Twilio isn't listening for speech at all while a bare <Say> plays,
+  // so a customer who kept talking through "sure, one sec" (continuing
+  // the same thought, e.g. "...and a coke too") was simply never heard
+  // at all, not just delayed. Wrapping it in its own <Gather> means
+  // that speech is still captured (barge-in during the filler, plus a
+  // short grace window after it finishes) and sent to gather-continue,
+  // which stitches it onto the speech that triggered this filler
+  // before processing the turn — so a continued order doesn't silently
+  // lose its back half. If nothing more is heard, this falls through
+  // to the same /process redirect as before. timeout is kept short
+  // (1s) since this adds pure wait time to the common case where the
+  // customer really is done talking.
+  const continueAction = `${SITE_URL}/api/webhooks/twilio/gather-continue?callId=${callId}&original=${encodeURIComponent(speechResult)}`;
+
   return twiml(`<Response>
-  ${sayLine(voice, filler, call.business_id)}
+  <Gather input="speech" action="${escapeXml(continueAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="1">
+    ${sayLine(voice, filler, call.business_id)}
+  </Gather>
   <Redirect method="POST">${escapeXml(processUrl)}</Redirect>
 </Response>`);
 }
