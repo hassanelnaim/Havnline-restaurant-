@@ -6,6 +6,7 @@ import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProv
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
+import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
 
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
   // answering service, not a person, and giving it a name only invites
   // "is this a real person?" confusion. Lead with the business name
   // itself, same as a human answering the phone would.
-  const greeting = `${context.business.name}. There may be a few seconds' delay between answers, so please be patient. How can I help?`;
+  const greeting = buildGreeting(context.business.name);
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
   const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded: await isTtsDegraded() };
 

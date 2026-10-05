@@ -31,6 +31,12 @@ let cachedReading: { degraded: boolean; at: number } | null = null;
 let lastTripWriteAt = 0;
 
 export async function isTtsDegraded(): Promise<boolean> {
+  // A testing switch, not a runtime control: setting TTS_FORCE_OVERFLOW=true
+  // makes every call use the overflow voice, so what callers hear during a
+  // rush (see twilioHostedElevenLabsVoice) can be checked with one real
+  // phone call instead of waiting for a real rush. Unset it afterwards.
+  if (process.env.TTS_FORCE_OVERFLOW === "true") return true;
+
   const now = Date.now();
   if (cachedReading && now - cachedReading.at < READ_CACHE_MS) return cachedReading.degraded;
 

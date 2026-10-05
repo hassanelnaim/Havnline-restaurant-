@@ -4,7 +4,7 @@ import { tripTtsCircuit } from "@/lib/integrations/telephony/ttsCircuit";
 import { logElevenLabsUsage } from "@/lib/usage/tracking";
 import { verifyTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import { getCachedTts, storeCachedTts } from "@/lib/integrations/telephony/ttsCache";
-import { STATIC_TTS_LINES } from "@/lib/ai/twimlHelpers";
+import { isCacheableTtsLine } from "@/lib/ai/twimlHelpers";
 import type { VoiceId } from "@/lib/database/types";
 
 // Generous for any single spoken line — nothing the AI says on a call
@@ -34,11 +34,12 @@ export async function GET(request: NextRequest) {
   try {
     const elevenVoiceId = resolveElevenLabsVoiceId(voiceId, providerVoiceRef);
 
-    // Only the fixed filler/boilerplate lines are ever cached — a
-    // dynamic AI reply (anything with a name, number, or order detail
-    // in it) always falls through to a fresh synthesis below and is
-    // never looked up or stored here. See ttsCache.ts.
-    const cacheable = STATIC_TTS_LINES.has(text);
+    // Only the fixed filler/boilerplate lines and the call greeting
+    // (business name only) are ever cached — a dynamic AI reply
+    // (anything with a name, number, or order detail in it) always
+    // falls through to a fresh synthesis below and is never looked up
+    // or stored here. See ttsCache.ts.
+    const cacheable = isCacheableTtsLine(text);
     if (cacheable) {
       const cached = await getCachedTts(elevenVoiceId, text);
       if (cached) {

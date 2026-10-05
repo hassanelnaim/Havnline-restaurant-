@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider";
-import { isElevenLabsConfigured } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { isElevenLabsConfigured, twilioHostedElevenLabsVoice } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { isGreetingLine } from "@/lib/ai/greeting";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
@@ -56,7 +57,12 @@ export function sayLine(voice: VoiceSelection, text: string, businessId?: string
     const ttsUrl = `${SITE_URL}/api/tts?${params.toString()}`;
     return `<Play>${escapeXml(ttsUrl)}</Play>`;
   }
-  const twilioVoice = resolveTwilioVoice(voice.voiceId as any);
+  // Overflow / fallback speech. When enabled (see
+  // twilioHostedElevenLabsVoice), this is the SAME ElevenLabs voice the
+  // caller was already hearing, played by Twilio under Twilio's own
+  // ElevenLabs capacity instead of this app's — so a busy moment doesn't
+  // change the voice mid-call. Otherwise it's a Polly neural voice.
+  const twilioVoice = twilioHostedElevenLabsVoice(voice.voiceId) ?? resolveTwilioVoice(voice.voiceId as any);
   return `<Say voice="${twilioVoice}">${escapeXml(text)}</Say>`;
 }
 
@@ -343,7 +349,18 @@ export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   "I'm not able to hear you — please call back. Goodbye.",
   "One moment while I connect you.",
   "Thanks for calling. Goodbye.",
+  "Sorry, I didn't catch that. Please call back. Goodbye.",
   "Sorry, I'm having some technical trouble right now. I've made a note and someone from the team will follow up with you. Thanks for calling!",
 ]);
+
+/**
+ * Whether the audio for this exact line may be stored and replayed:
+ * the fixed filler/boilerplate lines, plus the call greeting (which
+ * differs only by the business's own name). Anything else is a dynamic
+ * AI reply and is never cached.
+ */
+export function isCacheableTtsLine(text: string): boolean {
+  return STATIC_TTS_LINES.has(text) || isGreetingLine(text);
+}
 
 export { resolveTwilioVoice };

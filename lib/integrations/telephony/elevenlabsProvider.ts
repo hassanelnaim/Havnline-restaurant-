@@ -19,6 +19,28 @@ export function getTtsModelId(): string {
   return process.env.ELEVENLABS_TTS_MODEL?.trim() || DEFAULT_TTS_MODEL;
 }
 
+/**
+ * Overflow voice, OFF by default. Twilio's <Say> can play ElevenLabs
+ * voices itself (public beta as of Sep 2026) as `ElevenLabs.<voice id>`,
+ * running on Twilio's ElevenLabs capacity and billed by Twilio — so it
+ * isn't limited by THIS app's ElevenLabs concurrency cap. Used only when
+ * the shared breaker says our own ElevenLabs is saturated, it lets the
+ * caller keep hearing the same voice instead of dropping to a different
+ * one.
+ *
+ * Opt-in (TTS_OVERFLOW_PROVIDER=twilio-elevenlabs) because it has to be
+ * confirmed on a real call first: it's a beta, Twilio doesn't document
+ * its concurrency, and it costs more per character than calling
+ * ElevenLabs directly. Custom (cloned) voices belong to this app's
+ * ElevenLabs account, so Twilio can't speak them — those keep the
+ * Polly fallback.
+ */
+export function twilioHostedElevenLabsVoice(voiceId: VoiceId | null | undefined): string | null {
+  if (process.env.TTS_OVERFLOW_PROVIDER?.trim() !== "twilio-elevenlabs") return null;
+  if (voiceId === "custom") return null;
+  return `ElevenLabs.${resolveElevenLabsVoiceId(voiceId)}`;
+}
+
 export function isElevenLabsConfigured(): boolean {
   return Boolean(process.env.ELEVENLABS_API_KEY);
 }
