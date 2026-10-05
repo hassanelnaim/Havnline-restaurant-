@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
-import { getVoiceConfigForCall } from "@/lib/ai/voiceSelection";
+import { getVoiceSelectionForCall } from "@/lib/ai/voiceSelection";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, buildTurnResponseTwiml, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
 
@@ -39,8 +39,7 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Invalid signature", { status: 403 });
   }
 
-  const voiceConfig = await getVoiceConfigForCall(call.business_id, "process");
-  const voice = { voiceId: voiceConfig?.voice_id as any, providerVoiceRef: voiceConfig?.provider_voice_ref };
+  const voice = await getVoiceSelectionForCall(call.business_id, "process");
 
   try {
     const result = await handleTurn(call.business_id, callId, speechResult, "phone");

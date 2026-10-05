@@ -1,5 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import type { DbAiVoiceConfig } from "@/lib/database/types";
+import type { VoiceSelection } from "@/lib/ai/twimlHelpers";
 
 type VoiceColumns = Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref">;
 
@@ -41,4 +43,19 @@ export async function getVoiceConfigForCall(
     `[getVoiceConfigForCall:${context}] giving up after 2 attempts for business ${businessId} — falling back to default voice.`
   );
   return null;
+}
+
+/**
+ * Everything a webhook needs to speak on this call, in one call: the
+ * business's configured voice plus whether the shared ElevenLabs
+ * breaker is currently tripped (see ttsCircuit.ts). The two lookups run
+ * in parallel, so checking the breaker adds no latency to a turn.
+ */
+export async function getVoiceSelectionForCall(businessId: string, context: string): Promise<VoiceSelection> {
+  const [voiceConfig, ttsDegraded] = await Promise.all([getVoiceConfigForCall(businessId, context), isTtsDegraded()]);
+  return {
+    voiceId: voiceConfig?.voice_id as VoiceSelection["voiceId"],
+    providerVoiceRef: voiceConfig?.provider_voice_ref,
+    ttsDegraded,
+  };
 }

@@ -5,6 +5,7 @@ import { startCall } from "@/lib/ai/receptionist";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
 
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
   // itself, same as a human answering the phone would.
   const greeting = `${context.business.name}. There may be a few seconds' delay between answers, so please be patient. How can I help?`;
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
-  const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref };
+  const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded: await isTtsDegraded() };
 
   return twiml(`<Response>
   <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">

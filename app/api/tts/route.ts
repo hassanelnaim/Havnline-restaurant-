@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { synthesizeSpeech, resolveElevenLabsVoiceId } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { synthesizeSpeech, resolveElevenLabsVoiceId, TtsError } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { tripTtsCircuit } from "@/lib/integrations/telephony/ttsCircuit";
 import { logElevenLabsUsage } from "@/lib/usage/tracking";
 import { verifyTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import { getCachedTts, storeCachedTts } from "@/lib/integrations/telephony/ttsCache";
@@ -62,6 +63,16 @@ export async function GET(request: NextRequest) {
     return new NextResponse(audioBuffer, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("TTS synthesis failed:", err);
-    return new NextResponse("TTS failed", { status: 500 });
+    // Retries inside synthesizeSpeech are already exhausted by the time
+    // we're here. If the provider as a whole is what's failing (limit
+    // hit, outage, quota), flip the shared breaker so the next turns of
+    // every live call switch to Twilio's built-in voice for a few
+    // seconds instead of each one also hitting this and playing
+    // silence. A request-specific failure (bad voice id) says nothing
+    // about the provider's health and deliberately doesn't trip it.
+    if (err instanceof TtsError && err.unavailable) {
+      await tripTtsCircuit(err.message);
+    }
+    return new NextResponse("TTS failed", { status: 503 });
   }
 }

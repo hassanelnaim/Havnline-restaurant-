@@ -5,12 +5,21 @@ import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
 import { getSiteUrl } from "@/lib/env";
+import { isTransientAiError } from "@/lib/ai/errors";
 
 const SITE_URL = getSiteUrl();
+
+const MAX_RECOVERED_AI_ERRORS_PER_CALL = 2;
 
 export interface VoiceSelection {
   voiceId: VoiceId | null | undefined;
   providerVoiceRef?: string | null;
+  /**
+   * True while the shared ElevenLabs circuit breaker is tripped (see
+   * lib/integrations/telephony/ttsCircuit.ts) — sayLine then uses
+   * Twilio's built-in voice instead of a <Play> that would just fail.
+   */
+  ttsDegraded?: boolean;
 }
 
 export function twiml(body: string) {
@@ -37,7 +46,7 @@ export function escapeXml(s: string) {
  * <Say> voice.
  */
 export function sayLine(voice: VoiceSelection, text: string, businessId?: string): string {
-  if (isElevenLabsConfigured()) {
+  if (isElevenLabsConfigured() && !voice.ttsDegraded) {
     const voiceId = voice.voiceId || "alex_professional";
     const providerVoiceRef = voice.providerVoiceRef || undefined;
     const { signature, expiresAt } = signTtsParams({ text, voiceId, providerVoiceRef, businessId });
@@ -102,6 +111,37 @@ export async function buildTurnResponseTwiml(
 export async function errorFallbackTwiml(businessId: string, callId: string, voice: VoiceSelection, err: unknown): Promise<Response> {
   console.error(`AI turn failed for call ${callId}:`, err);
   const admin = createAdminClient();
+
+  // A temporary capacity blip (the AI provider rate-limiting or timing
+  // out during a rush) shouldn't end the call and page the owner — it
+  // will very likely work a few seconds later. Ask the caller to repeat
+  // themselves and keep listening. Capped at two recoveries per call so
+  // a genuinely sustained outage still ends in the escalation path
+  // below rather than an endless loop of apologies.
+  if (isTransientAiError(err)) {
+    const { count } = await admin
+      .from("call_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("call_id", callId)
+      .eq("role", "system")
+      .like("content", "AI turn error%");
+
+    if ((count ?? 0) < MAX_RECOVERED_AI_ERRORS_PER_CALL) {
+      await admin
+        .from("call_messages")
+        .insert({ call_id: callId, role: "system", content: `AI turn error (recovered by re-prompting): ${err instanceof Error ? err.message : String(err)}` });
+
+      const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+      return twiml(`<Response>
+  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
+    ${sayLine(voice, "Sorry, I missed that. Could you say it again?", businessId)}
+  </Gather>
+  ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", businessId)}
+  <Hangup/>
+</Response>`);
+    }
+  }
+
   await admin
     .from("calls")
     .update({ outcome: "escalated", escalation_reason: "The AI ran into a technical problem mid-call and couldn't continue." })
@@ -299,6 +339,7 @@ export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   "Sure, one moment.",
   "Let's see.",
   "Sorry, could you say that again?",
+  "Sorry, I missed that. Could you say it again?",
   "I'm not able to hear you — please call back. Goodbye.",
   "One moment while I connect you.",
   "Thanks for calling. Goodbye.",

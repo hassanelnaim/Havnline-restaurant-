@@ -107,7 +107,7 @@ export async function handleTurn(
     }
   }
 
-  const context = await loadBusinessContext(businessId);
+  const context = await loadBusinessContext(businessId, { fresh: channel === "test" });
   if (!context) {
     return { reply: "Sorry, I'm having trouble accessing business information right now.", toolCalls: [] };
   }
