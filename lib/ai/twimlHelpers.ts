@@ -3,6 +3,7 @@ import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider"
 import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
 import { isGreetingLine } from "@/lib/ai/greeting";
+import { FILLER_CATEGORIES, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller } from "@/lib/ai/fillers";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
@@ -107,11 +108,23 @@ export async function buildTurnResponseTwiml(
 
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
 
+  // The order is in. Waiting the usual 15 seconds of silence before
+  // hanging up leaves the caller on a finished call with nothing
+  // happening — so after confirming the order, allow a few seconds for
+  // one last word, then say goodbye and hang up. (A caller who only
+  // says "thanks" is ended immediately by the gather route, without
+  // another trip to the AI.)
+  const orderPlaced = result.toolCalls.some(
+    (tc) => tc.name === "confirm_and_place_order" && tc.result?.success === true && Boolean(tc.result?.order_id)
+  );
+  const listenSeconds = orderPlaced ? POST_ORDER_LISTEN_SECONDS : 15;
+  const closing = orderPlaced ? POST_ORDER_GOODBYE : "Thanks for calling. Goodbye.";
+
   return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
+  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="${listenSeconds}">
     ${sayLine(voice, result.reply, businessId)}
   </Gather>
-  ${sayLine(voice, "Thanks for calling. Goodbye.", businessId)}
+  ${sayLine(voice, closing, businessId)}
   <Hangup/>
 </Response>`);
 }
@@ -192,156 +205,6 @@ export async function lastTurnUsedTool(callId: string): Promise<boolean> {
   return Boolean(data?.tool_call);
 }
 
-// Originally this only matched turns that triggered a real, slower
-// tool round-trip (a DB write, a Stripe Checkout Session, an SMS send)
-// because a broader list made the filler play before questions the AI
-// answers instantly from the system prompt with no tool call at all —
-// menu/hours/recommendation questions, which cost nothing in the
-// database but still cost a full Claude round-trip plus fresh TTS
-// synthesis of a never-seen-before reply (nothing to cache there,
-// unlike these fixed filler lines). That's real, noticeable latency
-// too — a caller asking "what do you recommend?" sat through dead air
-// with nothing covering it. So this now covers both: real tool-backed
-// turns (grouped first, since those are genuinely the slowest) AND the
-// common question/conversation shapes that still take a real model
-// round-trip, each with a filler that reads as the natural lead-in to
-// that *kind* of answer — never the exact answer, since the filler is
-// chosen before the model has generated anything.
-const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
-  {
-    // Customer says they want to order but hasn't named anything yet
-    // ("I'd like to order," "can I place an order") — distinct from
-    // naming an item directly below. No tool call yet; the AI's own
-    // next line is naturally something like "what can I get for you,"
-    // so the filler should read as the lead-in to that, not a
-    // standalone "got it."
-    keywords: [
-      "like to order", "want to order", "place an order", "make an order", "start an order",
-      "order something", "ready to order", "take my order",
-    ],
-    fillers: ["I'd love to take your order!", "Sure thing, let's get you set up.", "Happy to help with that."],
-  },
-  {
-    // add_item_to_order on a NEW, already-named item ("I'll have a
-    // burger," "can I get fries") — a menu lookup + a DB write, and
-    // the single most common thing said on a call.
-    keywords: [
-      "i want", "i'd like", "i would like", "i'll have", "i will have", "i'll take",
-      "i will take", "i'll get", "can i get", "can i have", "could i get", "could i have",
-      "give me", "gimme", "get me", "let me get", "let me have", "i need", "i'll do",
-    ],
-    fillers: ["Sure, adding that now.", "Got it, one sec.", "Okay, putting that in."],
-  },
-  {
-    // add_item_to_order / remove_item_from_order / update_item_quantity
-    // / update_item_modifiers on something already in the order — a
-    // real DB write per item, plus a menu/modifier lookup.
-    keywords: [
-      "add", "remove", "instead", "substitute", "change my order", "change that",
-      "make that", "make it", "actually", "no onions", "extra", "swap", "cancel that",
-      "different", "another one", "one more",
-    ],
-    fillers: ["Sure, updating that now.", "Got it, one sec.", "Okay, making that change."],
-  },
-  {
-    // confirm_and_place_order — genuinely the slowest path: a Checkout
-    // Session with a payment-enabled business, a kitchen print job, and
-    // a confirmation text all happen here.
-    keywords: [
-      "that's it", "that's all", "that's everything", "place my order", "place the order",
-      "go ahead and order", "sounds good, order", "yes, place", "checkout", "ready to order",
-      "that's my order", "that should do it",
-    ],
-    fillers: ["Great, placing that order now.", "Perfect, locking that in.", "Okay, sending that through."],
-  },
-  {
-    // lookup_customer / create_customer — asked right after the order
-    // is read back, once the customer gives their name and number.
-    keywords: [
-      "my name is", "my number is", "phone number", "here's my number",
-    ],
-    fillers: ["Got it, thanks.", "Okay, one sec."],
-  },
-  {
-    // escalate_to_human / transfer_call — a DB write and (for a
-    // transfer) a live outbound call setup.
-    keywords: [
-      "speak to", "talk to", "a real person", "a human", "a manager", "refund",
-      "complaint", "already placed", "change my order i already", "cancel my order",
-    ],
-    fillers: ["Okay, let me get that handled.", "Sure, one moment."],
-  },
-  {
-    // No tool call at all — answered straight from the menu already in
-    // the system prompt — but asking for a recommendation specifically
-    // deserves its own warmer lead-in rather than the generic
-    // "let me check" lines below, which read oddly before an opinion.
-    keywords: [
-      "recommend", "what's good", "what is good", "what do you suggest", "any suggestions",
-      "what should i get", "what should i order", "favorite", "best seller", "most popular",
-      "what's your favorite",
-    ],
-    fillers: ["Ooh, good question — let me think.", "Happy to suggest something.", "Let's see what I'd pick for you."],
-  },
-  {
-    // No tool call — a factual lookup the AI already has (an item, a
-    // price, what's in something, an ingredient/allergy question).
-    keywords: [
-      "how much is", "how much are", "what comes with", "what's in", "what is in", "does it come with",
-      "do you have", "is there", "what kind of", "what size", "how big is", "allerg", "gluten", "vegan",
-      "vegetarian", "calorie",
-    ],
-    fillers: ["Good question, let me check.", "Let's see here.", "One sec, let me take a look."],
-  },
-  {
-    // No tool call — hours/location/general business info, already in
-    // the system prompt.
-    keywords: [
-      "what time", "are you open", "when do you open", "when do you close", "how late", "what hours",
-      "where are you", "your address", "your location", "do you deliver", "is this pickup only",
-    ],
-    fillers: ["Let me check that for you.", "One sec, let me look that up."],
-  },
-  {
-    // No tool call — discounts/promos, already in the system prompt.
-    keywords: ["discount", "deal", "special", "coupon", "promo", "any offers"],
-    fillers: ["Let me see what we've got going on.", "Good question — one sec."],
-  },
-];
-
-// Words that, alone, are too short to tell much from — "yes," "no,"
-// "okay," "that's right" — and are genuinely fast (a trivial text
-// reply, nothing novel to say). Keeping these filler-free is the one
-// deliberate gap left in "basically every turn gets a filler," so the
-// AI doesn't add a pause to the one case where it really would feel
-// sluggish and repetitive rather than helpful.
-const TRIVIAL_REPLY_WORD_LIMIT = 3;
-
-/**
- * Returns a filler line to say before the slower work happens, or null
- * for the rare turn genuinely too short/trivial to need one. Checking
- * whether the *previous* turn used a tool still matters on its own —
- * mid-order-building conversations often continue across several fast
- * back-and-forth turns where only some invoke a tool.
- */
-export function getContextualFiller(text: string, previousTurnUsedTool: boolean): string | null {
-  const lower = text.toLowerCase();
-  for (const category of FILLER_CATEGORIES) {
-    if (category.keywords.some((kw) => lower.includes(kw))) {
-      return category.fillers[Math.floor(Math.random() * category.fillers.length)];
-    }
-  }
-  if (previousTurnUsedTool) return "Sure, one moment.";
-
-  // Nothing matched a specific category — still almost always worth a
-  // generic lead-in, since even a no-tool-call reply costs a full
-  // model round trip plus fresh (uncached) speech synthesis. Only skip
-  // it for a genuinely trivial, very short reply.
-  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
-  if (wordCount <= TRIVIAL_REPLY_WORD_LIMIT) return null;
-  return "Let's see.";
-}
-
 // Every line of hard-coded, verbatim-repeated speech in this file and
 // its callers — fillers plus the fixed boilerplate lines (goodbye,
 // "didn't catch that," the error fallback, the transfer handoff). The
@@ -357,6 +220,8 @@ export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   ...FILLER_CATEGORIES.flatMap((c) => c.fillers),
   "Sure, one moment.",
   "Let's see.",
+  ACK_FILLER,
+  POST_ORDER_GOODBYE,
   "Sorry, could you say that again?",
   "Sorry, I missed that. Could you say it again?",
   "I'm not able to hear you — please call back. Goodbye.",
@@ -376,4 +241,4 @@ export function isCacheableTtsLine(text: string): boolean {
   return STATIC_TTS_LINES.has(text) || isGreetingLine(text);
 }
 
-export { resolveTwilioVoice };
+export { resolveTwilioVoice, getContextualFiller };

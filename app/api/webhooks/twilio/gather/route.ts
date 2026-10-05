@@ -5,6 +5,7 @@ import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { getVoiceSelectionForCall } from "@/lib/ai/voiceSelection";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, escapeXml, buildTurnResponseTwiml, lastTurnUsedTool, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
+import { isFarewell, POST_ORDER_GOODBYE } from "@/lib/ai/fillers";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
   formData.forEach((value, key) => (params[key] = String(value)));
 
   const admin = createAdminClient();
-  const { data: call } = await admin.from("calls").select("business_id").eq("id", callId).single();
+  const { data: call } = await admin.from("calls").select("business_id, outcome").eq("id", callId).single();
   if (!call) return twiml(`<Response><Say>Sorry, something went wrong. Goodbye.</Say><Hangup/></Response>`);
 
   const authToken = await getBusinessTwilioAuthToken(call.business_id);
@@ -41,6 +42,21 @@ export async function POST(request: NextRequest) {
     ${sayLine(voice, "Sorry, could you say that again?", call.business_id)}
   </Gather>
   ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", call.business_id)}
+  <Hangup/>
+</Response>`);
+  }
+
+  // Order already placed and the caller is just saying thanks / goodbye:
+  // end the call now. Sending "thanks" through the AI only produces
+  // another "you're welcome" and another 15 seconds of waiting. Both
+  // sides are still recorded so the transcript shows how the call ended.
+  if (call.outcome === "order_placed" && isFarewell(speechResult)) {
+    await admin.from("call_messages").insert([
+      { call_id: callId, role: "customer", content: speechResult },
+      { call_id: callId, role: "ai", content: POST_ORDER_GOODBYE },
+    ]);
+    return twiml(`<Response>
+  ${sayLine(voice, POST_ORDER_GOODBYE, call.business_id)}
   <Hangup/>
 </Response>`);
   }
