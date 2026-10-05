@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider";
-import { isElevenLabsConfigured, twilioHostedElevenLabsVoice } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
 import { isGreetingLine } from "@/lib/ai/greeting";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
@@ -41,13 +42,19 @@ export function escapeXml(s: string) {
 }
 
 /**
- * Builds the TwiML markup for a single spoken line. If ElevenLabs is
- * configured, uses <Play> pointing at /api/tts for real premium-voice
- * audio. If not configured, falls back to Twilio's own built-in
- * <Say> voice.
+ * Builds the TwiML markup for a single spoken line. Which of three paths
+ * it takes is decided by chooseSpeechPath (TTS_MODE, provider health):
+ * <Play> of audio from /api/tts (this app's ElevenLabs), <Say> with the
+ * same ElevenLabs voice hosted by Twilio, or <Say> with a Polly voice.
  */
 export function sayLine(voice: VoiceSelection, text: string, businessId?: string): string {
-  if (isElevenLabsConfigured() && !voice.ttsDegraded) {
+  const path = chooseSpeechPath({
+    voiceId: voice.voiceId,
+    ttsDegraded: Boolean(voice.ttsDegraded),
+    elevenConfigured: isElevenLabsConfigured(),
+  });
+
+  if (path === "play") {
     const voiceId = voice.voiceId || "alex_professional";
     const providerVoiceRef = voice.providerVoiceRef || undefined;
     const { signature, expiresAt } = signTtsParams({ text, voiceId, providerVoiceRef, businessId });
@@ -57,13 +64,18 @@ export function sayLine(voice: VoiceSelection, text: string, businessId?: string
     const ttsUrl = `${SITE_URL}/api/tts?${params.toString()}`;
     return `<Play>${escapeXml(ttsUrl)}</Play>`;
   }
-  // Overflow / fallback speech. When enabled (see
-  // twilioHostedElevenLabsVoice), this is the SAME ElevenLabs voice the
-  // caller was already hearing, played by Twilio under Twilio's own
-  // ElevenLabs capacity instead of this app's — so a busy moment doesn't
-  // change the voice mid-call. Otherwise it's a Polly neural voice.
-  const twilioVoice = twilioHostedElevenLabsVoice(voice.voiceId) ?? resolveTwilioVoice(voice.voiceId as any);
-  return `<Say voice="${twilioVoice}">${escapeXml(text)}</Say>`;
+
+  if (path === "twilio-hosted") {
+    // The same ElevenLabs voice, spoken by Twilio on Twilio's own
+    // ElevenLabs capacity (see chooseSpeechPath / TTS_MODE) — so this
+    // line never touches this app's ElevenLabs concurrency limit.
+    // Nothing else records this speech (the /api/tts route that logs
+    // usage for the <Play> path isn't involved), so log it here.
+    if (businessId) void logTwilioHostedTtsUsage(businessId, text.length);
+    return `<Say voice="${twilioHostedElevenLabsVoice(voice.voiceId)}">${escapeXml(text)}</Say>`;
+  }
+
+  return `<Say voice="${resolveTwilioVoice(voice.voiceId as any)}">${escapeXml(text)}</Say>`;
 }
 
 export async function buildTurnResponseTwiml(

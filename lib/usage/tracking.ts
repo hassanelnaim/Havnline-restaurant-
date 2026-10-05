@@ -63,6 +63,33 @@ export async function logElevenLabsUsage(businessId: string, characterCount: num
   }
 }
 
+// Twilio prices <Say> generative voices (which includes its ElevenLabs
+// voices) at $0.013 per 100 characters — about 3x what ElevenLabs
+// charges directly, which is why the Twilio-hosted path is for overflow
+// or a deliberate choice, not a default. Logged under provider
+// "elevenlabs" so the existing per-business cost breakdown (which sums
+// that provider) includes it; the event_type tells it apart.
+const RATE_NOTE_TWILIO_HOSTED_TTS = "Twilio <Say> ElevenLabs voice (generative), Oct 2026: $0.013 per 100 characters";
+
+export async function logTwilioHostedTtsUsage(businessId: string, characterCount: number): Promise<void> {
+  const costCents = (characterCount / 100) * 1.3;
+
+  try {
+    const admin = createAdminClient();
+    await admin.from("usage_records").insert({
+      business_id: businessId,
+      provider: "elevenlabs",
+      event_type: "voice_synthesis_twilio_hosted",
+      quantity: characterCount,
+      unit: "characters",
+      estimated_cost_cents: costCents,
+      rate_note: RATE_NOTE_TWILIO_HOSTED_TTS,
+    });
+  } catch (err) {
+    console.error("Failed to log Twilio-hosted TTS usage:", err);
+  }
+}
+
 export interface BusinessCostBreakdown {
   anthropicCents: number;
   elevenLabsCents: number;

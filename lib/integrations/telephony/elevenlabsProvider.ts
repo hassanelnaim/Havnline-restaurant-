@@ -20,25 +20,60 @@ export function getTtsModelId(): string {
 }
 
 /**
- * Overflow voice, OFF by default. Twilio's <Say> can play ElevenLabs
- * voices itself (public beta as of Sep 2026) as `ElevenLabs.<voice id>`,
- * running on Twilio's ElevenLabs capacity and billed by Twilio — so it
- * isn't limited by THIS app's ElevenLabs concurrency cap. Used only when
- * the shared breaker says our own ElevenLabs is saturated, it lets the
- * caller keep hearing the same voice instead of dropping to a different
- * one.
+ * How the app's speech is produced. One switch, TTS_MODE:
  *
- * Opt-in (TTS_OVERFLOW_PROVIDER=twilio-elevenlabs) because it has to be
- * confirmed on a real call first: it's a beta, Twilio doesn't document
- * its concurrency, and it costs more per character than calling
- * ElevenLabs directly. Custom (cloned) voices belong to this app's
- * ElevenLabs account, so Twilio can't speak them — those keep the
- * Polly fallback.
+ *  - "own" (default): every line is synthesized by THIS app's ElevenLabs
+ *    account and played back as audio. Capacity is that account's
+ *    concurrent-request limit; when it is saturated or down the fallback
+ *    is a different (Polly) voice.
+ *  - "auto": same as "own" until the shared breaker says our ElevenLabs is
+ *    saturated; then the same voice is played by Twilio's <Say> instead,
+ *    on Twilio's capacity, so the caller doesn't hear a different voice.
+ *  - "twilio": premade voices are always played by Twilio's <Say>. This
+ *    app's ElevenLabs account (and its concurrency cap) is out of the
+ *    picture for them.
+ *
+ * Twilio's <Say> can speak ElevenLabs voices itself (public beta as of
+ * Sep 2026) as `ElevenLabs.<voice id>`: Twilio calls ElevenLabs under its
+ * own agreement and bills the characters to the Twilio account. Twilio
+ * picks the model (Flash 2.0 for English) and does not document a
+ * concurrency limit, and it costs more per character than calling
+ * ElevenLabs directly — which is why it is opt-in and should be confirmed
+ * on a real call before anything depends on it.
+ *
+ * Custom (cloned) voices live in THIS app's ElevenLabs account, which
+ * Twilio can't reach, so they never use the Twilio-hosted path.
  */
+export type TtsMode = "own" | "auto" | "twilio";
+
+export function getTtsMode(): TtsMode {
+  const raw = process.env.TTS_MODE?.trim().toLowerCase();
+  return raw === "auto" || raw === "twilio" ? raw : "own";
+}
+
 export function twilioHostedElevenLabsVoice(voiceId: VoiceId | null | undefined): string | null {
-  if (process.env.TTS_OVERFLOW_PROVIDER?.trim() !== "twilio-elevenlabs") return null;
+  if (getTtsMode() === "own") return null;
   if (voiceId === "custom") return null;
   return `ElevenLabs.${resolveElevenLabsVoiceId(voiceId)}`;
+}
+
+export type SpeechPath = "play" | "twilio-hosted" | "polly";
+
+/**
+ * Decides how one spoken line is produced. Kept as a pure function (no
+ * I/O) so every combination of mode / voice / provider health can be
+ * tested directly.
+ */
+export function chooseSpeechPath(input: {
+  voiceId: VoiceId | null | undefined;
+  /** The shared breaker says our own ElevenLabs is currently unusable. */
+  ttsDegraded: boolean;
+  elevenConfigured: boolean;
+}): SpeechPath {
+  const hosted = twilioHostedElevenLabsVoice(input.voiceId) !== null;
+  if (hosted && (getTtsMode() === "twilio" || input.ttsDegraded || !input.elevenConfigured)) return "twilio-hosted";
+  if (input.elevenConfigured && !input.ttsDegraded) return "play";
+  return "polly";
 }
 
 export function isElevenLabsConfigured(): boolean {
@@ -108,7 +143,18 @@ function backoffDelayMs(attemptIndex: number, retryAfterHeader: string | null): 
   return Math.random() * ceiling;
 }
 
-export async function synthesizeSpeech(text: string, elevenVoiceId: string): Promise<ArrayBuffer> {
+export interface SynthesizeOptions {
+  /**
+   * Called when a request has been rate-limited twice in a row — i.e. the
+   * account is genuinely at its concurrency ceiling rather than having hit
+   * a one-off collision that a jittered retry would clear. The caller can
+   * use it to start shedding load right away instead of waiting for this
+   * request to burn through its whole retry budget and fail.
+   */
+  onSaturated?: () => void;
+}
+
+export async function synthesizeSpeech(text: string, elevenVoiceId: string, options: SynthesizeOptions = {}): Promise<ArrayBuffer> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     throw new TtsError("ELEVENLABS_API_KEY is not configured.", null, true);
@@ -155,6 +201,7 @@ export async function synthesizeSpeech(text: string, elevenVoiceId: string): Pro
       lastError = new TtsError(`ElevenLabs TTS failed: ${response.status} ${errText}`, response.status, isUnavailableStatus(response.status));
 
       if (response.status === 429) {
+        if (attempt >= 1) options.onSaturated?.();
         // These headers are how you find out you're near your plan's
         // concurrency ceiling BEFORE callers notice — worth having in
         // the logs.

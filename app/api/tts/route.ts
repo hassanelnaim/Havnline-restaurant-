@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { synthesizeSpeech, resolveElevenLabsVoiceId, TtsError } from "@/lib/integrations/telephony/elevenlabsProvider";
+import { synthesizeSpeech, resolveElevenLabsVoiceId, getTtsMode, TtsError } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { tripTtsCircuit } from "@/lib/integrations/telephony/ttsCircuit";
 import { logElevenLabsUsage } from "@/lib/usage/tracking";
 import { verifyTtsParams } from "@/lib/integrations/telephony/ttsSigning";
@@ -48,7 +48,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const audioBuffer = await synthesizeSpeech(text, elevenVoiceId);
+    const audioBuffer = await synthesizeSpeech(text, elevenVoiceId, {
+      // Two 429s in a row means we are at the account's ceiling, not
+      // just unlucky. When there is somewhere better than silence to
+      // send traffic (Twilio-hosted ElevenLabs, "auto" mode), start
+      // sending it there now — short trip, so the app returns to its
+      // own ElevenLabs quickly once the burst passes.
+      onSaturated: () => {
+        if (getTtsMode() === "auto") void tripTtsCircuit("ElevenLabs concurrency limit reached (repeated 429)", 10);
+      },
+    });
 
     // Real usage logging, attributed to whichever business this
     // speech was generated for — fire-and-forget, never delays the

@@ -31,12 +31,6 @@ let cachedReading: { degraded: boolean; at: number } | null = null;
 let lastTripWriteAt = 0;
 
 export async function isTtsDegraded(): Promise<boolean> {
-  // A testing switch, not a runtime control: setting TTS_FORCE_OVERFLOW=true
-  // makes every call use the overflow voice, so what callers hear during a
-  // rush (see twilioHostedElevenLabsVoice) can be checked with one real
-  // phone call instead of waiting for a real rush. Unset it afterwards.
-  if (process.env.TTS_FORCE_OVERFLOW === "true") return true;
-
   const now = Date.now();
   if (cachedReading && now - cachedReading.at < READ_CACHE_MS) return cachedReading.degraded;
 
@@ -59,7 +53,7 @@ export async function isTtsDegraded(): Promise<boolean> {
   return degraded;
 }
 
-export async function tripTtsCircuit(reason: string): Promise<void> {
+export async function tripTtsCircuit(reason: string, seconds: number = TRIP_SECONDS): Promise<void> {
   const now = Date.now();
   if (now - lastTripWriteAt < WRITE_THROTTLE_MS) return;
   lastTripWriteAt = now;
@@ -71,7 +65,7 @@ export async function tripTtsCircuit(reason: string): Promise<void> {
     const { error } = await admin.from("service_circuit_breakers").upsert(
       {
         service: SERVICE,
-        tripped_until: new Date(now + TRIP_SECONDS * 1000).toISOString(),
+        tripped_until: new Date(now + seconds * 1000).toISOString(),
         last_reason: reason.slice(0, 300),
         updated_at: new Date(now).toISOString(),
       },
