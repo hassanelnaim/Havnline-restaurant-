@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider";
 import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
+import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isGreetingLine } from "@/lib/ai/greeting";
 import { FILLER_CATEGORIES, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller } from "@/lib/ai/fillers";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
@@ -144,13 +145,30 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
   console.error(`AI turn failed for call ${callId}:`, err);
   const admin = createAdminClient();
 
+  // Started now so it runs alongside the database work below; awaited
+  // (briefly) before each return so serverless doesn't cut it off.
+  const transient = isTransientAiError(err);
+  const ownerAlert = sendPlatformAlert({
+    key: transient ? "ai-turn-transient" : "ai-turn-error",
+    subject: transient ? "HavnLine: AI provider hiccup during a call (recovered)" : "HavnLine: the AI failed mid-call",
+    heading: transient ? "The AI provider had a temporary problem" : "The AI failed during a call",
+    intro: transient
+      ? "Anthropic was slow or rate-limited during a call. The caller was asked to repeat themselves. If this repeats, capacity or the provider is the cause."
+      : "An unexpected error stopped the AI mid-call and the call was escalated to the business. This usually points to a bug rather than capacity.",
+    rows: [
+      { label: "Business", value: businessId },
+      { label: "Call", value: callId },
+      { label: "Error", value: (err instanceof Error ? err.message : String(err)).slice(0, 300) },
+    ],
+  });
+
   // A temporary capacity blip (the AI provider rate-limiting or timing
   // out during a rush) shouldn't end the call and page the owner — it
   // will very likely work a few seconds later. Ask the caller to repeat
   // themselves and keep listening. Capped at two recoveries per call so
   // a genuinely sustained outage still ends in the escalation path
   // below rather than an endless loop of apologies.
-  if (isTransientAiError(err)) {
+  if (transient) {
     const { count } = await admin
       .from("call_messages")
       .select("id", { count: "exact", head: true })
@@ -164,6 +182,7 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
         .insert({ call_id: callId, role: "system", content: `AI turn error (recovered by re-prompting): ${err instanceof Error ? err.message : String(err)}` });
 
       const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+      await settleWithin(ownerAlert, 1500);
       return twiml(`<Response>
   <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
     ${sayLine(voice, "Sorry, I missed that. Could you say it again?", businessId)}
@@ -184,6 +203,7 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
 
   const { sendEscalationEmail } = await import("@/lib/notifications/escalation-email");
   sendEscalationEmail(businessId, callId).catch((emailErr) => console.error("Escalation email failed:", emailErr));
+  await settleWithin(ownerAlert, 1500);
 
   return twiml(`<Response>
   ${sayLine(voice, "Sorry, I'm having some technical trouble right now. I've made a note and someone from the team will follow up with you. Thanks for calling!", businessId)}

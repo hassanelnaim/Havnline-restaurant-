@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { synthesizeSpeech, resolveElevenLabsVoiceId, getTtsMode, TtsError } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { tripTtsCircuit } from "@/lib/integrations/telephony/ttsCircuit";
+import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { logElevenLabsUsage } from "@/lib/usage/tracking";
 import { verifyTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import { getCachedTts, storeCachedTts } from "@/lib/integrations/telephony/ttsCache";
@@ -82,6 +83,20 @@ export async function GET(request: NextRequest) {
     // about the provider's health and deliberately doesn't trip it.
     if (err instanceof TtsError && err.unavailable) {
       await tripTtsCircuit(err.message);
+      await settleWithin(
+        sendPlatformAlert({
+          key: "elevenlabs-tts-unavailable",
+          subject: "HavnLine: ElevenLabs could not produce speech",
+          heading: "Speech generation is failing",
+          intro:
+            "HavnLine's own ElevenLabs account could not produce speech after retrying. Callers are being switched to the backup voice for a short time. If this is a concurrency limit, see the speech settings; if it is a quota or key problem, check the ElevenLabs dashboard.",
+          rows: [
+            { label: "Status", value: err.status === null ? "no response" : String(err.status) },
+            { label: "Detail", value: err.message.slice(0, 300) },
+          ],
+        }),
+        1500
+      );
     }
     return new NextResponse("TTS failed", { status: 503 });
   }

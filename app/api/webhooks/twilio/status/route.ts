@@ -4,6 +4,8 @@ import { resolveBusinessFromPhoneNumber } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { sendCallNotificationEmail } from "@/lib/notifications/call-email";
+import { reportCallErrors } from "@/lib/monitoring/callErrorReport";
+import { settleWithin } from "@/lib/monitoring/platformAlert";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,23 @@ export async function POST(request: NextRequest) {
     if (resolved) {
       sendCallNotificationEmail(resolved.businessId, callId).catch((err) => console.error("Call notification email failed:", err));
     }
+  }
+
+  // Independent of the block above (which needs a callId this callback
+  // doesn't always carry): once a call is over, ask Twilio whether it
+  // logged any errors for it, and email the platform owner if so. Bounded
+  // so a slow Twilio API can't hold up this webhook.
+  if (resolved?.subAccountAuthToken && params.CallSid && params.AccountSid && TERMINAL_STATUSES.includes(callStatus)) {
+    await settleWithin(
+      reportCallErrors({
+        businessId: resolved.businessId,
+        accountSid: params.AccountSid,
+        authToken: resolved.subAccountAuthToken,
+        callSid: params.CallSid,
+        callStatus,
+      }).catch((err) => console.error("Call error report failed:", err)),
+      6000
+    );
   }
 
   return new NextResponse("OK");
