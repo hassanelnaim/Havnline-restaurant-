@@ -50,6 +50,7 @@ export function escapeXml(s: string) {
 export function sayLine(voice: VoiceSelection, text: string, businessId?: string): string {
   const path = chooseSpeechPath({
     voiceId: voice.voiceId,
+    providerVoiceRef: voice.providerVoiceRef,
     ttsDegraded: Boolean(voice.ttsDegraded),
     elevenConfigured: isElevenLabsConfigured(),
   });
@@ -72,7 +73,7 @@ export function sayLine(voice: VoiceSelection, text: string, businessId?: string
     // Nothing else records this speech (the /api/tts route that logs
     // usage for the <Play> path isn't involved), so log it here.
     if (businessId) void logTwilioHostedTtsUsage(businessId, text.length);
-    return `<Say voice="${twilioHostedElevenLabsVoice(voice.voiceId)}">${escapeXml(text)}</Say>`;
+    return `<Say voice="${twilioHostedElevenLabsVoice(voice.voiceId, voice.providerVoiceRef)}">${escapeXml(text)}</Say>`;
   }
 
   return `<Say voice="${resolveTwilioVoice(voice.voiceId as any)}">${escapeXml(text)}</Say>`;

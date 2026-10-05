@@ -41,8 +41,13 @@ export function getTtsModelId(): string {
  * ElevenLabs directly — which is why it is opt-in and should be confirmed
  * on a real call before anything depends on it.
  *
- * Custom (cloned) voices live in THIS app's ElevenLabs account, which
- * Twilio can't reach, so they never use the Twilio-hosted path.
+ * "custom" in this app does not mean cloned: the dashboard's voice
+ * picker lists the voices in this app's ElevenLabs account and saves the
+ * chosen one as voice_id "custom" plus its ElevenLabs voice ID. Those IDs
+ * are sent to Twilio as-is. That works only for voices Twilio itself can
+ * use (its docs are unclear on exactly which); a voice private to this
+ * account, such as a clone, will not play. Check a voice with one real
+ * call in "twilio" mode before relying on it.
  */
 export type TtsMode = "own" | "auto" | "twilio";
 
@@ -51,10 +56,14 @@ export function getTtsMode(): TtsMode {
   return raw === "auto" || raw === "twilio" ? raw : "own";
 }
 
-export function twilioHostedElevenLabsVoice(voiceId: VoiceId | null | undefined): string | null {
+export function twilioHostedElevenLabsVoice(
+  voiceId: VoiceId | null | undefined,
+  providerVoiceRef?: string | null
+): string | null {
   if (getTtsMode() === "own") return null;
-  if (voiceId === "custom") return null;
-  return `ElevenLabs.${resolveElevenLabsVoiceId(voiceId)}`;
+  // A custom voice with no stored ElevenLabs ID has nothing to send.
+  if (voiceId === "custom" && !providerVoiceRef) return null;
+  return `ElevenLabs.${resolveElevenLabsVoiceId(voiceId, providerVoiceRef)}`;
 }
 
 export type SpeechPath = "play" | "twilio-hosted" | "polly";
@@ -66,11 +75,12 @@ export type SpeechPath = "play" | "twilio-hosted" | "polly";
  */
 export function chooseSpeechPath(input: {
   voiceId: VoiceId | null | undefined;
+  providerVoiceRef?: string | null;
   /** The shared breaker says our own ElevenLabs is currently unusable. */
   ttsDegraded: boolean;
   elevenConfigured: boolean;
 }): SpeechPath {
-  const hosted = twilioHostedElevenLabsVoice(input.voiceId) !== null;
+  const hosted = twilioHostedElevenLabsVoice(input.voiceId, input.providerVoiceRef) !== null;
   if (hosted && (getTtsMode() === "twilio" || input.ttsDegraded || !input.elevenConfigured)) return "twilio-hosted";
   if (input.elevenConfigured && !input.ttsDegraded) return "play";
   return "polly";
