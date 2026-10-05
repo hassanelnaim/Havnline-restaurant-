@@ -160,6 +160,32 @@ export async function handleTurn(
   return result;
 }
 
+/**
+ * Twilio's call-ended callback is configured on the phone NUMBER (see
+ * provisionNumber), so it can't carry this app's own call id the way a
+ * per-call URL could — it only carries the caller's number, the dialed
+ * number and Twilio's CallSid. Without a way back to the call row, every
+ * call stayed "in_progress" with a duration of 0 forever and the
+ * call-finished email never went out. The caller's number is what
+ * startCall stored in calls.phone, so the call that just ended is that
+ * business's newest still-in-progress call from that number. (Two
+ * simultaneous calls from the same number to the same business are the
+ * only case this could mix up.)
+ */
+export async function findInProgressCallId(businessId: string, callerNumber: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("calls")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("phone", callerNumber)
+    .eq("status", "in_progress")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 export async function endCall(callId: string, durationSeconds: number): Promise<void> {
   const admin = createAdminClient();
   await admin.from("calls").update({ status: "completed", duration_seconds: durationSeconds }).eq("id", callId);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { endCall } from "@/lib/ai/receptionist";
+import { endCall, findInProgressCallId } from "@/lib/ai/receptionist";
 import { resolveBusinessFromPhoneNumber } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
@@ -35,19 +35,31 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Invalid signature", { status: 403 });
   }
 
-  const callId = request.nextUrl.searchParams.get("callId");
+  let callId = request.nextUrl.searchParams.get("callId");
   const callStatus = params.CallStatus;
   const duration = parseInt(params.CallDuration || "0", 10);
+
+  // The number-level callback URL has no callId (see
+  // findInProgressCallId), so find the call by who was calling.
+  if (!callId && resolved && params.From && TERMINAL_STATUSES.includes(callStatus)) {
+    callId = await findInProgressCallId(resolved.businessId, params.From);
+  }
 
   if (callId && TERMINAL_STATUSES.includes(callStatus)) {
     await endCall(callId, duration);
 
-    // Fire-and-forget: don't hold up Twilio's webhook response on an
-    // email send. sendCallNotificationEmail no-ops on its own if the
-    // business hasn't turned call notifications on.
+    // sendCallNotificationEmail no-ops on its own if the business hasn't
+    // turned call notifications on. Awaited (briefly) rather than fired
+    // and forgotten: on serverless, work left running after the response
+    // is sent can be cut off before the email goes out.
     if (resolved) {
-      sendCallNotificationEmail(resolved.businessId, callId).catch((err) => console.error("Call notification email failed:", err));
+      await settleWithin(
+        sendCallNotificationEmail(resolved.businessId, callId).catch((err) => console.error("Call notification email failed:", err)),
+        5000
+      );
     }
+  } else if (TERMINAL_STATUSES.includes(callStatus)) {
+    console.error(`[twilio-status] could not match ended call ${params.CallSid} from ${params.From} to a call record`);
   }
 
   // Independent of the block above (which needs a callId this callback
