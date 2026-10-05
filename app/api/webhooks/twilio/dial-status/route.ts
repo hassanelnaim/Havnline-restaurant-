@@ -4,6 +4,8 @@ import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { getVoiceSelectionForCall } from "@/lib/ai/voiceSelection";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
+import { settleWithin } from "@/lib/monitoring/platformAlert";
 
 export const dynamic = "force-dynamic";
 
@@ -38,18 +40,33 @@ export async function POST(request: NextRequest) {
   const dialCallStatus = params.DialCallStatus; // "completed" | "busy" | "no-answer" | "failed" | "canceled"
 
   if (dialCallStatus === "completed") {
-    // The transfer was answered and the human handled it — nothing more to do.
+    // Staff picked up and handled it. If this began as an AI escalation,
+    // there is nothing left to follow up on, so stop flagging it.
+    if (call) {
+      await admin
+        .from("calls")
+        .update({ outcome: "question_answered", escalation_reason: null })
+        .eq("id", callId)
+        .eq("outcome", "escalated");
+      await admin.from("call_messages").insert({ call_id: callId, role: "system", content: "Live transfer answered by restaurant staff." });
+    }
     return twiml(`<Response><Hangup/></Response>`);
   }
 
-  // Nobody answered — log this as a real escalation, same as
-  // escalate_to_human, so it shows up in the dashboard for the
-  // business to follow up on, instead of the caller just being dropped.
+  // Nobody answered — keep it as a real escalation, so it shows up in the
+  // dashboard for the business to follow up on, and email them (the AI
+  // held that email back while the live transfer was being tried). The
+  // AI's own reason is kept; the failed attempt is appended to it.
   if (call) {
-    await admin
-      .from("calls")
-      .update({ outcome: "escalated", escalation_reason: "Live transfer attempted but nobody answered." })
-      .eq("id", callId);
+    const { data: current } = await admin.from("calls").select("escalation_reason").eq("id", callId).single();
+    const note = "Live transfer attempted but nobody answered.";
+    const reason = current?.escalation_reason ? `${current.escalation_reason} (${note})` : note;
+    await admin.from("calls").update({ outcome: "escalated", escalation_reason: reason }).eq("id", callId);
+    await admin.from("call_messages").insert({ call_id: callId, role: "system", content: `Live transfer not answered (${dialCallStatus || "unknown"}).` });
+    await settleWithin(
+      sendEscalationEmail(call.business_id, callId).catch((err) => console.error("Escalation email failed:", err)),
+      4000
+    );
   }
 
   const voice = call ? await getVoiceSelectionForCall(call.business_id, "dial-status") : { voiceId: undefined };

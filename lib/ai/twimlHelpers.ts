@@ -6,6 +6,7 @@ import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert"
 import { isGreetingLine } from "@/lib/ai/greeting";
 import { FILLER_CATEGORIES, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller } from "@/lib/ai/fillers";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
+import { LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
 import { getSiteUrl } from "@/lib/env";
@@ -87,7 +88,11 @@ export async function buildTurnResponseTwiml(
   result: HandleTurnResult,
   voice: VoiceSelection
 ): Promise<Response> {
-  const transferCall = result.toolCalls.find((tc) => tc.name === "transfer_call" && (tc.result as any)?.transferring);
+  const transferCall = result.toolCalls.find(
+    (tc) =>
+      (tc.name === "transfer_call" && (tc.result as any)?.transferring) ||
+      (tc.name === "escalate_to_human" && (tc.result as any)?.live_transfer)
+  );
   if (transferCall) {
     const admin = createAdminClient();
     const [{ data: business }, { data: twilioIntegration }] = await Promise.all([
@@ -98,6 +103,9 @@ export async function buildTurnResponseTwiml(
     const getMadeNumber = (twilioIntegration?.metadata as Record<string, unknown> | null)?.phone_number as string | undefined;
 
     if (business?.phone) {
+      // Marker: tells the escalation tool a transfer was already tried
+      // on this call, and lets the voice webhook spot it coming back.
+      await admin.from("call_messages").insert({ call_id: callId, role: "system", content: `${LIVE_TRANSFER_MARKER} ${business.phone}` });
       const callerIdAttr = getMadeNumber ? ` callerId="${escapeXml(getMadeNumber)}"` : "";
       const dialStatusAction = `${SITE_URL}/api/webhooks/twilio/dial-status?callId=${callId}`;
       return twiml(`<Response>

@@ -7,6 +7,7 @@ import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
 import { calculateTaxCents } from "@/lib/billing/stripeTax";
 import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
+import { shouldAttemptLiveTransfer, LIVE_TRANSFER_MARKER } from "./liveTransfer";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -621,8 +622,39 @@ async function escalate_to_human(input: { reason: string; summary: string }, ctx
   const admin = createAdminClient();
   await admin.from("calls").update({ outcome: "escalated", escalation_reason: input.reason }).eq("id", ctx.callId);
 
-  sendEscalationEmail(ctx.businessId, ctx.callId).catch((err) => console.error("Escalation email failed:", err));
+  // During open hours on a real phone call, ring the restaurant's main
+  // phone so a person can pick up now. The escalation email is held
+  // back in that case: the dial-status webhook sends it only if nobody
+  // answers (if someone does, there is nothing to follow up on).
+  let alreadyAttempted = false;
+  if (ctx.channel === "phone") {
+    const { data: prior } = await admin
+      .from("call_messages")
+      .select("id")
+      .eq("call_id", ctx.callId)
+      .eq("role", "system")
+      .like("content", `${LIVE_TRANSFER_MARKER}%`)
+      .limit(1);
+    alreadyAttempted = (prior || []).length > 0;
+  }
+  const live = shouldAttemptLiveTransfer({
+    channel: ctx.channel,
+    restaurantPhone: ctx.context.business.phone,
+    isOpen: isBusinessOpenNow(ctx.context.business, ctx.context.hours),
+    alreadyAttempted,
+    callerPhone: ctx.callerPhone,
+  });
 
+  if (live) {
+    return {
+      logged: true,
+      live_transfer: true,
+      message:
+        "Connecting the caller to the restaurant's phone now. Say one short sentence like 'Let me get someone for you.' If nobody picks up, it will be logged for a callback automatically.",
+    };
+  }
+
+  sendEscalationEmail(ctx.businessId, ctx.callId).catch((err) => console.error("Escalation email failed:", err));
   return { logged: true, message: "This has been logged for the business to follow up on." };
 }
 
@@ -720,7 +752,7 @@ export const TOOL_DEFINITIONS = [
       required: ["customer_name", "phone"],
     },
   },
-  { name: "escalate_to_human", description: "Log this call for the business owner to follow up on later — like a voicemail. Use for refunds, complaints, requests to change or cancel an order that was ALREADY placed (it may already be cooking), and anything you can't resolve. Does NOT require anyone to be available now.", input_schema: { type: "object" as const, properties: { reason: { type: "string" }, summary: { type: "string" } }, required: ["reason", "summary"] } },
+  { name: "escalate_to_human", description: "Hand this call to the restaurant staff. Use for refunds, complaints, requests to change or cancel an order that was ALREADY placed (it may already be cooking), and anything you can't resolve. While the restaurant is open the system rings its phone live; if closed or nobody answers it is logged for a callback.", input_schema: { type: "object" as const, properties: { reason: { type: "string" }, summary: { type: "string" } }, required: ["reason", "summary"] } },
   { name: "transfer_call", description: "Transfer the caller to a real person live, immediately. ONLY when they explicitly ask to speak to a human.", input_schema: { type: "object" as const, properties: {} } },
   { name: "send_sms", description: "Send a text message to the customer.", input_schema: { type: "object" as const, properties: { phone: { type: "string" }, message: { type: "string" } }, required: ["phone", "message"] } },
 ];

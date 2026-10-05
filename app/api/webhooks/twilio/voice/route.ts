@@ -9,6 +9,7 @@ import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
+import { isTransferLoop, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,31 @@ export async function POST(request: NextRequest) {
 
   if (isBlocked || isCallFlaggedAsSpam(params.AddOns)) {
     return twiml(`<Response><Reject reason="rejected"/></Response>`);
+  }
+
+  // A live transfer rings the restaurant's main line; if that line
+  // forwards to this number, the transfer would arrive here as a new call
+  // and could escalate again, forever. Turn it away.
+  const restaurantPhone = context.business.phone;
+  let recentTransfer = false;
+  if (restaurantPhone && normalizePhoneDigits(callerNumber) === normalizePhoneDigits(restaurantPhone)) {
+    const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const { data: recentCalls } = await admin.from("calls").select("id").eq("business_id", businessId).gte("started_at", since);
+    const ids = (recentCalls || []).map((c) => c.id);
+    if (ids.length > 0) {
+      const { data: markers } = await admin
+        .from("call_messages")
+        .select("id")
+        .in("call_id", ids)
+        .eq("role", "system")
+        .like("content", `${LIVE_TRANSFER_MARKER}%`)
+        .limit(1);
+      recentTransfer = (markers || []).length > 0;
+    }
+  }
+  if (isTransferLoop({ from: callerNumber, to: dialedNumber, restaurantPhone, recentTransfer })) {
+    console.warn(`Rejected looping transfer for business ${businessId}`);
+    return twiml(`<Response><Reject reason="busy"/></Response>`);
   }
 
   const callId = await startCall(businessId, callerNumber, dialedNumber);
