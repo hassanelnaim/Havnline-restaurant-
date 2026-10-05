@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTtsModelId } from "@/lib/integrations/telephony/elevenlabsProvider";
 
 /**
  * Persistent cache for synthesized ElevenLabs audio, used ONLY for the
@@ -19,8 +20,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * (voice, line) pair instead.
  */
 
+// The model is part of the key: the same voice speaking the same line
+// sounds different on different models, and switching models (see
+// getTtsModelId) must not leave a call mixing cached filler audio from
+// the old model with fresh replies from the new one.
 function cacheKey(elevenVoiceId: string, text: string): string {
-  return createHash("sha256").update(`${elevenVoiceId}::${text}`).digest("hex");
+  return createHash("sha256").update(`${getTtsModelId()}::${elevenVoiceId}::${text}`).digest("hex");
 }
 
 export async function getCachedTts(elevenVoiceId: string, text: string): Promise<ArrayBuffer | null> {

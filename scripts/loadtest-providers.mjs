@@ -23,6 +23,7 @@
  *   --levels=2,5,10,15,20,30   concurrency levels to try (default shown)
  *   --only=tts | --only=llm    test just one provider
  *   --voice=<elevenlabs voice id>   (default: the stock "Adam" voice)
+ *   --tts-model=<model id>     (default: ELEVENLABS_TTS_MODEL or eleven_v4_turbo; try eleven_flash_v2_5)
  *   --llm-model=<model id>     (default: ANTHROPIC_PHONE_MODEL or claude-haiku-4-5-20251001)
  */
 
@@ -44,7 +45,7 @@ const ANTHROPIC_KEY = clean(process.env.ANTHROPIC_API_KEY);
 const LEVELS = (args.levels || "2,5,10,15,20,30").split(",").map((n) => parseInt(n, 10)).filter(Boolean);
 const VOICE = args.voice || "pNInz6obpgDQGcFmaJgB";
 const LLM_MODEL = args["llm-model"] || process.env.ANTHROPIC_PHONE_MODEL || "claude-haiku-4-5-20251001";
-const TTS_MODEL = "eleven_v4_turbo"; // keep in sync with lib/integrations/telephony/elevenlabsProvider.ts
+const TTS_MODEL = args["tts-model"] || process.env.ELEVENLABS_TTS_MODEL || "eleven_v4_turbo"; // default matches lib/integrations/telephony/elevenlabsProvider.ts
 
 // Roughly the length of a real phone reply.
 const SAMPLE_REPLIES = [
@@ -80,7 +81,7 @@ async function ttsRequest(i) {
     const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE}`, {
       method: "POST",
       headers: { "xi-api-key": ELEVEN_KEY, "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text: SAMPLE_REPLIES[i % SAMPLE_REPLIES.length], model_id: TTS_MODEL }),
+      body: JSON.stringify({ text: SAMPLE_REPLIES[i % SAMPLE_REPLIES.length], model_id: TTS_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
       signal: AbortSignal.timeout(20000),
     });
     if (res.ok) await res.arrayBuffer();
@@ -118,7 +119,9 @@ async function llmRequest(i) {
       status: res.status,
       detail,
       note: res.headers.get("anthropic-ratelimit-requests-limit")
-        ? `req-limit=${res.headers.get("anthropic-ratelimit-requests-limit")}/min`
+        ? `req-limit=${res.headers.get("anthropic-ratelimit-requests-limit")}/min ` +
+          `input-tokens-limit=${res.headers.get("anthropic-ratelimit-input-tokens-limit") ?? "?"}/min ` +
+          `output-tokens-limit=${res.headers.get("anthropic-ratelimit-output-tokens-limit") ?? "?"}/min`
         : undefined,
     };
   });
@@ -131,16 +134,16 @@ async function runLevel(label, requestFn, n) {
   const other = results.length - ok - limited;
   const latencies = results.filter((r) => r.ok).map((r) => r.ms).sort((a, b) => a - b);
   const note = results.find((r) => r.note)?.note || "";
+  console.log(
+    `${label.padEnd(10)} concurrency=${String(n).padEnd(3)} ok=${String(ok).padEnd(3)} rate-limited=${String(limited).padEnd(3)} other-errors=${String(other).padEnd(3)} ` +
+      `p50=${latencies.length ? Math.round(pct(latencies, 50)) + "ms" : "-"} p95=${latencies.length ? Math.round(pct(latencies, 95)) + "ms" : "-"} ${note}`
+  );
   const failures = results.filter((r) => !r.ok);
   if (failures.length > 0) {
     const counts = {};
     for (const f of failures) counts[f.status] = (counts[f.status] || 0) + 1;
     console.log(`   errors by status: ${JSON.stringify(counts)} | first error: ${String(failures[0].detail || "(no detail)").slice(0, 250)}`);
   }
-  console.log(
-    `${label.padEnd(10)} concurrency=${String(n).padEnd(3)} ok=${String(ok).padEnd(3)} rate-limited=${String(limited).padEnd(3)} other-errors=${String(other).padEnd(3)} ` +
-      `p50=${latencies.length ? Math.round(pct(latencies, 50)) + "ms" : "-"} p95=${latencies.length ? Math.round(pct(latencies, 95)) + "ms" : "-"} ${note}`
-  );
   return { limited, other, ok, n };
 }
 

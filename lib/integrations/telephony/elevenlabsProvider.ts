@@ -7,6 +7,18 @@ const DEFAULT_VOICE_MAP: Record<Exclude<VoiceId, "custom">, string> = {
   emma_friendly: process.env.ELEVENLABS_VOICE_EMMA || "EXAVITQu4vr4xnSDxMaL",
 };
 
+// The TTS model decides two things that matter at scale: how long each
+// request holds one of the plan's concurrent-request slots, and WHICH
+// slot pool it counts against — ElevenLabs gives Flash/Turbo models
+// roughly double the concurrency of its other models on every plan. It's
+// an env setting (not a code change) so it can be switched, measured
+// with scripts/loadtest-providers.mjs, and switched back without a
+// deploy. Default is unchanged from before.
+const DEFAULT_TTS_MODEL = "eleven_v4_turbo";
+export function getTtsModelId(): string {
+  return process.env.ELEVENLABS_TTS_MODEL?.trim() || DEFAULT_TTS_MODEL;
+}
+
 export function isElevenLabsConfigured(): boolean {
   return Boolean(process.env.ELEVENLABS_API_KEY);
 }
@@ -108,7 +120,7 @@ export async function synthesizeSpeech(text: string, elevenVoiceId: string): Pro
           // enough for a live phone call (~100ms vs. Flash's ~75ms, a
           // difference a caller won't perceive), so this is a quality
           // upgrade with no real latency tradeoff for this use case.
-          model_id: "eleven_v4_turbo",
+          model_id: getTtsModelId(),
           voice_settings: { stability: 0.5, similarity_boost: 0.75 },
         }),
         signal: AbortSignal.timeout(TTS_ATTEMPT_TIMEOUT_MS),
