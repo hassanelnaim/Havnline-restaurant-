@@ -33,6 +33,14 @@ const args = Object.fromEntries(
   })
 );
 
+// Keys are cleaned once: a stray space, quote, or the carriage return
+// Windows Notepad adds at the end of every line makes the key an invalid
+// HTTP header value, which fails EVERY request instantly and looks like
+// a provider outage when it is really a typo in the file.
+const clean = (v) => (v || "").trim().replace(/^["']|["']$/g, "").trim();
+const ELEVEN_KEY = clean(process.env.ELEVENLABS_API_KEY);
+const ANTHROPIC_KEY = clean(process.env.ANTHROPIC_API_KEY);
+
 const LEVELS = (args.levels || "2,5,10,15,20,30").split(",").map((n) => parseInt(n, 10)).filter(Boolean);
 const VOICE = args.voice || "pNInz6obpgDQGcFmaJgB";
 const LLM_MODEL = args["llm-model"] || process.env.ANTHROPIC_PHONE_MODEL || "claude-haiku-4-5-20251001";
@@ -62,7 +70,8 @@ async function timed(fn) {
     const out = await fn();
     return { ...out, ms: performance.now() - start };
   } catch (err) {
-    return { ok: false, status: "network", detail: String(err), ms: performance.now() - start };
+    const cause = err && err.cause ? ` (cause: ${err.cause.code || ""} ${err.cause.message || err.cause})` : "";
+    return { ok: false, status: "network", detail: `${err && err.message ? err.message : err}${cause}`, ms: performance.now() - start };
   }
 }
 
@@ -70,14 +79,16 @@ async function ttsRequest(i) {
   return timed(async () => {
     const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE}`, {
       method: "POST",
-      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY, "Content-Type": "application/json", Accept: "audio/mpeg" },
+      headers: { "xi-api-key": ELEVEN_KEY, "Content-Type": "application/json", Accept: "audio/mpeg" },
       body: JSON.stringify({ text: SAMPLE_REPLIES[i % SAMPLE_REPLIES.length], model_id: TTS_MODEL }),
       signal: AbortSignal.timeout(20000),
     });
     if (res.ok) await res.arrayBuffer();
+    const detail = res.ok ? undefined : (await res.text().catch(() => "")).slice(0, 300);
     return {
       ok: res.ok,
       status: res.status,
+      detail,
       note: res.headers.get("maximum-concurrent-requests") ? `limit=${res.headers.get("maximum-concurrent-requests")}` : undefined,
     };
   });
@@ -88,7 +99,7 @@ async function llmRequest(i) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "x-api-key": ANTHROPIC_KEY,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
@@ -101,9 +112,11 @@ async function llmRequest(i) {
       signal: AbortSignal.timeout(30000),
     });
     if (res.ok) await res.json();
+    const detail = res.ok ? undefined : (await res.text().catch(() => "")).slice(0, 300);
     return {
       ok: res.ok,
       status: res.status,
+      detail,
       note: res.headers.get("anthropic-ratelimit-requests-limit")
         ? `req-limit=${res.headers.get("anthropic-ratelimit-requests-limit")}/min`
         : undefined,
@@ -118,6 +131,12 @@ async function runLevel(label, requestFn, n) {
   const other = results.length - ok - limited;
   const latencies = results.filter((r) => r.ok).map((r) => r.ms).sort((a, b) => a - b);
   const note = results.find((r) => r.note)?.note || "";
+  const failures = results.filter((r) => !r.ok);
+  if (failures.length > 0) {
+    const counts = {};
+    for (const f of failures) counts[f.status] = (counts[f.status] || 0) + 1;
+    console.log(`   errors by status: ${JSON.stringify(counts)} | first error: ${String(failures[0].detail || "(no detail)").slice(0, 250)}`);
+  }
   console.log(
     `${label.padEnd(10)} concurrency=${String(n).padEnd(3)} ok=${String(ok).padEnd(3)} rate-limited=${String(limited).padEnd(3)} other-errors=${String(other).padEnd(3)} ` +
       `p50=${latencies.length ? Math.round(pct(latencies, 50)) + "ms" : "-"} p95=${latencies.length ? Math.round(pct(latencies, 95)) + "ms" : "-"} ${note}`
@@ -127,6 +146,12 @@ async function runLevel(label, requestFn, n) {
 
 async function sweep(label, requestFn) {
   console.log(`\n=== ${label} ===`);
+  const probe = await requestFn(0);
+  if (!probe.ok && probe.status !== 429 && probe.status !== 529) {
+    console.log(`A single test request failed, so the concurrency sweep was skipped (it would only repeat this error).`);
+    console.log(`status: ${probe.status}\ndetail: ${probe.detail || "(none)"}`);
+    return;
+  }
   let highestClean = 0;
   for (const n of LEVELS) {
     const r = await runLevel(label, requestFn, n);
@@ -143,8 +168,8 @@ async function main() {
   const wantTts = !only || only === "tts";
   const wantLlm = !only || only === "llm";
 
-  if (wantTts && !process.env.ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY is not set (or run with --only=llm).");
-  if (wantLlm && !process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set (or run with --only=tts).");
+  if (wantTts && !ELEVEN_KEY) throw new Error("ELEVENLABS_API_KEY is not set (or run with --only=llm).");
+  if (wantLlm && !ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not set (or run with --only=tts).");
 
   console.log(`Levels: ${LEVELS.join(", ")} | TTS model: ${TTS_MODEL} | LLM model: ${LLM_MODEL}`);
   if (wantTts) await sweep("ElevenLabs", ttsRequest);
