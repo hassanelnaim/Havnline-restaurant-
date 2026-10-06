@@ -39,7 +39,7 @@ export default function BusinessInfoStep() {
     setSaving(true);
     setError(null);
     const result = await createBusinessDraftAction({
-      businessName: draft.businessName, businessType: draft.businessType, address: draft.address, addressCity: draft.addressCity, addressState: draft.addressState, addressZip: draft.addressZip, phone: draft.phone, description: draft.description, timezone: draft.timezone,
+      businessName: draft.businessName, businessType: draft.businessType, address: draft.address, addressCity: draft.addressCity, addressState: draft.addressState, addressZip: draft.addressZip, phone: draft.phone, description: draft.description, timezone: draft.timezone, legalBusinessName: draft.legalBusinessName, ein: draft.ein,
     });
     setSaving(false);
 
@@ -88,6 +88,15 @@ export default function BusinessInfoStep() {
         <div>
           <Label htmlFor="phone">Restaurant phone</Label>
           <Input id="phone" className="mt-1.5" placeholder="(845) 555-0142" value={draft.phone} onChange={(e) => update({ phone: e.target.value })} />
+        </div>
+        <div>
+          <Label htmlFor="legalBusinessName">Legal business name <span className="text-text-faint">(optional)</span></Label>
+          <Input id="legalBusinessName" className="mt-1.5" placeholder="Riverside Pizza Co. LLC" value={draft.legalBusinessName} onChange={(e) => update({ legalBusinessName: e.target.value })} />
+        </div>
+        <div>
+          <Label htmlFor="ein">EIN <span className="text-text-faint">(optional)</span></Label>
+          <Input id="ein" className="mt-1.5" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="12-3456789" value={draft.ein} onChange={(e) => update({ ein: e.target.value })} />
+          <p className="mt-1.5 text-[12px] text-text-faint">Your federal tax ID, exactly as it appears on IRS paperwork. Carriers require it to approve text messages (order confirmations and payment links) from your number. It is never shown to customers.</p>
         </div>
         <div>
           <Label htmlFor="timezone">Timezone</Label>

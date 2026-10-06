@@ -17,6 +17,10 @@ export interface DbBusiness {
   address_zip: string | null;
   phone: string | null;
   website: string | null;
+  // Legal identity for carrier text-message registration (migration
+  // 027). ein is nine digits, no dash. Sensitive: never log it.
+  legal_business_name: string | null;
+  ein: string | null;
   timezone: string;
   onboarding_step: OnboardingStep;
   onboarding_completed_at: ISODateTime | null;

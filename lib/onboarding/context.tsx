@@ -42,6 +42,8 @@ export interface OnboardingDraft {
   addressZip: string;
   phone: string;
   website: string;
+  legalBusinessName: string;
+  ein: string;
   description: string;
   timezone: string;
 
@@ -90,6 +92,8 @@ const defaultDraft: OnboardingDraft = {
   addressZip: "",
   phone: "",
   website: "",
+  legalBusinessName: "",
+  ein: "",
   description: "",
   timezone: "America/New_York",
   hours: WEEKDAYS.map((weekday, i) => ({

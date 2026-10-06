@@ -24,6 +24,8 @@ export async function createBusinessDraftAction(input: {
   phone: string;
   description: string;
   timezone: string;
+  legalBusinessName?: string;
+  ein?: string;
 }): Promise<CreateBusinessDraftResult> {
   if (!isSupabaseConfigured()) return { success: true, demoMode: true };
 
@@ -39,6 +41,13 @@ export async function createBusinessDraftAction(input: {
   // lib/business/timezone.ts).
   if (input.timezone && !isValidTimezone(input.timezone)) {
     return { success: false, error: "That timezone isn't recognized — please pick one from the list." };
+  }
+
+  // Optional. Stored as nine digits only; anything else is rejected here
+  // rather than saved and later bounced by the carrier registration.
+  const einDigits = (input.ein || "").replace(/\D/g, "");
+  if (input.ein?.trim() && einDigits.length !== 9) {
+    return { success: false, error: "An EIN has 9 digits (for example 12-3456789). Leave it blank if you don't have one yet." };
   }
 
   const admin = createAdminClient();
@@ -69,6 +78,10 @@ export async function createBusinessDraftAction(input: {
     phone: input.phone || null,
     description: input.description || null,
     timezone: input.timezone || "America/New_York",
+    // Only written when filled in: the onboarding form can be revisited
+    // with an empty draft, and that must not erase an EIN already saved.
+    ...(input.legalBusinessName?.trim() ? { legal_business_name: input.legalBusinessName.trim() } : {}),
+    ...(einDigits ? { ein: einDigits } : {}),
   };
 
   if (existingBusinessId) {

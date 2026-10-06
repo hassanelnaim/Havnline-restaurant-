@@ -40,6 +40,8 @@ export const mockBusiness: DbBusiness = {
   address_zip: "48801",
   phone: "+15555550123",
   website: null,
+  legal_business_name: null,
+  ein: null,
   timezone: "America/New_York",
   onboarding_step: "complete",
   onboarding_completed_at: new Date().toISOString(),
