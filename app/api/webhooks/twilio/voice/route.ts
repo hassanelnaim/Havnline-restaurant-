@@ -5,6 +5,7 @@ import { startCall } from "@/lib/ai/receptionist";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
@@ -42,6 +43,29 @@ function isCallFlaggedAsSpam(addOnsRaw: string | undefined): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  try {
+    return await handleVoice(request);
+  } catch (err) {
+    // Answer with a real server error on purpose: Twilio then uses the
+    // number's fallback URL (voice-fallback), which tells the caller what
+    // happened and rings the restaurant. Without this catch the same thing
+    // would happen but nothing would record WHY it failed.
+    console.error("[twilio-voice] call handler crashed:", err);
+    await settleWithin(
+      sendPlatformAlert({
+        key: "voice-webhook-crashed",
+        subject: "HavnLine: the call handler crashed",
+        heading: "An incoming call could not be answered by the AI",
+        intro: "The main voice webhook threw an error while answering a call. The caller was sent to the fallback path. The detail below is the actual cause.",
+        rows: [{ label: "Error", value: (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 400) }],
+      }),
+      1500
+    );
+    return new Response("Voice handler error", { status: 500 });
+  }
+}
+
+async function handleVoice(request: NextRequest) {
   const formData = await request.formData();
   const params: Record<string, string> = {};
   formData.forEach((value, key) => (params[key] = String(value)));

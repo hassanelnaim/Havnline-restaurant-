@@ -161,6 +161,31 @@ function findMenuItem<T extends { name: string }>(menu: T[], rawName: string): T
   return partial.length === 1 ? partial[0] : undefined;
 }
 
+// Writes in this file used to ignore the database's error result, so a
+// failed write looked like a success and the AI told the caller their
+// change had happened. `must` turns a failed write into a thrown error
+// (the tool runner reports it to the AI, which tells the caller there was
+// a problem) for steps whose failure leaves the order wrong. `soft` is for
+// follow-up bookkeeping after the real work succeeded: failing it must
+// not undo or misreport the order, so it only logs. Everything after the
+// order has been claimed in confirm_and_place_order uses `soft`: throwing
+// there would leave a claimed order behind, and a retry would then be told
+// "already placed" for an order the customer was never charged for.
+async function must<T extends { error: { message: string } | null }>(label: string, op: PromiseLike<T>): Promise<T> {
+  const res = await op;
+  if (res.error) throw new Error(`Could not ${label}: ${res.error.message}`);
+  return res;
+}
+
+async function soft<T extends { error: { message: string } | null }>(label: string, op: PromiseLike<T>): Promise<void> {
+  try {
+    const res = await op;
+    if (res.error) console.error(`[tools] could not ${label}: ${res.error.message}`);
+  } catch (err) {
+    console.error(`[tools] could not ${label}:`, err);
+  }
+}
+
 async function recomputeOrderSubtotal(orderId: string): Promise<number> {
   const admin = createAdminClient();
   const { data: items, error: itemsError } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
@@ -249,11 +274,11 @@ async function add_item_to_order(
     if (candidate && candidate.quantity === 1 && !candidate.notes) {
       const { data: existingMods } = await admin.from("order_item_modifiers").select("id").eq("order_item_id", candidate.id).limit(1);
       if (!existingMods || existingMods.length === 0) {
-        if (input.notes) await admin.from("order_items").update({ notes: input.notes }).eq("id", candidate.id);
+        if (input.notes) await must("update order item", admin.from("order_items").update({ notes: input.notes }).eq("id", candidate.id));
         if (matchedModifiers.length > 0) {
-          await admin.from("order_item_modifiers").insert(
+          await must("add modifiers", admin.from("order_item_modifiers").insert(
             matchedModifiers.map((m) => ({ order_item_id: candidate.id, modifier_id: m.id, modifier_name: m.name, price_delta_cents: m.price_delta_cents }))
-          );
+          ));
         }
         const subtotal = await recomputeOrderSubtotal(orderId);
         return {
@@ -288,14 +313,14 @@ async function add_item_to_order(
   if (error || !orderItem) return { success: false, reason: error?.message || "Could not add item." };
 
   if (matchedModifiers.length > 0) {
-    await admin.from("order_item_modifiers").insert(
+    await must("add modifiers", admin.from("order_item_modifiers").insert(
       matchedModifiers.map((m) => ({
         order_item_id: orderItem.id,
         modifier_id: m.id,
         modifier_name: m.name,
         price_delta_cents: m.price_delta_cents,
       }))
-    );
+    ));
   }
 
   const subtotal = await recomputeOrderSubtotal(orderId);
@@ -333,9 +358,9 @@ async function update_item_quantity(input: { item_name: string; quantity: number
   if (newQuantity <= 0) {
     // Same end state as remove_item_from_order — "change it to 0" means
     // take it off the order entirely.
-    await admin.from("order_items").delete().eq("id", matches[0].id);
+    await must("remove order item", admin.from("order_items").delete().eq("id", matches[0].id));
   } else {
-    await admin.from("order_items").update({ quantity: newQuantity }).eq("id", matches[0].id);
+    await must("update order item", admin.from("order_items").update({ quantity: newQuantity }).eq("id", matches[0].id));
   }
 
   const subtotal = await recomputeOrderSubtotal(order.id);
@@ -369,8 +394,8 @@ async function update_item_modifiers(input: { item_name: string; modifier_names?
   const orderItemId = matches[0].id;
   const menuItem = ctx.context.menu.find((m) => m.id === matches[0].menu_item_id);
 
-  await admin.from("order_items").update({ notes: input.notes || null }).eq("id", orderItemId);
-  await admin.from("order_item_modifiers").delete().eq("order_item_id", orderItemId);
+  await must("update order item", admin.from("order_items").update({ notes: input.notes || null }).eq("id", orderItemId));
+  await must("clear modifiers", admin.from("order_item_modifiers").delete().eq("order_item_id", orderItemId));
 
   let matchedModifierNames: string[] = [];
   if (menuItem && input.modifier_names?.length) {
@@ -378,9 +403,9 @@ async function update_item_modifiers(input: { item_name: string; modifier_names?
     const allModifiers = menuItem.modifier_groups.flatMap((g) => g.modifiers);
     const matchedModifiers = allModifiers.filter((m) => requestedModifierNames.includes(normalizeForMatch(m.name)));
     if (matchedModifiers.length > 0) {
-      await admin.from("order_item_modifiers").insert(
+      await must("add modifiers", admin.from("order_item_modifiers").insert(
         matchedModifiers.map((m) => ({ order_item_id: orderItemId, modifier_id: m.id, modifier_name: m.name, price_delta_cents: m.price_delta_cents }))
-      );
+      ));
     }
     matchedModifierNames = matchedModifiers.map((m) => m.name);
   }
@@ -404,7 +429,7 @@ async function remove_item_from_order(input: { item_name: string }, ctx: ToolCon
 
   if (!matches || matches.length === 0) return { success: false, reason: `"${input.item_name}" isn't in the current order.` };
 
-  await admin.from("order_items").delete().eq("id", matches[0].id);
+  await must("remove order item", admin.from("order_items").delete().eq("id", matches[0].id));
   const subtotal = await recomputeOrderSubtotal(order.id);
   return { success: true, removed: input.item_name, running_subtotal: subtotal / 100 };
 }
@@ -505,7 +530,7 @@ async function confirm_and_place_order(
     return { success: true, order_id: order.id, already_placed: true };
   }
 
-  await admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId);
+  await soft("record call outcome", admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId));
 
   // Attempt to actually send this to the kitchen printer app. If this
   // fails (not paired, printer offline), the order still exists and
@@ -534,7 +559,7 @@ async function confirm_and_place_order(
   const totalCents = fullOrder.subtotal_cents + taxCents;
   fullOrder.tax_cents = taxCents;
   fullOrder.total_cents = totalCents;
-  await admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id);
+  await soft("save order tax", admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id));
 
   // Test channel: simulate a completed payment instead of touching
   // Stripe or texting a real phone number — this is the owner's own
@@ -546,13 +571,13 @@ async function confirm_and_place_order(
   // was texted so the preview sounds like a real call, even though
   // nothing was actually sent.
   if (ctx.channel === "test") {
-    await admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id);
+    await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
     if (business.printer_app_paired_at) {
       const queued = await queuePrintJob(fullOrder, business);
       if (queued.success) {
-        await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
+        await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
       } else {
-        await admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id);
+        await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
       }
     }
     return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true, test_mode: true };
@@ -564,13 +589,13 @@ async function confirm_and_place_order(
   // testing the printer on a real call without Stripe connected or
   // spending anything: price a menu item at $0 and call in.
   if (totalCents === 0) {
-    await admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id);
+    await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
     if (business.printer_app_paired_at) {
       const queued = await queuePrintJob(fullOrder, business);
       if (queued.success) {
-        await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id);
+        await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
       } else {
-        await admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id);
+        await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
       }
     }
     const smsBody = `Order confirmed at ${business.name}! Total: $0.00. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
@@ -617,10 +642,10 @@ async function confirm_and_place_order(
     return { success: false, reason: checkout.error || "Could not start payment for this order." };
   }
 
-  await admin
+  await soft("save checkout session", admin
     .from("orders")
     .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId })
-    .eq("id", order.id);
+    .eq("id", order.id));
 
   const paymentSmsBody = `${business.name}: your order total is $${(totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${checkout.url} (link expires in 30 min). Msg&data rates may apply.`;
   await smsClient.send(ctx.businessId, input.phone, paymentSmsBody);
@@ -630,7 +655,7 @@ async function confirm_and_place_order(
 
 async function escalate_to_human(input: { reason: string; summary: string }, ctx: ToolContext): Promise<ToolResult> {
   const admin = createAdminClient();
-  await admin.from("calls").update({ outcome: "escalated", escalation_reason: input.reason }).eq("id", ctx.callId);
+  await soft("record escalation", admin.from("calls").update({ outcome: "escalated", escalation_reason: input.reason }).eq("id", ctx.callId));
 
   // During open hours on a real phone call, ring the restaurant's main
   // phone so a person can pick up now. The escalation email is held

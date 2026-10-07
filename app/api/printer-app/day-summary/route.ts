@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -22,7 +23,7 @@ function bearerToken(request: NextRequest): string | null {
  * sales math (buildDailySummary) as that route and the website's End
  * of Day report.
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -54,3 +55,5 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ success: true, summary: buildDailySummary(dateKey, orders || []) });
 }
+
+export const GET = guardRoute("printer-app/day-summary GET", handleGET);

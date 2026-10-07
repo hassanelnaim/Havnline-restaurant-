@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -37,7 +38,7 @@ function bearerToken(request: NextRequest): string | null {
  * See ./[id]/refund/route.ts for the PIN-gated refund/discount action
  * on one of these orders (Phase 3).
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -87,3 +88,5 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ success: true, orders: result, summary: buildDailySummary(todayKey, orders) });
 }
+
+export const GET = guardRoute("printer-app/today-orders GET", handleGET);

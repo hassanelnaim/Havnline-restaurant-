@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { claimPairingCode } from "@/lib/integrations/printer-app";
 import { checkRateLimit, getClientIp } from "@/lib/security/rateLimit";
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
  * the IP one stops any single source from grinding through guesses,
  * the global one bounds a distributed attempt spread across many IPs.
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const ip = getClientIp();
   const [ipOk, globalOk] = await Promise.all([
     checkRateLimit(`printer_pair_ip:${ip}`, 10, 15),
@@ -40,3 +41,5 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json(result);
 }
+
+export const POST = guardRoute("printer-app/pair POST", handlePOST);

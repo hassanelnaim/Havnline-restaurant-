@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateDevice, setPrinterIp } from "@/lib/integrations/printer-app";
 
@@ -17,7 +18,7 @@ function bearerToken(request: NextRequest): string | null {
  * know where to send bytes on its own network, not menu or ticket
  * logic.
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -28,3 +29,5 @@ export async function POST(request: NextRequest) {
   await setPrinterIp(device.businessId, printerIp);
   return NextResponse.json({ success: true });
 }
+
+export const POST = guardRoute("printer-app/printer-ip POST", handlePOST);

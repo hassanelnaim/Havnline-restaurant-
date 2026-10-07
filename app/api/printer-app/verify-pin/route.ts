@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { verifyMoneyPin } from "@/lib/security/moneyPin";
@@ -34,7 +35,7 @@ function bearerToken(request: NextRequest): string | null {
  * doing several real refunds in a shift won't hit it, while a script
  * guessing blind still needs days to exhaust all 10,000 combinations.
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -59,3 +60,5 @@ export async function POST(request: NextRequest) {
   const { token, expiresAt } = signMoneyActionToken({ businessId: device.businessId, deviceId: device.deviceId });
   return NextResponse.json({ success: true, token, expiresAt });
 }
+
+export const POST = guardRoute("printer-app/verify-pin POST", handlePOST);

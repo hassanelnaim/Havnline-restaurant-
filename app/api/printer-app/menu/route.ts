@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { loadPricedMenu } from "@/lib/menu/pricedMenu";
@@ -26,10 +27,12 @@ function bearerToken(request: NextRequest): string | null {
  * price a request server-side rather than trusting whatever price the
  * tablet last synced.
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
   const { menu } = await loadPricedMenu(device.businessId);
   return NextResponse.json({ success: true, menu });
 }
+
+export const GET = guardRoute("printer-app/menu GET", handleGET);

@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -19,7 +20,7 @@ function bearerToken(request: NextRequest): string | null {
  * a real failure ("printer offline") instead of an order silently
  * never showing up in the kitchen with no explanation anywhere.
  */
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(request: NextRequest, { params }: { params: { id: string } }) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -40,3 +41,5 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   return NextResponse.json({ success: true });
 }
+
+export const POST = guardRoute("printer-app/orders/[id] POST", handlePOST);

@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -33,7 +34,7 @@ function bearerToken(request: NextRequest): string | null {
  * (app/api/printer-app/verify-pin/route.ts) — unlike every read-only
  * printer-app route, device auth alone is not enough here.
  */
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(request: NextRequest, { params }: { params: { id: string } }) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -72,3 +73,5 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   return NextResponse.json(result);
 }
+
+export const POST = guardRoute("printer-app/today-orders/[id]/refund POST", handlePOST);

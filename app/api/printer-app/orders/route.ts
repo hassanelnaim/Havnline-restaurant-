@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -35,7 +36,7 @@ const CLAIM_TIMEOUT_MS = 20_000;
  * select followed by a separate update, so two overlapping requests
  * can't both claim the same job.
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -55,3 +56,5 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ success: true, jobs: jobs || [] });
 }
+
+export const GET = guardRoute("printer-app/orders GET", handleGET);

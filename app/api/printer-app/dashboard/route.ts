@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -38,7 +39,7 @@ const DASHBOARD_DAYS = 2;
  * original order are rare enough on a same-day kitchen tablet that
  * this is a reasonable trade, not a silent inaccuracy worth hiding.
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -76,3 +77,5 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ success: true, days });
 }
+
+export const GET = guardRoute("printer-app/dashboard GET", handleGET);

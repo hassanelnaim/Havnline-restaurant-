@@ -1,3 +1,4 @@
+import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
@@ -24,7 +25,7 @@ function bearerToken(request: NextRequest): string | null {
  * Trimmed response on purpose, matching GET today-orders — no Stripe
  * session/payment-intent ids reach the device.
  */
-export async function GET(request: NextRequest, { params }: { params: { id: string; chargeId: string } }) {
+async function handleGET(request: NextRequest, { params }: { params: { id: string; chargeId: string } }) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
@@ -42,3 +43,5 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
   return NextResponse.json({ success: true, status: charge.status, amountCents: charge.amount_cents });
 }
+
+export const GET = guardRoute("printer-app/today-orders/[id]/addendum-charges/[chargeId] GET", handleGET);
