@@ -188,5 +188,15 @@ export async function findInProgressCallId(businessId: string, callerNumber: str
 
 export async function endCall(callId: string, durationSeconds: number): Promise<void> {
   const admin = createAdminClient();
-  await admin.from("calls").update({ status: "completed", duration_seconds: durationSeconds }).eq("id", callId);
+  // One retry: a call left "in_progress" forever never shows a duration
+  // or sends its end-of-call email, and Twilio does not resend this
+  // callback if our server answered with an error.
+  let lastError: { message: string } | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await admin.from("calls").update({ status: "completed", duration_seconds: durationSeconds }).eq("id", callId);
+    if (!error) return;
+    lastError = error;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error(`Could not mark call ${callId} completed: ${lastError?.message}`);
 }

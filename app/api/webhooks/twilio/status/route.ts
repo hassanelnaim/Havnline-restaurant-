@@ -5,7 +5,7 @@ import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProv
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { sendCallNotificationEmail } from "@/lib/notifications/call-email";
 import { reportCallErrors } from "@/lib/monitoring/callErrorReport";
-import { settleWithin } from "@/lib/monitoring/platformAlert";
+import { settleWithin, sendPlatformAlert } from "@/lib/monitoring/platformAlert";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +46,23 @@ export async function POST(request: NextRequest) {
   }
 
   if (callId && TERMINAL_STATUSES.includes(callStatus)) {
-    await endCall(callId, duration);
+    // Each step below is independent: a failure closing the call must
+    // not also skip the end-of-call email and the Twilio error report.
+    try {
+      await endCall(callId, duration);
+    } catch (err) {
+      console.error("[twilio-status] endCall failed:", err);
+      await settleWithin(
+        sendPlatformAlert({
+          key: "call-not-closed",
+          subject: "HavnLine: a finished call could not be saved",
+          heading: "A call was not marked completed",
+          intro: "A call ended but HavnLine could not record that in the database after two tries. It will keep showing as in progress with no duration. This is usually a database problem.",
+          rows: [{ label: "Detail", value: (err instanceof Error ? err.message : String(err)).slice(0, 300) }],
+        }),
+        1500
+      );
+    }
 
     // sendCallNotificationEmail no-ops on its own if the business hasn't
     // turned call notifications on. Awaited (briefly) rather than fired

@@ -163,14 +163,21 @@ function findMenuItem<T extends { name: string }>(menu: T[], rawName: string): T
 
 async function recomputeOrderSubtotal(orderId: string): Promise<number> {
   const admin = createAdminClient();
-  const { data: items } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
+  const { data: items, error: itemsError } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
+  // A failed read must never be treated as "no items": that would write a
+  // $0 subtotal, and a $0 order is treated as free (no payment, straight
+  // to the kitchen). Throw instead; the tool runner turns it into an
+  // error the AI can report, and the stored subtotal is left untouched.
+  if (itemsError) throw new Error(`Could not read the order's items: ${itemsError.message}`);
   let subtotal = 0;
   for (const item of items || []) {
-    const { data: mods } = await admin.from("order_item_modifiers").select("price_delta_cents").eq("order_item_id", item.id);
+    const { data: mods, error: modsError } = await admin.from("order_item_modifiers").select("price_delta_cents").eq("order_item_id", item.id);
+    if (modsError) throw new Error(`Could not read an item's modifiers: ${modsError.message}`);
     const modTotal = (mods || []).reduce((sum, m) => sum + m.price_delta_cents, 0);
     subtotal += (item.unit_price_cents + modTotal) * item.quantity;
   }
-  await admin.from("orders").update({ subtotal_cents: subtotal, total_cents: subtotal }).eq("id", orderId);
+  const { error: updateError } = await admin.from("orders").update({ subtotal_cents: subtotal, total_cents: subtotal }).eq("id", orderId);
+  if (updateError) throw new Error(`Could not save the order total: ${updateError.message}`);
   return subtotal;
 }
 
@@ -443,7 +450,10 @@ async function confirm_and_place_order(
   // always a $0 total regardless of tax, so this doesn't need an
   // actual Stripe Tax call — just the subtotal.)
   const business = ctx.context.business;
-  const preClaimSubtotal = order.subtotal_cents || 0;
+  // Recomputed from the actual items rather than trusting the stored
+  // number: whether an order is "free" decides if payment is skipped, so
+  // that decision must not rest on a value that could be stale or wrong.
+  const preClaimSubtotal = await recomputeOrderSubtotal(order.id);
   const isFreeOrder = preClaimSubtotal === 0;
 
   // Phone payments (Stripe Connect) are mandatory for every REAL phone

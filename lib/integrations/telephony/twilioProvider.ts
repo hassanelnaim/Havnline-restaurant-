@@ -128,6 +128,9 @@ export async function provisionNumber(
       phoneNumber: available[0].phoneNumber,
       voiceUrl: `${siteUrl}/api/webhooks/twilio/voice`,
       voiceMethod: "POST",
+      // Used by Twilio when the URL above fails (see voice-fallback route).
+      voiceFallbackUrl: `${siteUrl}/api/webhooks/twilio/voice-fallback`,
+      voiceFallbackMethod: "POST",
       statusCallback: `${siteUrl}/api/webhooks/twilio/status`,
       statusCallbackMethod: "POST",
     });
@@ -138,6 +141,32 @@ export async function provisionNumber(
     return { success: true, phoneNumber: purchased.phoneNumber };
   } catch (err) {
     console.error("Twilio number provisioning failed:", err);
+    return { success: false, reason: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+/**
+ * Points an EXISTING number at the voice fallback URL. New numbers get it
+ * from provisionNumber; this brings numbers bought earlier up to date.
+ * Safe to run repeatedly.
+ */
+export async function setVoiceFallback(
+  subAccountCreds: TwilioCredentials,
+  phoneNumber: string
+): Promise<{ success: boolean; reason?: string }> {
+  const client = getClient(subAccountCreds);
+  if (!client) return { success: false, reason: "Twilio is not configured." };
+  if (!process.env.NEXT_PUBLIC_SITE_URL) return { success: false, reason: "NEXT_PUBLIC_SITE_URL is not set." };
+  const siteUrl = getSiteUrl();
+  try {
+    const numbers = await client.incomingPhoneNumbers.list({ phoneNumber, limit: 1 });
+    if (numbers.length === 0) return { success: false, reason: "Number not found on this sub-account." };
+    await numbers[0].update({
+      voiceFallbackUrl: `${siteUrl}/api/webhooks/twilio/voice-fallback`,
+      voiceFallbackMethod: "POST",
+    });
+    return { success: true };
+  } catch (err) {
     return { success: false, reason: err instanceof Error ? err.message : "Unknown error" };
   }
 }

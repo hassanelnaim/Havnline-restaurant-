@@ -20,6 +20,17 @@ export const dynamic = "force-dynamic";
  * dashboard to follow up on.
  */
 export async function POST(request: NextRequest) {
+  try {
+    return await handle(request);
+  } catch (err) {
+    // Never answer Twilio with a non-TwiML error: the caller would hear
+    // an application error. Close politely instead.
+    console.error("dial-status failed:", err);
+    return twiml(`<Response><Say>Sorry, no one is available right now. Please call back later. Goodbye.</Say><Hangup/></Response>`);
+  }
+}
+
+async function handle(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
   if (!callId) return new NextResponse("Missing callId", { status: 400 });
 
