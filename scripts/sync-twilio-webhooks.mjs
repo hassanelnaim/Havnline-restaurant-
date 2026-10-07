@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * Points every connected business's EXISTING Twilio number at the voice
- * fallback URL (Twilio uses it when the main voice webhook fails). New
- * numbers get this automatically; this updates the ones bought earlier.
+ * Points every connected business's EXISTING Twilio number at the CURRENT
+ * site URL (NEXT_PUBLIC_SITE_URL) for all three call webhooks: the voice
+ * URL, the status callback, and the voice fallback (used when the main
+ * voice webhook fails). New numbers get these automatically; this brings
+ * numbers bought earlier up to date, e.g. after moving to a new domain.
  * Safe to run more than once.
  *
  * Usage (repo root, real values in .env.local):
- *   node --env-file=.env.local scripts/set-voice-fallback.mjs          # dry run, changes nothing
- *   node --env-file=.env.local scripts/set-voice-fallback.mjs --apply  # make the change
+ *   node --env-file=.env.local scripts/sync-twilio-webhooks.mjs          # dry run, changes nothing
+ *   node --env-file=.env.local scripts/sync-twilio-webhooks.mjs --apply  # make the change
  *
  * Needs NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and
  * NEXT_PUBLIC_SITE_URL. Auth tokens are read from the database and used
@@ -22,14 +24,18 @@ if (!SUPABASE_URL || !SERVICE_KEY || !SITE_URL) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SITE_URL.");
   process.exit(1);
 }
-const FALLBACK = `${SITE_URL}/api/webhooks/twilio/voice-fallback`;
+const WANT = {
+  voice_url: `${SITE_URL}/api/webhooks/twilio/voice`,
+  status_callback: `${SITE_URL}/api/webhooks/twilio/status`,
+  voice_fallback_url: `${SITE_URL}/api/webhooks/twilio/voice-fallback`,
+};
 
 const res = await fetch(`${SUPABASE_URL}/rest/v1/integrations?select=business_id,metadata&provider=eq.twilio&status=eq.connected`, {
   headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
 });
 if (!res.ok) { console.error("Could not read integrations:", res.status); process.exit(1); }
 const rows = await res.json();
-console.log(`${rows.length} connected number(s). Fallback URL: ${FALLBACK}\n${apply ? "APPLYING" : "DRY RUN (add --apply to change)"}\n`);
+console.log(`${rows.length} connected number(s). Site URL: ${SITE_URL}\n${apply ? "APPLYING" : "DRY RUN (add --apply to change)"}\n`);
 
 let ok = 0, failed = 0;
 for (const row of rows) {
@@ -43,12 +49,17 @@ for (const row of rows) {
     const body = await list.json();
     const pn = body.incoming_phone_numbers?.[0];
     if (!list.ok || !pn) { console.log(`- ${number}: not found on Twilio (${list.status})`); failed++; continue; }
-    if (pn.voice_fallback_url === FALLBACK) { console.log(`- ${number}: already set`); ok++; continue; }
-    if (!apply) { console.log(`- ${number}: would set (currently ${pn.voice_fallback_url || "none"})`); continue; }
+    const diffs = Object.keys(WANT).filter((k) => pn[k] !== WANT[k]);
+    if (diffs.length === 0) { console.log(`- ${number}: already up to date`); ok++; continue; }
+    if (!apply) { console.log(`- ${number}: would update ${diffs.join(", ")}\n    voice_url now: ${pn.voice_url || "none"}`); continue; }
     const upd = await fetch(`${base}/${pn.sid}.json`, {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ VoiceFallbackUrl: FALLBACK, VoiceFallbackMethod: "POST" }),
+      body: new URLSearchParams({
+        VoiceUrl: WANT.voice_url, VoiceMethod: "POST",
+        StatusCallback: WANT.status_callback, StatusCallbackMethod: "POST",
+        VoiceFallbackUrl: WANT.voice_fallback_url, VoiceFallbackMethod: "POST",
+      }),
     });
     if (upd.ok) { console.log(`- ${number}: set`); ok++; } else { console.log(`- ${number}: FAILED (${upd.status})`); failed++; }
   } catch (err) {
