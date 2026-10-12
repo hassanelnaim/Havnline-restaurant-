@@ -14,8 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { DayPicker } from "@/components/dashboard/day-picker";
+import { describeSchedule, describeDiscount } from "@/lib/business/pricing";
 
-export function KnowledgeClient({ initialItems, initialPromotions }: { initialItems: DbKnowledgeItem[]; initialPromotions: DbPromotion[] }) {
+export function KnowledgeClient({ initialItems, initialPromotions, menuOptions }: { initialItems: DbKnowledgeItem[]; initialPromotions: DbPromotion[]; menuOptions: { id: string; name: string }[] }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [, startTransition] = useTransition();
@@ -117,13 +119,35 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
   const [promoAppliesTo, setPromoAppliesTo] = useState("");
   const [promoStart, setPromoStart] = useState("");
   const [promoEnd, setPromoEnd] = useState("");
+  const [promoDays, setPromoDays] = useState<number[]>([]);
+  const [promoStartTime, setPromoStartTime] = useState("");
+  const [promoEndTime, setPromoEndTime] = useState("");
+  const [promoDiscountType, setPromoDiscountType] = useState<"none" | "percent" | "amount">("none");
+  const [promoDiscountValue, setPromoDiscountValue] = useState("");
+  const [promoItemIds, setPromoItemIds] = useState<string[]>([]);
+  const [promoError, setPromoError] = useState<string | null>(null);
 
   useEffect(() => { setPromotions(initialPromotions); }, [initialPromotions]);
 
   function addPromo() {
+    setPromoError(null);
     startTransition(async () => {
-      await addPromotionAction({ title: promoTitle, description: promoDescription, appliesTo: promoAppliesTo, startDate: promoStart, endDate: promoEnd });
+      const result = await addPromotionAction({
+        title: promoTitle,
+        description: promoDescription,
+        appliesTo: promoAppliesTo,
+        startDate: promoStart,
+        endDate: promoEnd,
+        days: promoDays,
+        startTime: promoStartTime,
+        endTime: promoEndTime,
+        discountType: promoDiscountType,
+        discountValue: promoDiscountValue,
+        menuItemIds: promoItemIds,
+      });
+      if (!result.success) { setPromoError(result.error || "Could not add that promotion."); return; }
       setPromoTitle(""); setPromoDescription(""); setPromoAppliesTo(""); setPromoStart(""); setPromoEnd("");
+      setPromoDays([]); setPromoStartTime(""); setPromoEndTime(""); setPromoDiscountType("none"); setPromoDiscountValue(""); setPromoItemIds([]);
       router.refresh();
     });
   }
@@ -189,34 +213,99 @@ export function KnowledgeClient({ initialItems, initialPromotions }: { initialIt
 
       <TabsContent value="promotions">
         <p className="mb-4 text-[12.5px] text-text-muted">
-          A promotion here runs for full calendar days (start date to end date), and is just something your AI can mention. For a special that's only available during part of the day — like a breakfast item priced differently from 7-11am — that's a time-based price on the item itself, set on the <Link href="/dashboard/menu" className="font-medium text-brand hover:underline">Menu</Link> page.
+          A promotion runs between its start and end dates, on the days and hours you choose, and can take money off automatically: your AI quotes the discounted price and the order is charged at it. Leave the discount off and it&apos;s just something your AI can mention. To change an item&apos;s own price on certain days or hours (like a breakfast price), use the item&apos;s time-based price on the <Link href="/dashboard/menu" className="font-medium text-brand hover:underline">Menu</Link> page.
         </p>
         <Card className="mb-4">
           <CardHeader><CardTitle>Add a promotion</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div><Label>Title</Label><Input className="mt-1.5" value={promoTitle} onChange={(e) => setPromoTitle(e.target.value)} /></div>
-              <div><Label>Applies to</Label><Input className="mt-1.5" value={promoAppliesTo} onChange={(e) => setPromoAppliesTo(e.target.value)} /></div>
-              <div className="sm:col-span-2"><Label>Description</Label><Input className="mt-1.5" value={promoDescription} onChange={(e) => setPromoDescription(e.target.value)} /></div>
+              <div><Label>Title</Label><Input className="mt-1.5" value={promoTitle} onChange={(e) => setPromoTitle(e.target.value)} placeholder="Taco Tuesday" /></div>
+              <div><Label>Applies to (shown to the AI)</Label><Input className="mt-1.5" value={promoAppliesTo} onChange={(e) => setPromoAppliesTo(e.target.value)} placeholder="All tacos" /></div>
+              <div className="sm:col-span-2"><Label>Description</Label><Input className="mt-1.5" value={promoDescription} onChange={(e) => setPromoDescription(e.target.value)} placeholder="20% off every taco, all day Tuesday" /></div>
               <div><Label>Start date</Label><Input type="date" className="mt-1.5" value={promoStart} onChange={(e) => setPromoStart(e.target.value)} /></div>
               <div><Label>End date</Label><Input type="date" className="mt-1.5" value={promoEnd} onChange={(e) => setPromoEnd(e.target.value)} /></div>
             </div>
-            <Button variant="brand" size="sm" onClick={addPromo} disabled={!promoTitle.trim()}><Plus className="h-3.5 w-3.5" /> Add promotion</Button>
+
+            <div>
+              <Label>Days it runs</Label>
+              <div className="mt-1.5"><DayPicker value={promoDays} onChange={setPromoDays} /></div>
+              <p className="mt-1 text-[11px] text-text-faint">{promoDays.length === 0 ? "No days picked: it runs every day." : describeSchedule({ days: promoDays })}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><Label>From (optional)</Label><Input type="time" className="mt-1.5" value={promoStartTime} onChange={(e) => setPromoStartTime(e.target.value)} /></div>
+              <div><Label>Until (optional)</Label><Input type="time" className="mt-1.5" value={promoEndTime} onChange={(e) => setPromoEndTime(e.target.value)} /></div>
+              <p className="text-[11px] text-text-faint sm:col-span-2">Leave both times blank for all day. Times use your restaurant&apos;s timezone.</p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Discount</Label>
+                <select
+                  className="mt-1.5 h-10 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text"
+                  value={promoDiscountType}
+                  onChange={(e) => setPromoDiscountType(e.target.value as "none" | "percent" | "amount")}
+                >
+                  <option value="none">No discount (just mention it)</option>
+                  <option value="percent">Percent off</option>
+                  <option value="amount">Dollars off each item</option>
+                </select>
+              </div>
+              {promoDiscountType !== "none" && (
+                <div>
+                  <Label>{promoDiscountType === "percent" ? "Percent off" : "Dollars off each item"}</Label>
+                  <Input className="mt-1.5" inputMode="decimal" value={promoDiscountValue} onChange={(e) => setPromoDiscountValue(e.target.value)} placeholder={promoDiscountType === "percent" ? "20" : "2.00"} />
+                </div>
+              )}
+            </div>
+            {promoDiscountType !== "none" && (
+              <div>
+                <Label>Which items</Label>
+                <p className="mt-0.5 text-[11px] text-text-faint">{promoItemIds.length === 0 ? "No items picked: it applies to every item on the menu." : `${promoItemIds.length} item${promoItemIds.length === 1 ? "" : "s"} picked.`}</p>
+                <div className="mt-1.5 max-h-40 overflow-y-auto rounded-lg border border-border p-2">
+                  {menuOptions.length === 0 ? (
+                    <p className="text-[12px] text-text-faint">Add menu items first.</p>
+                  ) : (
+                    menuOptions.map((m) => (
+                      <label key={m.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-paper">
+                        <input
+                          type="checkbox"
+                          checked={promoItemIds.includes(m.id)}
+                          onChange={(e) => setPromoItemIds((prev) => (e.target.checked ? [...prev, m.id] : prev.filter((x) => x !== m.id)))}
+                        />
+                        {m.name}
+                      </label>
+                    ))
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-text-faint">Applies to the item&apos;s price, not add-ons. If more than one promotion fits an item, the lowest price wins; they don&apos;t stack.</p>
+              </div>
+            )}
+
+            {promoError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{promoError}</div>}
+            <Button variant="brand" size="sm" onClick={addPromo} disabled={!promoTitle.trim() || !promoStart || !promoEnd}><Plus className="h-3.5 w-3.5" /> Add promotion</Button>
           </CardContent>
         </Card>
         {promotions.length === 0 ? (
-          <EmptyState icon={Percent} title="No promotions" description="Add one above so your AI can mention it." />
+          <EmptyState icon={Percent} title="No promotions" description="Add one above so your AI can offer it." />
         ) : (
           <div className="space-y-2.5">
-            {promotions.map((p) => (
-              <Card key={p.id}><CardContent className="flex items-center justify-between gap-4 p-4">
-                <div><div className="text-[13.5px] font-medium text-text">{p.title}</div><div className="text-[12px] text-text-muted">{p.description} · {p.start_date} to {p.end_date}</div></div>
-                <div className="flex items-center gap-3">
-                  <Switch checked={p.is_active} onCheckedChange={(checked) => togglePromo(p.id, checked)} />
-                  <button onClick={() => removePromo(p.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
-                </div>
-              </CardContent></Card>
-            ))}
+            {promotions.map((p) => {
+              const discount = describeDiscount(p);
+              const schedule = describeSchedule({ days: p.days_of_week, start: p.start_time, end: p.end_time });
+              return (
+                <Card key={p.id}><CardContent className="flex items-center justify-between gap-4 p-4">
+                  <div>
+                    <div className="text-[13.5px] font-medium text-text">{p.title}{discount && <span className="ml-2 rounded-md bg-brand-soft px-1.5 py-0.5 text-[11px] font-semibold text-brand-dark">{discount}</span>}</div>
+                    <div className="text-[12px] text-text-muted">{p.description}</div>
+                    <div className="text-[12px] text-text-faint">{p.start_date} to {p.end_date} · {schedule}{p.menu_item_ids && p.menu_item_ids.length > 0 ? ` · ${p.menu_item_ids.length} item${p.menu_item_ids.length === 1 ? "" : "s"}` : discount ? " · all items" : ""}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch checked={p.is_active} onCheckedChange={(checked) => togglePromo(p.id, checked)} />
+                    <button onClick={() => removePromo(p.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                </CardContent></Card>
+              );
+            })}
           </div>
         )}
       </TabsContent>

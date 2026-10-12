@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { extractMenuItemsFromImage, extractMenuItemsFromText, fetchWebsiteText } from "@/lib/ai/websiteImport";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { dbErrorResult } from "@/lib/errors";
+import { normaliseSchedule } from "@/lib/business/promotionInput";
 
 // NOTE: rendering a JS-heavy page (with a stealth-proxy retry if the
 // first attempt is blocked) can take 20-40+ seconds — well past
@@ -84,17 +85,19 @@ export async function updateMenuItemAction(itemId: string, input: MenuItemInput)
 
 export interface TimePricingInput {
   specialPrice: string; // dollars, e.g. "9.99" — empty/invalid clears time pricing
-  startTime: string; // "HH:MM", 24h
+  startTime: string; // "HH:MM", 24h; blank (with days set) = all day
   endTime: string; // "HH:MM", 24h
+  /** 0=Sunday..6=Saturday. Omit to leave the item's days untouched; [] = every day. */
+  days?: number[];
 }
 
 /**
- * Sets or clears an item's time-based price (e.g. a Breakfast Special
- * that's $9.99 from 7:00-11:00am and price_cents the rest of the day).
- * All three fields are required together — passing an empty
- * specialPrice (or missing either time) clears time pricing entirely,
- * so the item just goes back to always using price_cents, same as any
- * item that never had this set.
+ * Sets or clears an item's special price (e.g. a Breakfast Special that's
+ * $9.99 from 7:00-11:00am, or Taco Tuesday at $5 all day Tuesday); the
+ * item's regular price_cents applies the rest of the time. A special needs
+ * a price plus a time window, days of the week, or both. Passing an empty
+ * specialPrice clears it entirely, so the item goes back to always using
+ * price_cents.
  */
 export async function updateMenuItemTimePricingAction(itemId: string, input: TimePricingInput): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
@@ -102,14 +105,28 @@ export async function updateMenuItemTimePricingAction(itemId: string, input: Tim
   const admin = createAdminClient();
 
   const specialPriceCents = input.specialPrice.trim() ? Math.round(parseFloat(input.specialPrice) * 100) : null;
-  const hasWindow = specialPriceCents != null && Number.isFinite(specialPriceCents) && input.startTime && input.endTime;
+  const wantsSpecial = specialPriceCents != null;
+  if (wantsSpecial && (!Number.isFinite(specialPriceCents) || specialPriceCents < 0)) {
+    return { success: false, error: "Enter the special price as a dollar amount, like 9.99." };
+  }
+
+  let schedule: { days: number[] | null; start: string | null; end: string | null } = { days: null, start: null, end: null };
+  if (wantsSpecial) {
+    const result = normaliseSchedule({ days: input.days || [], startTime: input.startTime, endTime: input.endTime });
+    if (!result.ok) return { success: false, error: result.error };
+    if (!result.start && !result.days) {
+      return { success: false, error: "Pick the days it applies, set a time window, or both." };
+    }
+    schedule = result;
+  }
 
   const { error } = await admin
     .from("menu_items")
     .update({
-      special_price_cents: hasWindow ? specialPriceCents : null,
-      special_price_start_time: hasWindow ? input.startTime : null,
-      special_price_end_time: hasWindow ? input.endTime : null,
+      special_price_cents: wantsSpecial ? specialPriceCents : null,
+      special_price_start_time: wantsSpecial ? schedule.start : null,
+      special_price_end_time: wantsSpecial ? schedule.end : null,
+      ...(input.days !== undefined ? { special_price_days: wantsSpecial ? schedule.days : null } : {}),
     })
     .eq("id", itemId)
     .eq("business_id", businessId);

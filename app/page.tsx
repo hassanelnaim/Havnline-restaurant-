@@ -339,6 +339,8 @@ export default async function LandingPage() {
               <div className="flex items-baseline justify-center gap-1.5">
                 <span className="font-display text-[38px] font-semibold text-ink">{MONTHLY_PRICE_DISPLAY}</span>
                 <span className="text-[13px] text-text-muted">/month</span>
+                <span className="ml-1 font-display text-[22px] font-semibold text-brand-dark">+ {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY}</span>
+                <span className="text-[13px] text-text-muted">per paid order</span>
               </div>
               <p className="mt-1 text-[12px] text-text-muted">7 days free, then billed monthly. Cancel anytime.</p>
               <ul className="mx-auto mt-5 inline-block space-y-2 text-left">
@@ -349,7 +351,7 @@ export default async function LandingPage() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 text-[11.5px] text-text-faint">Plus a {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} fee on each paid phone order, deducted automatically — no separate bill for it.</p>
+              <p className="mt-4 text-[11.5px] text-text-faint">The {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} fee applies to each paid phone order once your free trial ends. It's deducted automatically — no separate bill for it.</p>
               <Button variant="brand" size="lg" className="mt-6 w-full" asChild>
                 <Link href="/signup">Start your free trial <ArrowRight className="h-4 w-4" /></Link>
               </Button>

@@ -49,7 +49,7 @@ export function BillingClient({ business }: { business: DbBusiness }) {
       <CardContent className="space-y-4">
         <div className="flex items-center gap-2"><Badge variant={status.variant}>{status.label}</Badge></div>
         <p className="text-[13.5px] text-text-muted">{status.description}</p>
-        <p className="text-[12px] text-text-faint">{MONTHLY_PRICE_DISPLAY}/month, plus a {feePercentDisplay} fee on each paid phone order.</p>
+        <p className="text-[12px] text-text-faint">{MONTHLY_PRICE_DISPLAY}/month, plus a {feePercentDisplay} fee on each paid phone order{business.subscription_status === "trialing" ? " (no fee during your free trial)" : ""}.</p>
         {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
         <div className="flex gap-3 pt-2">
           {hasSubscription ? (

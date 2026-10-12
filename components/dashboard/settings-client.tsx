@@ -29,6 +29,7 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
   const [addressState, setAddressState] = useState(business.address_state || "");
   const [addressZip, setAddressZip] = useState(business.address_zip || "");
   const [phone, setPhone] = useState(business.phone || "");
+  const [escalationPhone, setEscalationPhone] = useState(business.escalation_phone || "");
   const [notifyCalls, setNotifyCalls] = useState(business.notification_preferences?.calls ?? false);
   const [notifyEscalations, setNotifyEscalations] = useState(business.notification_preferences?.escalations ?? true);
   const [notifyDigest, setNotifyDigest] = useState(business.notification_preferences?.digest ?? false);
@@ -71,7 +72,7 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
   function handleSaveProfile() {
     setError(null);
     startTransition(async () => {
-      const result = await updateBusinessProfileAction({ name, description, address, addressCity, addressState, addressZip, phone, businessType });
+      const result = await updateBusinessProfileAction({ name, description, address, addressCity, addressState, addressZip, phone, businessType, ...(escalationPhone.trim() !== (business.escalation_phone || "") ? { escalationPhone } : {}) });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
@@ -170,7 +171,8 @@ export function SettingsClient({ business, profile, hours, moneyPinSet }: { busi
               <div><Label>ZIP</Label><Input className="mt-1.5" value={addressZip} onChange={(e) => setAddressZip(e.target.value)} /></div>
             </div>
             <p className="text-[11px] text-text-faint">City, state and ZIP are used to calculate real sales tax on every order below — they need to be your restaurant's actual location, not just a display address.</p>
-            <div><Label>Phone (used for call transfers)</Label><Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} /><p className="mt-1 text-[11px] text-text-faint">Your HavnLine number and forwarding are managed in Integrations.</p></div>
+            <div><Label>Main phone</Label><Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} /><p className="mt-1 text-[11px] text-text-faint">Your HavnLine number and forwarding are managed in Integrations.</p></div>
+            <div><Label>Escalation phone (optional)</Label><Input className="mt-1.5" value={escalationPhone} onChange={(e) => setEscalationPhone(e.target.value)} placeholder="Leave blank to use your main phone" /><p className="mt-1 text-[11px] text-text-faint">When your AI needs a person during open hours, it rings this number. If you set one, your main phone is not called for escalations. Leave it blank to use your main phone.</p></div>
             {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
             <div className="flex items-center gap-3">
               <Button variant="brand" size="sm" onClick={handleSaveProfile} disabled={isPending}>{isPending ? "Saving…" : "Save changes"}</Button>

@@ -8,6 +8,7 @@ import { fetchWebsiteText, extractKnowledgeFromText } from "@/lib/ai/websiteImpo
 import type { ActionResult } from "./business";
 import type { KnowledgeCategory } from "@/lib/database/types";
 import { dbErrorResult } from "@/lib/errors";
+import { normaliseSchedule, normaliseDiscount } from "@/lib/business/promotionInput";
 
 // NOTE: see app/actions/menu.ts — the maxDuration route config for
 // slow renders lives on app/dashboard/knowledge/page.tsx instead,
@@ -163,7 +164,25 @@ export async function importPastedKnowledgeAction(rawText: string): Promise<Impo
   return { success: true, itemsAdded: items.length };
 }
 
-export async function addPromotionAction(input: { title: string; description: string; appliesTo: string; startDate: string; endDate: string }): Promise<ActionResult> {
+export interface AddPromotionInput {
+  title: string;
+  description: string;
+  appliesTo: string;
+  startDate: string;
+  endDate: string;
+  /** 0=Sunday..6=Saturday; empty = every day. */
+  days?: number[];
+  /** "HH:MM"; both or neither. */
+  startTime?: string;
+  endTime?: string;
+  discountType?: "none" | "percent" | "amount";
+  /** Percent as a whole number, or dollars (e.g. "2.50"). */
+  discountValue?: string;
+  /** Items the discount applies to; empty/omitted = every item. */
+  menuItemIds?: string[];
+}
+
+export async function addPromotionAction(input: AddPromotionInput): Promise<ActionResult> {
   let businessId: string;
   try {
     businessId = await requireBusinessId();
@@ -171,15 +190,40 @@ export async function addPromotionAction(input: { title: string; description: st
     return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
   }
 
+  if (!input.title.trim()) return { success: false, error: "Give the promotion a title." };
+  if (!input.startDate || !input.endDate) return { success: false, error: "Choose a start and end date." };
+  if (input.endDate < input.startDate) return { success: false, error: "The end date can't be before the start date." };
+
+  const schedule = normaliseSchedule({ days: input.days || [], startTime: input.startTime || "", endTime: input.endTime || "" });
+  if (!schedule.ok) return { success: false, error: schedule.error };
+  const discount = normaliseDiscount({ type: input.discountType || "none", value: input.discountValue || "" });
+  if (!discount.ok) return { success: false, error: discount.error };
+
   const admin = createAdminClient();
+
+  // Only items that really belong to this business can be targeted.
+  let menuItemIds: string[] | null = null;
+  if (discount.type && input.menuItemIds && input.menuItemIds.length > 0) {
+    const { data: owned, error: ownedError } = await admin.from("menu_items").select("id").eq("business_id", businessId).in("id", input.menuItemIds);
+    if (ownedError) return dbErrorResult(ownedError, "addPromotionAction", "Could not add that promotion.");
+    menuItemIds = (owned || []).map((r) => r.id);
+    if (menuItemIds.length === 0) return { success: false, error: "Those menu items weren't found." };
+  }
+
   const { error } = await admin.from("promotions").insert({
     business_id: businessId,
-    title: input.title,
+    title: input.title.trim(),
     description: input.description,
     applies_to: input.appliesTo || null,
     start_date: input.startDate,
     end_date: input.endDate,
     is_active: true,
+    days_of_week: schedule.days,
+    start_time: schedule.start,
+    end_time: schedule.end,
+    discount_type: discount.type,
+    discount_value: discount.value,
+    menu_item_ids: menuItemIds,
   });
 
   if (error) return dbErrorResult(error, "addPromotionAction", "Could not add that promotion.");

@@ -9,6 +9,7 @@ import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { AiResponsibilities, Personality, VoiceId } from "@/lib/database/types";
 import { dbErrorResult } from "@/lib/errors";
 import { setMoneyPin } from "@/lib/security/moneyPin";
+import { toDialableNumber } from "@/lib/ai/liveTransfer";
 
 async function requireBusinessId(): Promise<string> {
   const supabase = createClient();
@@ -72,6 +73,8 @@ export async function updateBusinessProfileAction(input: {
   addressState?: string;
   addressZip?: string;
   phone: string;
+  /** Optional. Only sent when the owner changed it. Empty string clears it. */
+  escalationPhone?: string;
   businessType?: string;
 }): Promise<ActionResult> {
   let businessId: string;
@@ -88,10 +91,25 @@ export async function updateBusinessProfileAction(input: {
     return { success: false, error: "State should be a 2-letter abbreviation, like NY." };
   }
 
+  // The optional escalation number: stored normalised so it can be dialled
+  // as-is. Blank clears it (escalations go back to the main phone).
+  let escalationPhone: string | null | undefined;
+  if (input.escalationPhone !== undefined) {
+    const raw = input.escalationPhone.trim();
+    if (!raw) {
+      escalationPhone = null;
+    } else {
+      const dialable = toDialableNumber(raw);
+      if (!dialable) return { success: false, error: "Escalation phone should be a full phone number, like (313) 555-1234." };
+      escalationPhone = dialable;
+    }
+  }
+
   const admin = createAdminClient();
   const { error } = await admin
     .from("businesses")
     .update({
+      ...(escalationPhone !== undefined ? { escalation_phone: escalationPhone } : {}),
       name: input.name,
       description: input.description || null,
       address: input.address || null,

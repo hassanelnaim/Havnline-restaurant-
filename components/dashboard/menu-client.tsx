@@ -6,6 +6,7 @@ import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types
 import type { AddonTemplate } from "@/lib/data/menu";
 import { EASY_TO_MISS_HIGHLIGHT, EASY_TO_MISS_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
 import { describeTimePricing } from "@/lib/business/pricing";
+import { DayPicker } from "@/components/dashboard/day-picker";
 import {
   addMenuItemAction, updateMenuItemAction, deleteMenuItemAction, toggleMenuItemActiveAction,
   addModifierGroupAction, deleteModifierGroupAction,
@@ -217,11 +218,12 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
   const [savingGroup, setSavingGroup] = useState(false);
 
   // Time-based pricing (e.g. a Breakfast Special that's cheaper 7-11am)
-  const hasTimePricing = item.special_price_cents != null && !!item.special_price_start_time && !!item.special_price_end_time;
+  const hasTimePricing = item.special_price_cents != null && ((!!item.special_price_start_time && !!item.special_price_end_time) || (item.special_price_days?.length ?? 0) > 0);
   const [showTimePricingForm, setShowTimePricingForm] = useState(false);
   const [specialPrice, setSpecialPrice] = useState(item.special_price_cents != null ? (item.special_price_cents / 100).toFixed(2) : "");
   const [startTime, setStartTime] = useState(item.special_price_start_time?.slice(0, 5) || "");
   const [endTime, setEndTime] = useState(item.special_price_end_time?.slice(0, 5) || "");
+  const [specialDays, setSpecialDays] = useState<number[]>(item.special_price_days || []);
   const [timePricingError, setTimePricingError] = useState<string | null>(null);
   const [savingTimePricing, setSavingTimePricing] = useState(false);
   const timePricingSchedule = describeTimePricing({
@@ -229,17 +231,22 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
     special_price_cents: item.special_price_cents,
     special_price_start_time: item.special_price_start_time,
     special_price_end_time: item.special_price_end_time,
+    special_price_days: item.special_price_days,
   });
 
   function saveTimePricing() {
-    if (specialPrice.trim() && (!startTime || !endTime)) {
-      setTimePricingError("Set both a start and end time, or clear the special price to remove time pricing.");
+    if (specialPrice.trim() && ((startTime && !endTime) || (!startTime && endTime))) {
+      setTimePricingError("Set both a start and end time, or leave both blank for all day.");
+      return;
+    }
+    if (specialPrice.trim() && !startTime && specialDays.length === 0) {
+      setTimePricingError("Pick the days it applies, set a time window, or both.");
       return;
     }
     setSavingTimePricing(true);
     setTimePricingError(null);
     startTransition(async () => {
-      const result = await updateMenuItemTimePricingAction(item.id, { specialPrice, startTime, endTime });
+      const result = await updateMenuItemTimePricingAction(item.id, { specialPrice, startTime, endTime, ...(specialDays.length > 0 || (item.special_price_days?.length ?? 0) > 0 ? { days: specialDays } : {}) });
       setSavingTimePricing(false);
       if (!result.success) { setTimePricingError(result.error || "Could not save time pricing."); return; }
       setShowTimePricingForm(false);
@@ -248,11 +255,11 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
   }
 
   function clearTimePricing() {
-    setSpecialPrice(""); setStartTime(""); setEndTime("");
+    setSpecialPrice(""); setStartTime(""); setEndTime(""); setSpecialDays([]);
     setSavingTimePricing(true);
     setTimePricingError(null);
     startTransition(async () => {
-      const result = await updateMenuItemTimePricingAction(item.id, { specialPrice: "", startTime: "", endTime: "" });
+      const result = await updateMenuItemTimePricingAction(item.id, { specialPrice: "", startTime: "", endTime: "", ...((item.special_price_days?.length ?? 0) > 0 ? { days: [] } : {}) });
       setSavingTimePricing(false);
       if (!result.success) { setTimePricingError(result.error || "Could not clear time pricing."); return; }
       setShowTimePricingForm(false);
@@ -410,22 +417,26 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                 </div>
               ) : !showTimePricingForm ? (
                 <button className="text-[12px] font-medium text-text-muted hover:text-text" onClick={() => setShowTimePricingForm(true)}>
-                  + Add a time-based price (e.g. a breakfast special)
+                  + Add a day or time-based price (e.g. a breakfast or Tuesday special)
                 </button>
               ) : (
                 <div className="rounded-lg border border-border p-3">
                   <div className="text-[12.5px] font-medium text-text">Time-based price</div>
                   <p className="mt-0.5 text-[11.5px] text-text-faint">
-                    Charge a different price during a window each day — like ${item.price_cents ? (item.price_cents / 100).toFixed(2) : "9.99"} normally, but $9.99 from 7-11am. Outside the window it uses the item&apos;s regular price above.
+                    Charge a different price on certain days, during certain hours, or both — like ${item.price_cents ? (item.price_cents / 100).toFixed(2) : "9.99"} normally, but $9.99 from 7-11am, or $5.00 all day Tuesday. Any other time it uses the item&apos;s regular price above.
                   </p>
                   {timePricingError && <div className="mt-2 rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-[12px] text-danger">{timePricingError}</div>}
+                  <div className="mt-2">
+                    <Label className="text-[11px] text-text-faint">Days (none picked = every day)</Label>
+                    <div className="mt-1"><DayPicker value={specialDays} onChange={setSpecialDays} /></div>
+                  </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     <div>
                       <Label className="text-[11px] text-text-faint">Special price</Label>
                       <Input placeholder="9.99" value={specialPrice} onChange={(e) => setSpecialPrice(e.target.value)} />
                     </div>
                     <div>
-                      <Label className="text-[11px] text-text-faint">Start time</Label>
+                      <Label className="text-[11px] text-text-faint">Start time (blank = all day)</Label>
                       <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
                     </div>
                     <div>
@@ -435,7 +446,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
                   </div>
                   <div className="mt-2 flex gap-2">
                     <Button size="sm" variant="brand" onClick={saveTimePricing} disabled={savingTimePricing}>{savingTimePricing ? "Saving…" : "Save"}</Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setShowTimePricingForm(false); setTimePricingError(null); setSpecialPrice(item.special_price_cents != null ? (item.special_price_cents / 100).toFixed(2) : ""); setStartTime(item.special_price_start_time?.slice(0, 5) || ""); setEndTime(item.special_price_end_time?.slice(0, 5) || ""); }}>Cancel</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setShowTimePricingForm(false); setTimePricingError(null); setSpecialPrice(item.special_price_cents != null ? (item.special_price_cents / 100).toFixed(2) : ""); setStartTime(item.special_price_start_time?.slice(0, 5) || ""); setEndTime(item.special_price_end_time?.slice(0, 5) || ""); setSpecialDays(item.special_price_days || []); }}>Cancel</Button>
                     {hasTimePricing && <Button size="sm" variant="ghost" onClick={clearTimePricing} disabled={savingTimePricing}>Remove</Button>}
                   </div>
                 </div>

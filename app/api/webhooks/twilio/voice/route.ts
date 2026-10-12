@@ -10,7 +10,7 @@ import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
-import { isTransferLoop, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
+import { isTransferLoop, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
 
 export const dynamic = "force-dynamic";
 
@@ -123,10 +123,10 @@ async function handleVoice(request: NextRequest) {
     return twiml(`<Response><Reject reason="rejected"/></Response>`);
   }
 
-  // A live transfer rings the restaurant's main line; if that line
-  // forwards to this number, the transfer would arrive here as a new call
+  // A live transfer rings the escalation number (or the main line); if that
+  // number forwards to this number, the transfer would arrive here as a new call
   // and could escalate again, forever. Turn it away.
-  const restaurantPhone = context.business.phone;
+  const restaurantPhone = escalationTargetPhone(context.business);
   let recentTransfer = false;
   if (restaurantPhone && normalizePhoneDigits(callerNumber) === normalizePhoneDigits(restaurantPhone)) {
     const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();

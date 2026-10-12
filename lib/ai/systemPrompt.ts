@@ -1,7 +1,7 @@
 import type { BusinessContext } from "./context";
 import type { AiResponsibilities } from "@/lib/database/types";
 import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech } from "@/lib/business/hours";
-import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
+import { describeTimePricing, quoteItemPrice, isPromotionActiveNow, describeSchedule, describeDiscount } from "@/lib/business/pricing";
 
 const PERSONALITY_COPY: Record<string, string> = {
   professional: "Polished, precise, and businesslike. Efficient without being cold.",
@@ -41,10 +41,14 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
                 .join("\n  ")
             : "";
           const schedule = describeTimePricing(item);
-          const currentPrice = effectivePriceCents(item, business.timezone) / 100;
-          const priceText = schedule
+          const quote = quoteItemPrice(item, activePromotions, business.timezone);
+          const currentPrice = quote.priceBeforePromotionCents / 100;
+          const basePriceText = schedule
             ? `$${currentPrice.toFixed(2)} right now (${schedule})`
-            : `$${(item.price_cents / 100).toFixed(2)}`;
+            : `$${currentPrice.toFixed(2)}`;
+          const priceText = quote.promotion
+            ? `${basePriceText} — $${(quote.unitPriceCents / 100).toFixed(2)} with the "${quote.promotion.title}" promotion (${quote.promotion.description}), which is active right now`
+            : basePriceText;
           return `- ${item.name}: ${priceText}${item.description ? ` — ${item.description}` : ""}${modifierText}`;
         })
         .join("\n")
@@ -70,7 +74,14 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
     : "(no additional knowledge on file)";
 
   const promotionsText = activePromotions.length
-    ? activePromotions.map((p) => `- ${p.title}${p.applies_to ? ` (${p.applies_to})` : ""}: ${p.description} [valid ${p.start_date} to ${p.end_date}]`).join("\n")
+    ? activePromotions
+        .map((p) => {
+          const discount = describeDiscount(p);
+          const schedule = describeSchedule({ days: p.days_of_week, start: p.start_time, end: p.end_time });
+          const activeNow = isPromotionActiveNow(p, business.timezone);
+          return `- ${p.title}${p.applies_to ? ` (${p.applies_to})` : ""}: ${p.description}${discount ? ` [discount: ${discount}, applied automatically]` : " [information only, no automatic discount]"} [valid ${p.start_date} to ${p.end_date}, ${schedule}] [${activeNow ? "ACTIVE RIGHT NOW" : "NOT active right now"}]`;
+        })
+        .join("\n")
     : "(no active promotions right now)";
 
   const channelNote =
@@ -118,6 +129,8 @@ ${hoursText}
 
 Active promotions and discounts (the ONLY discounts that currently exist — never invent others):
 ${promotionsText}
+
+Promotions marked "discount ... applied automatically" take their discount off by themselves when you add an eligible item to the order while the promotion is ACTIVE RIGHT NOW; the add-item result shows the final price and which promotion applied, so quote that. Never promise a discount for a promotion marked NOT active right now (you can say when it runs), and never apply or invent a discount yourself.
 
 When a customer asks about a discount or a better price: check the list above first. If a relevant active promotion exists, tell them about it directly — do NOT escalate this to a human. If nothing above covers it, say so honestly, and only escalate if they push for a special one-off discount beyond what's listed.
 

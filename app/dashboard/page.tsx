@@ -7,7 +7,9 @@ import { getOrdersForBusiness, getOrderTotalsSince, getOrdersWithItemsSince } fr
 import { getMenuForBusiness } from "@/lib/data/menu";
 import { countsTowardSales } from "@/lib/orders/sales";
 import { getSpecialSuggestions } from "@/lib/analytics/specialSuggestions";
-import { CostProfitCalculator, type CalculatorMenuItem } from "@/components/dashboard/cost-profit-calculator";
+import { SalesCard } from "@/components/dashboard/sales-card";
+import { TopSellers } from "@/components/dashboard/top-sellers";
+import { getSalesSeries, getSellerData } from "@/lib/data/analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +24,7 @@ function toBizDateString(iso: string, timezone: string): string {
 // below.
 const TRAILING_WINDOW_DAYS = 7;
 const PROJECTED_MONTH_DAYS = 30;
-// Wider window for the specials-suggestion engine and the cost
-// calculator's "units/week" prefill — a week is too short to tell a
+// Wider window for the specials-suggestion engine — a week is too short to tell a
 // real slow-day pattern from one quiet Tuesday.
 const PATTERN_WINDOW_DAYS = 28;
 
@@ -88,15 +89,17 @@ export default async function OverviewPage() {
   const sinceIso = new Date(Date.now() - TRAILING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const patternSinceIso = new Date(Date.now() - PATTERN_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  const [calls, orders, weekOrders, patternOrders, menu] = await Promise.all([
+  const timezone = business.timezone || "America/New_York";
+
+  const [calls, orders, weekOrders, patternOrders, menu, salesSeries, sellerData] = await Promise.all([
     getCalls(),
     getOrdersForBusiness(business.id),
     getOrderTotalsSince(business.id, sinceIso),
     getOrdersWithItemsSince(business.id, patternSinceIso),
     getMenuForBusiness(business.id),
+    getSalesSeries(business.id, timezone),
+    getSellerData(business.id),
   ]);
-
-  const timezone = business.timezone || "America/New_York";
   const todayInBizTz = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const ordersTodayList = orders.filter((o) => toBizDateString(o.created_at, timezone) === todayInBizTz && o.status !== "cancelled");
@@ -106,7 +109,12 @@ export default async function OverviewPage() {
   // lib/orders/sales.ts for why this needs its own check beyond just
   // "not cancelled" (an order can be today's and not cancelled while
   // still waiting on an unpaid phone-payments link).
-  const salesTodayCents = ordersTodayList.filter(countsTowardSales).reduce((sum, o) => sum + o.total_cents, 0);
+  // Prefer the database's own daily total (the Orders list above is capped
+  // at the 100 most recent orders, which a busy day can exceed).
+  const todayBucket = salesSeries?.day[salesSeries.day.length - 1];
+  const salesTodayCents = todayBucket && todayBucket.local.startsWith(todayInBizTz)
+    ? todayBucket.totalCents
+    : ordersTodayList.filter(countsTowardSales).reduce((sum, o) => sum + o.total_cents, 0);
   const escalationsToday = calls.filter((c) => c.outcome === "escalated" && toBizDateString(c.started_at, timezone) === todayInBizTz).length;
 
   // Rolling trailing-week figures, not lifetime averages — a
@@ -120,26 +128,6 @@ export default async function OverviewPage() {
   const projectedMonthlyIncomeCents = Math.round((weekRevenueCents / TRAILING_WINDOW_DAYS) * PROJECTED_MONTH_DAYS);
 
   const specialSuggestions = getSpecialSuggestions(patternOrders, menu.items, timezone, PATTERN_WINDOW_DAYS);
-
-  // Real recent sales volume per item, for the calculator's "units/week"
-  // prefill — computed from the same pattern window rather than left at
-  // zero, so the projection means something the moment the widget loads.
-  const unitsSoldByMenuItemId = new Map<string, number>();
-  for (const order of patternOrders) {
-    if (!countsTowardSales(order)) continue;
-    for (const item of order.items) {
-      if (!item.menu_item_id) continue;
-      unitsSoldByMenuItemId.set(item.menu_item_id, (unitsSoldByMenuItemId.get(item.menu_item_id) || 0) + item.quantity);
-    }
-  }
-  const calculatorItems: CalculatorMenuItem[] = menu.items
-    .filter((item) => item.is_active)
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      priceCents: item.price_cents,
-      avgWeeklyUnits: ((unitsSoldByMenuItemId.get(item.id) || 0) / PATTERN_WINDOW_DAYS) * 7,
-    }));
 
   return (
     <div>
@@ -158,6 +146,10 @@ export default async function OverviewPage() {
           hint="Today — click to view"
           accentClass="hover:!border-danger/40 hover:!bg-danger-soft/40"
         />
+      </div>
+
+      <div className="mt-6">
+        <SalesCard series={salesSeries} />
       </div>
 
       <div className="mt-6">
@@ -190,7 +182,7 @@ export default async function OverviewPage() {
           </div>
         </div>
 
-        <CostProfitCalculator items={calculatorItems} />
+        <TopSellers data={sellerData} />
       </div>
     </div>
   );

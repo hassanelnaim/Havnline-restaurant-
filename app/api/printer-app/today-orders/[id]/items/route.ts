@@ -6,6 +6,7 @@ import { loadPricedMenu } from "@/lib/menu/pricedMenu";
 import { insertOrderItems, recomputeRealOrderTotals } from "@/lib/billing/orderItemAddition";
 import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
 import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
+import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { getSiteUrl } from "@/lib/env";
 import { dbErrorResult } from "@/lib/errors";
 import type { DbModifier, MenuItemWithModifiers } from "@/lib/database/types";
@@ -173,7 +174,7 @@ async function handlePOST(request: NextRequest, { params }: { params: { id: stri
 
   const { data: business } = await admin
     .from("businesses")
-    .select("name, address_city, address_state, address_zip, printer_app_paired_at, stripe_connect_account_id, stripe_connect_charges_enabled, platform_fee_bps")
+    .select("name, address_city, address_state, address_zip, printer_app_paired_at, stripe_connect_account_id, stripe_connect_charges_enabled, platform_fee_bps, subscription_status")
     .eq("id", device.businessId)
     .single();
   if (!business) return NextResponse.json({ success: false, error: "Business not found." }, { status: 404 });
@@ -286,7 +287,7 @@ async function handlePOST(request: NextRequest, { params }: { params: { id: stri
     businessId: device.businessId,
     businessName: business.name,
     totalCents: realAmountCents,
-    platformFeeBps: business.platform_fee_bps,
+    platformFeeBps: effectivePlatformFeeBps(business),
     productName: `${business.name} — ${resolved.checkoutLabel}`,
     successUrl: `${siteUrl}/order-addendum-confirmation?addendum_id=${addendum.id}`,
     cancelUrl: `${siteUrl}/order-addendum-confirmation?addendum_id=${addendum.id}&cancelled=1`,

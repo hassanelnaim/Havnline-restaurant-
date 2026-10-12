@@ -16,6 +16,8 @@ export interface DbBusiness {
   address_state: string | null;
   address_zip: string | null;
   phone: string | null;
+  // Optional. When set, live escalations ring this INSTEAD of `phone`.
+  escalation_phone: string | null;
   website: string | null;
   // Legal identity for carrier text-message registration (migration
   // 027). ein is nine digits, no dash. Sensitive: never log it.
@@ -134,6 +136,8 @@ export interface DbMenuItem {
   special_price_cents: number | null;
   special_price_start_time: string | null;
   special_price_end_time: string | null;
+  // 0=Sunday..6=Saturday. null/empty = every day (migration 030).
+  special_price_days: number[] | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -393,6 +397,16 @@ export interface DbPromotion {
   start_date: ISODate;
   end_date: ISODate;
   is_active: boolean;
+  // Migration 030. days_of_week: 0=Sunday..6=Saturday, null/empty = every day.
+  // start_time/end_time "HH:MM[:SS]", both null = all day.
+  // discount_type null = mention-only. 'percent' -> value 1-100; 'amount' -> cents off each eligible item.
+  // menu_item_ids null/empty = every item.
+  days_of_week: number[] | null;
+  start_time: string | null;
+  end_time: string | null;
+  discount_type: "percent" | "amount" | null;
+  discount_value: number | null;
+  menu_item_ids: string[] | null;
   created_at: ISODateTime;
 }
 

@@ -2,12 +2,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
+import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
 import { calculateTaxCents } from "@/lib/billing/stripeTax";
-import { effectivePriceCents, describeTimePricing } from "@/lib/business/pricing";
-import { shouldAttemptLiveTransfer, LIVE_TRANSFER_MARKER } from "./liveTransfer";
+import { describeTimePricing, quoteItemPrice } from "@/lib/business/pricing";
+import { shouldAttemptLiveTransfer, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "./liveTransfer";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -36,9 +37,13 @@ async function get_menu(_input: unknown, ctx: ToolContext): Promise<ToolResult> 
   return {
     menu: ctx.context.menu.map((item) => {
       const schedule = describeTimePricing(item);
+      const quote = quoteItemPrice(item, ctx.context.activePromotions, ctx.context.business.timezone);
       return {
         name: item.name,
-        price: effectivePriceCents(item, ctx.context.business.timezone) / 100,
+        price: quote.priceBeforePromotionCents / 100,
+        // Present only while a real discount applies to this item right now.
+        // This is the price the customer will actually be charged.
+        ...(quote.promotion ? { price_with_promotion: quote.unitPriceCents / 100, promotion: `${quote.promotion.title} (${quote.promotion.description})` } : {}),
         // Only present for an item with time-based pricing — tells the
         // AI the full schedule so it can explain why the price is
         // different earlier/later, not just quote the current number.
@@ -295,7 +300,11 @@ async function add_item_to_order(
   // (e.g. a Breakfast Special) needs the actual current price locked
   // in at the moment it's added, not a stale price from whenever the
   // menu was quoted earlier in the call.
-  const unitPriceCents = effectivePriceCents(menuItem, ctx.context.business.timezone);
+  // Then any active promotion that actually discounts this item (day/time
+  // aware, best single promotion, never stacked) is applied on top, and the
+  // discounted price is what's stored on the order line.
+  const quote = quoteItemPrice(menuItem, ctx.context.activePromotions, ctx.context.business.timezone);
+  const unitPriceCents = quote.unitPriceCents;
 
   const { data: orderItem, error } = await admin
     .from("order_items")
@@ -327,7 +336,15 @@ async function add_item_to_order(
 
   return {
     success: true,
-    added: { item: menuItem.name, quantity, modifiers: matchedModifiers.map((m) => m.name) },
+    added: {
+      item: menuItem.name,
+      quantity,
+      modifiers: matchedModifiers.map((m) => m.name),
+      unit_price: unitPriceCents / 100,
+      ...(quote.promotion
+        ? { promotion_applied: `${quote.promotion.title} (${quote.promotion.description})`, regular_unit_price: quote.priceBeforePromotionCents / 100 }
+        : {}),
+    },
     running_subtotal: subtotal / 100,
   };
 }
@@ -623,7 +640,7 @@ async function confirm_and_place_order(
     businessId: ctx.businessId,
     businessName: business.name,
     totalCents,
-    platformFeeBps: business.platform_fee_bps,
+    platformFeeBps: effectivePlatformFeeBps(business),
     customerPhone: input.phone,
     successUrl: `${siteUrl}/order-confirmation?order_id=${order.id}`,
     cancelUrl: `${siteUrl}/order-confirmation?order_id=${order.id}&cancelled=1`,
@@ -674,7 +691,7 @@ async function escalate_to_human(input: { reason: string; summary: string }, ctx
   }
   const live = shouldAttemptLiveTransfer({
     channel: ctx.channel,
-    restaurantPhone: ctx.context.business.phone,
+    restaurantPhone: escalationTargetPhone(ctx.context.business),
     isOpen: isBusinessOpenNow(ctx.context.business, ctx.context.hours),
     alreadyAttempted,
     callerPhone: ctx.callerPhone,

@@ -39,6 +39,7 @@ export const mockBusiness: DbBusiness = {
   address_state: "MI",
   address_zip: "48801",
   phone: "+15555550123",
+  escalation_phone: null,
   website: null,
   legal_business_name: null,
   ein: null,
@@ -101,6 +102,7 @@ export const mockMenuItems: MenuItemWithModifiers[] = [
     special_price_cents: null,
     special_price_start_time: null,
     special_price_end_time: null,
+    special_price_days: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     modifier_groups: [
@@ -136,6 +138,7 @@ export const mockMenuItems: MenuItemWithModifiers[] = [
     special_price_cents: null,
     special_price_start_time: null,
     special_price_end_time: null,
+    special_price_days: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     modifier_groups: [],
