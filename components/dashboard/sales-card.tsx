@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SalesBucket, SalesSeries, SalesUnit } from "@/lib/data/analytics";
+import type { SalesBucket, SalesSeries, SalesUnit } from "@/lib/analytics/shared";
 
 const LABELS: Record<SalesUnit, string> = { hour: "Hourly", day: "Daily", week: "Weekly", month: "Monthly" };
 const SUBTITLES: Record<SalesUnit, string> = {

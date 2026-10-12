@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { groupSellersByCategory, SELLER_WINDOW_DAYS, type SellerData, type SellerWindowDays } from "@/lib/data/analytics";
+import { groupSellersByCategory, SELLER_WINDOW_DAYS, type SellerData, type SellerWindowDays } from "@/lib/analytics/shared";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
