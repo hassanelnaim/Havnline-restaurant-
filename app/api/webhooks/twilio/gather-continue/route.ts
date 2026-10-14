@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
-import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
-import { getVoiceSelectionForCall } from "@/lib/ai/voiceSelection";
+import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
+import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -28,22 +27,29 @@ export async function POST(request: NextRequest) {
   const original = request.nextUrl.searchParams.get("original") || "";
   if (!callId) return new NextResponse("Missing callId", { status: 400 });
 
+  const timer = createTimer("gather-continue", { call: shortId(callId) });
+  try {
+    return await handleContinue(request, callId, original, timer);
+  } finally {
+    timer.done();
+  }
+}
+
+async function handleContinue(request: NextRequest, callId: string, original: string, timer: Timer) {
   const formData = await request.formData();
   const params: Record<string, string> = {};
   formData.forEach((value, key) => (params[key] = String(value)));
 
-  const admin = createAdminClient();
-  const { data: call } = await admin.from("calls").select("business_id").eq("id", callId).single();
-  if (!call) return twiml(`<Response><Say>Sorry, something went wrong. Goodbye.</Say><Hangup/></Response>`);
+  const state = await loadCallWebhookState(callId, "gather-continue");
+  timer.mark("load_call");
+  if (!state) return twiml(`<Response><Say>Sorry, something went wrong. Goodbye.</Say><Hangup/></Response>`);
+  const { call, authToken, voice } = state;
 
-  const authToken = await getBusinessTwilioAuthToken(call.business_id);
   const signature = request.headers.get("x-twilio-signature");
   const fullUrl = getRequestUrl(request);
   if (!validateTwilioSignature(signature, fullUrl, params, authToken)) {
     return new NextResponse("Invalid signature", { status: 403 });
   }
-
-  const voice = await getVoiceSelectionForCall(call.business_id, "gather-continue");
 
   // Join rather than replace — this branch only exists because the
   // customer kept talking, so both fragments belong to one utterance.
@@ -64,7 +70,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await handleTurn(call.business_id, callId, combinedSpeech, "phone");
+    const result = await handleTurn(call.business_id, callId, combinedSpeech, "phone", timer);
     return buildTurnResponseTwiml(call.business_id, callId, result, voice);
   } catch (err) {
     return errorFallbackTwiml(call.business_id, callId, voice, err);

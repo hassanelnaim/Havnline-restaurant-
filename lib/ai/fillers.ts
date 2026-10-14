@@ -3,137 +3,76 @@
  * before slow work (and, just as important, when to play none), and
  * whether a caller is just saying goodbye. Kept free of imports so they
  * can be tested directly.
+ *
+ * WHEN A FILLER PLAYS — and why it is rare now.
+ *
+ * A filler is not free. The webhook that plays it only answers once the
+ * filler is queued; Twilio then plays the whole line, listens for a second
+ * in case the caller keeps talking, and only THEN fetches the page that
+ * does the real work. The work starts after the filler ends, so a filler
+ * never shortens the wait — it adds its own length (plus that one-second
+ * listen and a second round trip to the server) on top of it. It was
+ * playing before nearly every answer, which is why a simple question took
+ * about four seconds of filler plus four seconds of answer.
+ *
+ * It only earns that cost where the silence would otherwise be long. That
+ * is exactly two situations:
+ *   1. The turn that places the order (Stripe, the payment text, the
+ *      kitchen) — the slowest thing the assistant does.
+ *   2. Handing the caller to a person (a database write plus setting up a
+ *      live transfer).
+ * Everything else — menu questions, hours, adding or changing an item,
+ * reading the order back, yes/no answers — gets its real answer straight
+ * away with no filler in front of it.
+ *
+ * Nothing here changes how long the line listens for the caller, so a
+ * caller is never cut off mid-sentence because of this.
  */
 
-// Originally this only matched turns that triggered a real, slower
-// tool round-trip (a DB write, a Stripe Checkout Session, an SMS send)
-// because a broader list made the filler play before questions the AI
-// answers instantly from the system prompt with no tool call at all —
-// menu/hours/recommendation questions, which cost nothing in the
-// database but still cost a full Claude round-trip plus fresh TTS
-// synthesis of a never-seen-before reply (nothing to cache there,
-// unlike these fixed filler lines). That's real, noticeable latency
-// too — a caller asking "what do you recommend?" sat through dead air
-// with nothing covering it. So this now covers both: real tool-backed
-// turns (grouped first, since those are genuinely the slowest) AND the
-// common question/conversation shapes that still take a real model
-// round-trip, each with a filler that reads as the natural lead-in to
-// that *kind* of answer — never the exact answer, since the filler is
-// chosen before the model has generated anything.
-export const FILLER_CATEGORIES: { keywords: string[]; fillers: string[] }[] = [
-  {
-    // Customer says they want to order but hasn't named anything yet
-    // ("I'd like to order," "can I place an order") — distinct from
-    // naming an item directly below. No tool call yet; the AI's own
-    // next line is naturally something like "what can I get for you,"
-    // so the filler should read as the lead-in to that, not a
-    // standalone "got it."
-    keywords: [
-      "like to order", "want to order", "place an order", "make an order", "start an order",
-      "order something", "ready to order", "take my order",
-    ],
-    fillers: ["I'd love to take your order!", "Sure thing, let's get you set up.", "Happy to help with that."],
-  },
-  {
-    // add_item_to_order on a NEW, already-named item ("I'll have a
-    // burger," "can I get fries") — a menu lookup + a DB write, and
-    // the single most common thing said on a call.
-    keywords: [
-      "i want", "i'd like", "i would like", "i'll have", "i will have", "i'll take",
-      "i will take", "i'll get", "can i get", "can i have", "could i get", "could i have",
-      "give me", "gimme", "get me", "let me get", "let me have", "i need", "i'll do",
-    ],
-    fillers: ["Sure, adding that now.", "Got it, one sec.", "Okay, putting that in."],
-  },
-  {
-    // add_item_to_order / remove_item_from_order / update_item_quantity
-    // / update_item_modifiers on something already in the order — a
-    // real DB write per item, plus a menu/modifier lookup.
-    keywords: [
-      "add", "remove", "instead", "substitute", "change my order", "change that",
-      "make that", "make it", "actually", "no onions", "extra", "swap", "cancel that",
-      "different", "another one", "one more",
-    ],
-    fillers: ["Sure, updating that now.", "Got it, one sec.", "Okay, making that change."],
-  },
-  {
-    // confirm_and_place_order — genuinely the slowest path: a Checkout
-    // Session with a payment-enabled business, a kitchen print job, and
-    // a confirmation text all happen here.
-    keywords: [
-      "that's it", "that's all", "that's everything", "place my order", "place the order",
-      "go ahead and order", "sounds good, order", "yes, place", "checkout", "ready to order",
-      "that's my order", "that should do it",
-    ],
-    fillers: ["Great, placing that order now.", "Perfect, locking that in.", "Okay, sending that through."],
-  },
-  {
-    // lookup_customer / create_customer — asked right after the order
-    // is read back, once the customer gives their name and number.
-    keywords: [
-      "my name is", "my number is", "phone number", "here's my number",
-    ],
-    fillers: ["Got it, thanks.", "Okay, one sec."],
-  },
-  {
-    // escalate_to_human / transfer_call — a DB write and (for a
-    // transfer) a live outbound call setup.
-    keywords: [
-      "speak to", "talk to", "a real person", "a human", "a manager", "refund",
-      "complaint", "already placed", "change my order i already", "cancel my order",
-    ],
-    fillers: ["Okay, let me get that handled.", "Sure, one moment."],
-  },
-  {
-    // No tool call at all — answered straight from the menu already in
-    // the system prompt — but asking for a recommendation specifically
-    // deserves its own warmer lead-in rather than the generic
-    // "let me check" lines below, which read oddly before an opinion.
-    keywords: [
-      "recommend", "what's good", "what is good", "what do you suggest", "any suggestions",
-      "what should i get", "what should i order", "favorite", "best seller", "most popular",
-      "what's your favorite",
-    ],
-    fillers: ["Ooh, good question — let me think.", "Happy to suggest something.", "Let's see what I'd pick for you."],
-  },
-  {
-    // No tool call — a factual lookup the AI already has (an item, a
-    // price, what's in something, an ingredient/allergy question).
-    keywords: [
-      "how much is", "how much are", "what comes with", "what's in", "what is in", "does it come with",
-      "do you have", "is there", "what kind of", "what size", "how big is", "allerg", "gluten", "vegan",
-      "vegetarian", "calorie",
-    ],
-    fillers: ["Good question, let me check.", "Let's see here.", "One sec, let me take a look."],
-  },
-  {
-    // No tool call — hours/location/general business info, already in
-    // the system prompt.
-    keywords: [
-      "what time", "are you open", "when do you open", "when do you close", "how late", "what hours",
-      "where are you", "your address", "your location", "do you deliver", "is this pickup only",
-    ],
-    fillers: ["Let me check that for you.", "One sec, let me look that up."],
-  },
-  {
-    // No tool call — discounts/promos, already in the system prompt.
-    keywords: ["discount", "deal", "special", "coupon", "promo", "any offers"],
-    fillers: ["Let me see what we've got going on.", "Good question — one sec."],
-  },
-];
+interface FillerCategory {
+  keywords: string[];
+  fillers: string[];
+}
 
-// Words that, alone, are too short to tell much from — "yes," "no,"
-// "okay," "that's right" — are answers or acknowledgements, not requests.
-const TRIVIAL_REPLY_WORD_LIMIT = 3;
+const NAME_GIVEN: FillerCategory = {
+  // The caller is giving their name / number — this is the turn that
+  // places the order (lookup/create customer, then
+  // confirm_and_place_order). The more reliable signal for the same
+  // turn is the assistant's previous question (see
+  // asksForCustomerDetails); these phrases catch a caller who volunteers
+  // the details on their own.
+  keywords: ["my name is", "my number is", "here's my number", "this is my number", "the name is"],
+  fillers: ["Got it, thanks.", "Okay, one sec."],
+};
 
-// A short reply that STARTS like an answer ("yes please", "no that's
-// fine", "okay sounds good thanks") is still an answer, however many
-// words it has. Anything longer is treated as a real request.
-const MAX_ACK_WORDS = 6;
-const ACK_FIRST_WORDS: ReadonlySet<string> = new Set([
-  "yes", "yeah", "yep", "yup", "yea", "no", "nope", "nah", "okay", "ok", "sure", "correct", "right",
-  "exactly", "alright", "thanks", "thank", "perfect", "great", "good", "fine", "please", "mhm", "uh", "um", "sounds",
-]);
+const ESCALATION: FillerCategory = {
+  // escalate_to_human / transfer_call — a DB write and (for a
+  // transfer) a live outbound call setup.
+  keywords: [
+    "speak to", "talk to", "a real person", "a human", "a manager", "refund",
+    "complaint", "already placed", "change my order i already", "cancel my order",
+  ],
+  fillers: ["Okay, let me get that handled.", "Sure, one moment."],
+};
+
+// Every fixed filler line, so their audio can be cached (see
+// STATIC_TTS_LINES in twimlHelpers.ts).
+export const FILLER_CATEGORIES: FillerCategory[] = [NAME_GIVEN, ESCALATION];
+
+// 1. The turn that places the order. Neutral on purpose: the caller may
+// have changed their mind in the same breath, so this must not promise that
+// the order is going through.
+export const PLACING_ORDER_FILLERS: string[] = ["Got it, one moment.", "Okay, give me just a moment."];
+
+// What the assistant says right before the order is placed: it asks for the
+// caller's name and/or phone number. Deliberately narrow ("phone number",
+// "your name"), so an item called "Number 5 combo" in a read-back can't
+// make an ordinary "yes" look like the order-placing turn.
+const ASKS_FOR_DETAILS = /\b(your name|name and (a |your |the )?(phone )?number|phone number|best number|callback number|contact number|number to reach|number i can)\b/i;
+
+export function asksForCustomerDetails(assistantReply: string | null | undefined): boolean {
+  return Boolean(assistantReply && ASKS_FOR_DETAILS.test(assistantReply));
+}
 
 // What an acknowledgement gets when the previous turn did real work. It
 // must NOT sound like the start of an answer or a lookup ("let me check
@@ -145,46 +84,51 @@ function wordsOf(text: string): string[] {
   return text.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
 }
 
-export function isBareAcknowledgement(text: string): boolean {
-  const words = wordsOf(text);
-  if (words.length <= TRIVIAL_REPLY_WORD_LIMIT) return true;
-  return words.length <= MAX_ACK_WORDS && ACK_FIRST_WORDS.has(words[0]);
-}
-
-// Keywords are matched as whole words (so "add" no longer fires inside
-// "address" and "deal" no longer fires inside "ideal"), except these
-// two, which are deliberate word stems ("allergy", "allergic").
-const STEM_KEYWORDS: ReadonlySet<string> = new Set(["allerg", "calorie"]);
+// Keywords are matched as whole words (so "talk to" doesn't fire inside
+// some longer word).
 const keywordPatternCache = new Map<string, RegExp>();
 function keywordMatches(lowerText: string, keyword: string): boolean {
   let re = keywordPatternCache.get(keyword);
   if (!re) {
     const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    re = new RegExp(`(^|[^a-z0-9])${escaped}${STEM_KEYWORDS.has(keyword) ? "" : "($|[^a-z0-9])"}`);
+    re = new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`);
     keywordPatternCache.set(keyword, re);
   }
   return re.test(lowerText);
 }
 
-/**
- * Returns a filler line to say before the slower work happens, or null
- * when nothing should be said first. A specific topic ("I'd like a
- * burger", "that's all") gets a filler that reads as the lead-in to that
- * kind of answer. A bare yes / no / okay never gets a lookup-style
- * filler: at most a neutral "Got it, one moment." when the previous turn
- * did real work and this answer is likely to trigger more of it.
- */
-export function getContextualFiller(text: string, previousTurnUsedTool: boolean): string | null {
-  const lower = text.toLowerCase();
-  for (const category of FILLER_CATEGORIES) {
-    if (category.keywords.some((kw) => keywordMatches(lower, kw))) {
-      return category.fillers[Math.floor(Math.random() * category.fillers.length)];
-    }
-  }
+function pick(lines: string[]): string {
+  return lines[Math.floor(Math.random() * lines.length)];
+}
 
-  if (isBareAcknowledgement(text)) return previousTurnUsedTool ? ACK_FILLER : null;
-  if (previousTurnUsedTool) return "Sure, one moment.";
-  return "Let's see.";
+/**
+ * Returns a filler line to say before slow work happens, or null when
+ * nothing should be said first — which is almost always. See the comment
+ * at the top of this file for the two cases that qualify.
+ *
+ * `previousReply` is what the assistant said last turn. When that was a
+ * request for the caller's name / number, this turn is the one that places
+ * the order, whatever words the caller uses to answer.
+ *
+ * (`_previousTurnUsedTool` is accepted for compatibility with older callers
+ * and no longer changes the result.)
+ */
+export function getContextualFiller(
+  text: string,
+  _previousTurnUsedTool: boolean = false,
+  previousReply: string | null = null
+): string | null {
+  const lower = text.toLowerCase();
+
+  // A request to reach a person always gets its lead-in, even if the
+  // assistant had just asked for a name.
+  if (ESCALATION.keywords.some((kw) => keywordMatches(lower, kw))) return pick(ESCALATION.fillers);
+
+  if (asksForCustomerDetails(previousReply)) return pick(PLACING_ORDER_FILLERS);
+
+  if (NAME_GIVEN.keywords.some((kw) => keywordMatches(lower, kw))) return pick(NAME_GIVEN.fillers);
+
+  return null;
 }
 
 // After an order is placed, a caller who only says thanks / goodbye is

@@ -11,6 +11,8 @@ import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
 import { isTransferLoop, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
+import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
+import { warmCallRoutes } from "@/lib/ai/warmup";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +45,9 @@ function isCallFlaggedAsSpam(addOnsRaw: string | undefined): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  const timer = createTimer("voice");
   try {
-    return await handleVoice(request);
+    return await handleVoice(request, timer);
   } catch (err) {
     // Answer with a real server error on purpose: Twilio then uses the
     // number's fallback URL (voice-fallback), which tells the caller what
@@ -62,10 +65,12 @@ export async function POST(request: NextRequest) {
       1500
     );
     return new Response("Voice handler error", { status: 500 });
+  } finally {
+    timer.done();
   }
 }
 
-async function handleVoice(request: NextRequest) {
+async function handleVoice(request: NextRequest, timer: Timer) {
   const formData = await request.formData();
   const params: Record<string, string> = {};
   formData.forEach((value, key) => (params[key] = String(value)));
@@ -74,6 +79,7 @@ async function handleVoice(request: NextRequest) {
   const callerNumber = params.From || "unknown";
 
   const resolved = await resolveBusinessFromPhoneNumber(dialedNumber);
+  timer.mark("resolve_number");
   if (!resolved) {
     return twiml(`<Response><Say>This number is not currently configured. Goodbye.</Say><Hangup/></Response>`);
   }
@@ -85,13 +91,32 @@ async function handleVoice(request: NextRequest) {
   }
 
   const businessId = resolved.businessId;
-  const context = await loadBusinessContext(businessId);
+  const admin = createAdminClient();
+
+  // These four lookups don't depend on each other, so they run together
+  // instead of one after another — the caller is listening to silence for
+  // the whole of this. (The business context itself is ten queries that
+  // already run in parallel.)
+  const [context, businessRes, blockedRes, ttsDegraded] = await Promise.all([
+    loadBusinessContext(businessId),
+    admin.from("businesses").select("subscription_status, is_suspended").eq("id", businessId).single(),
+    // Silently reject a number this business has blocked (see Callers
+    // page) or one Twilio's own spam/fraud add-on flags — no ring, no AI,
+    // no record of a real call. Compares last-10-digits (see
+    // phone-utils.ts) rather than an exact string match, since the caller
+    // ID Twilio gives us here (E.164) rarely matches the free-text phone
+    // number format the AI wrote down from a customer saying it out loud
+    // mid-order.
+    admin.from("customers").select("phone").eq("business_id", businessId).eq("is_blocked", true),
+    isTtsDegraded(),
+  ]);
+  timer.mark("lookups");
+
   if (!context) {
     return twiml(`<Response><Say>Sorry, this business isn't fully set up yet. Goodbye.</Say><Hangup/></Response>`);
   }
 
-  const admin = createAdminClient();
-  const { data: business } = await admin.from("businesses").select("subscription_status, is_suspended").eq("id", businessId).single();
+  const business = businessRes.data;
   const isOperational = business && OPERATIONAL_SUBSCRIPTION_STATUSES.includes(business.subscription_status);
 
   // Defense in depth: suspension is meant to be enforced by flipping
@@ -104,20 +129,8 @@ async function handleVoice(request: NextRequest) {
     return twiml(`<Response><Say>Thanks for calling ${escapeXml(context.business.name)}. We're currently unable to take your call — please try again later.</Say><Hangup/></Response>`);
   }
 
-  // Silently reject a number this business has blocked (see Callers page)
-  // or one Twilio's own spam/fraud add-on flags — no ring, no AI, no
-  // record of a real call. Compares last-10-digits (see phone-utils.ts)
-  // rather than an exact string match, since the caller ID Twilio gives
-  // us here (E.164) rarely matches the free-text phone number format
-  // the AI wrote down from a customer saying it out loud mid-order.
-  const { data: blockedCustomers } = await admin
-    .from("customers")
-    .select("phone")
-    .eq("business_id", businessId)
-    .eq("is_blocked", true);
-
   const normalizedCallerNumber = normalizePhoneDigits(callerNumber);
-  const isBlocked = (blockedCustomers || []).some((c) => normalizePhoneDigits(c.phone) === normalizedCallerNumber);
+  const isBlocked = (blockedRes.data || []).some((c) => normalizePhoneDigits(c.phone) === normalizedCallerNumber);
 
   if (isBlocked || isCallFlaggedAsSpam(params.AddOns)) {
     return twiml(`<Response><Reject reason="rejected"/></Response>`);
@@ -148,9 +161,18 @@ async function handleVoice(request: NextRequest) {
     return twiml(`<Response><Reject reason="busy"/></Response>`);
   }
 
+  // The call is going to be answered. Start waking the webhooks the caller
+  // will reach next so they're ready by the time the greeting has played
+  // (see warmup.ts). Sent before the database writes below so it is on its
+  // way while they run.
+  warmCallRoutes();
+
   const callId = await startCall(businessId, callerNumber, dialedNumber);
+  timer.mark("start_call");
+  timer.set("call", shortId(callId));
 
   await admin.from("call_messages").insert({ call_id: callId, role: "system", content: `Inbound call from ${callerNumber} to ${dialedNumber}` });
+  timer.mark("log_call");
 
   // No AI name in the greeting on purpose — this is an automated
   // answering service, not a person, and giving it a name only invites
@@ -158,7 +180,7 @@ async function handleVoice(request: NextRequest) {
   // itself, same as a human answering the phone would.
   const greeting = buildGreeting(context.business.name);
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
-  const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded: await isTtsDegraded() };
+  const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded };
 
   return twiml(`<Response>
   <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">

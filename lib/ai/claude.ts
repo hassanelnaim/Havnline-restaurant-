@@ -51,9 +51,33 @@ export interface ConversationMessage {
   content: string;
 }
 
+export interface TurnStats {
+  /** How many times the model was called this turn (tool use = more than one). */
+  modelCalls: number;
+  /** Total time spent waiting on the model, across all calls. */
+  modelMs: number;
+  /** Total time spent running tools (database, Stripe, texts). */
+  toolMs: number;
+  /** Prompt tokens read from / written to Anthropic's prompt cache. */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** Prompt tokens processed normally (not served from the cache). */
+  inputTokens: number;
+}
+
 export interface RunTurnResult {
   reply: string;
   toolCalls: { name: string; input: unknown; result: unknown }[];
+  stats?: TurnStats;
+}
+
+// The usage block, including the prompt-caching counters this SDK version's
+// types predate.
+interface UsageWithCache {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
 }
 
 export async function runTurn(
@@ -76,7 +100,25 @@ export async function runTurn(
   // phone replies fast.
   const maxTokens = options.maxTokens || (toolCtx.channel === "phone" ? 240 : 1024);
 
-  const system = buildSystemPrompt(toolCtx.context, toolCtx.channel);
+  const systemText = buildSystemPrompt(toolCtx.context, toolCtx.channel);
+
+  // Prompt caching. The system prompt (rules + the whole menu) and the tool
+  // definitions in front of it are the same on every turn of every call to
+  // the same business, and a turn that uses a tool sends them to the model
+  // again for its second pass. Marking the end of the system prompt as a
+  // cache point lets Anthropic reuse the already-processed prefix instead of
+  // reading it from scratch each time: faster first word and about a tenth
+  // of the price for those tokens. The text only changes when something it
+  // states changes (the date, open/closed, a time-based price, a promotion
+  // starting or ending), and then the cache simply refreshes.
+  //
+  // This SDK version's types don't list `cache_control` yet, hence the cast;
+  // the API accepts it. A prompt too short to be cached is processed
+  // normally and nothing breaks — the cache_read / cache_write numbers in
+  // the [timing] log lines show whether it is actually kicking in.
+  const system = [
+    { type: "text", text: systemText, cache_control: { type: "ephemeral" } },
+  ] as unknown as Anthropic.TextBlockParam[];
 
   const messages: Anthropic.MessageParam[] = [
     ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -85,6 +127,7 @@ export async function runTurn(
 
   const toolCalls: { name: string; input: unknown; result: unknown }[] = [];
   let finalReply = "";
+  const stats: TurnStats = { modelCalls: 0, modelMs: 0, toolMs: 0, cacheReadTokens: 0, cacheWriteTokens: 0, inputTokens: 0 };
 
   for (let iteration = 0; iteration < 5; iteration++) {
     // A phone turn that has already spent its time budget (a slow tool,
@@ -96,6 +139,7 @@ export async function runTurn(
     }
 
     let response: Anthropic.Message;
+    const modelCallStartedAt = Date.now();
     try {
       response = await client.messages.create(
         { model, max_tokens: maxTokens, system, messages, tools: TOOL_DEFINITIONS },
@@ -128,13 +172,31 @@ export async function runTurn(
       }
     }
 
+    stats.modelCalls += 1;
+    stats.modelMs += Date.now() - modelCallStartedAt;
+
     const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === "text");
     const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
 
     // Real usage logging — attributed to this specific business, so
     // per-business AI cost is actually knowable, since Anthropic's own
     // billing is one shared total across every HavnLine business.
-    logAnthropicUsage(toolCtx.businessId, model, response.usage.input_tokens, response.usage.output_tokens);
+    // Cached tokens are billed differently from ordinary input (reads cost a
+    // tenth, writes a quarter more), and the API reports them separately from
+    // input_tokens. Fold them back into one input-equivalent figure so the
+    // per-business cost estimate stays right.
+    const usage = response.usage as UsageWithCache;
+    const cacheRead = usage.cache_read_input_tokens || 0;
+    const cacheWrite = usage.cache_creation_input_tokens || 0;
+    stats.cacheReadTokens += cacheRead;
+    stats.cacheWriteTokens += cacheWrite;
+    stats.inputTokens += usage.input_tokens;
+    logAnthropicUsage(
+      toolCtx.businessId,
+      model,
+      Math.round(usage.input_tokens + cacheWrite * 1.25 + cacheRead * 0.1),
+      usage.output_tokens
+    );
 
     finalReply = textBlocks.map((b) => b.text).join(" ").trim();
 
@@ -145,6 +207,7 @@ export async function runTurn(
     messages.push({ role: "assistant", content: response.content });
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const toolsStartedAt = Date.now();
     for (const toolUse of toolUseBlocks) {
       const handler = TOOL_HANDLERS[toolUse.name];
       let result: unknown = { error: "Unknown tool" };
@@ -159,8 +222,10 @@ export async function runTurn(
       toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify(result) });
     }
 
+    stats.toolMs += Date.now() - toolsStartedAt;
+
     messages.push({ role: "user", content: toolResults });
   }
 
-  return { reply: finalReply || "I'm sorry, could you repeat that?", toolCalls };
+  return { reply: finalReply || "I'm sorry, could you repeat that?", toolCalls, stats };
 }

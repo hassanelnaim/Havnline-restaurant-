@@ -4,7 +4,7 @@ import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath }
 import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isGreetingLine } from "@/lib/ai/greeting";
-import { FILLER_CATEGORIES, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller } from "@/lib/ai/fillers";
+import { FILLER_CATEGORIES, PLACING_ORDER_FILLERS, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller } from "@/lib/ai/fillers";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import { LIVE_TRANSFER_MARKER, escalationTargetPhone, toDialableNumber } from "@/lib/ai/liveTransfer";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
@@ -223,18 +223,28 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
 </Response>`);
 }
 
-export async function lastTurnUsedTool(callId: string): Promise<boolean> {
+/**
+ * The assistant's most recent reply on this call, and whether that turn
+ * used a tool. One query, used to decide whether the next turn deserves a
+ * filler (see fillers.ts: only the turn that follows a request for the
+ * caller's name / number does).
+ */
+export async function getLastAiTurn(callId: string): Promise<{ content: string | null; usedTool: boolean }> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("call_messages")
-    .select("tool_call")
+    .select("content, tool_call")
     .eq("call_id", callId)
     .eq("role", "ai")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  return Boolean(data?.tool_call);
+  return { content: data?.content ?? null, usedTool: Boolean(data?.tool_call) };
+}
+
+export async function lastTurnUsedTool(callId: string): Promise<boolean> {
+  return (await getLastAiTurn(callId)).usedTool;
 }
 
 // Every line of hard-coded, verbatim-repeated speech in this file and
@@ -250,6 +260,7 @@ export async function lastTurnUsedTool(callId: string): Promise<boolean> {
 // never ends up persisted here.
 export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   ...FILLER_CATEGORIES.flatMap((c) => c.fillers),
+  ...PLACING_ORDER_FILLERS,
   "Sure, one moment.",
   "Let's see.",
   ACK_FILLER,

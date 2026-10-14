@@ -1,37 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
-import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
-import { getVoiceSelectionForCall } from "@/lib/ai/voiceSelection";
+import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, lastTurnUsedTool, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
 import { isFarewell, POST_ORDER_GOODBYE } from "@/lib/ai/fillers";
+import { warmResponse } from "@/lib/ai/warmup";
+import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
 const SITE_URL = getSiteUrl();
 
+// Start-up ping sent from the voice webhook while the greeting plays (see
+// lib/ai/warmup.ts). Does no work and returns nothing.
+export async function GET() {
+  return warmResponse();
+}
+
 export async function POST(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
   if (!callId) return new NextResponse("Missing callId", { status: 400 });
 
+  const timer = createTimer("gather", { call: shortId(callId) });
+  try {
+    return await handleGather(request, callId, timer);
+  } finally {
+    timer.done();
+  }
+}
+
+async function handleGather(request: NextRequest, callId: string, timer: Timer) {
   const formData = await request.formData();
   const params: Record<string, string> = {};
   formData.forEach((value, key) => (params[key] = String(value)));
 
-  const admin = createAdminClient();
-  const { data: call } = await admin.from("calls").select("business_id, outcome").eq("id", callId).single();
-  if (!call) return twiml(`<Response><Say>Sorry, something went wrong. Goodbye.</Say><Hangup/></Response>`);
+  // The call row (which tells us the business, then the token and voice) and
+  // the assistant's last reply (for the filler decision) don't depend on
+  // each other, so they load side by side.
+  const [state, lastAiTurn] = await Promise.all([loadCallWebhookState(callId, "gather"), getLastAiTurn(callId)]);
+  timer.mark("load_call");
+  if (!state) return twiml(`<Response><Say>Sorry, something went wrong. Goodbye.</Say><Hangup/></Response>`);
 
-  const authToken = await getBusinessTwilioAuthToken(call.business_id);
+  const { call, authToken, voice } = state;
+  const admin = createAdminClient();
+
   const signature = request.headers.get("x-twilio-signature");
   const fullUrl = getRequestUrl(request);
   if (!validateTwilioSignature(signature, fullUrl, params, authToken)) {
     return new NextResponse("Invalid signature", { status: 403 });
   }
-
-  const voice = await getVoiceSelectionForCall(call.business_id, "gather");
 
   const speechResult = params.SpeechResult;
   const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
@@ -55,23 +74,32 @@ export async function POST(request: NextRequest) {
       { call_id: callId, role: "customer", content: speechResult },
       { call_id: callId, role: "ai", content: POST_ORDER_GOODBYE },
     ]);
+    timer.set("path", "farewell");
     return twiml(`<Response>
   ${sayLine(voice, POST_ORDER_GOODBYE, call.business_id)}
   <Hangup/>
 </Response>`);
   }
 
-  const filler = getContextualFiller(speechResult, await lastTurnUsedTool(callId));
+  // A filler only plays before the genuinely slow turns (placing the order,
+  // handing the caller to a person) — see fillers.ts for why. Everything
+  // else goes straight to the real answer in this same request, which also
+  // skips the second round trip (and a possible second cold start) that the
+  // filler path needs.
+  const filler = getContextualFiller(speechResult, lastAiTurn.usedTool, lastAiTurn.content);
+  timer.mark("decide");
 
   if (!filler) {
+    timer.set("path", "direct");
     try {
-      const result = await handleTurn(call.business_id, callId, speechResult, "phone");
+      const result = await handleTurn(call.business_id, callId, speechResult, "phone", timer);
       return buildTurnResponseTwiml(call.business_id, callId, result, voice);
     } catch (err) {
       return errorFallbackTwiml(call.business_id, callId, voice, err);
     }
   }
 
+  timer.set("path", "filler");
   const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}`;
 
   // The filler used to be a bare <Say> with no <Gather> around it —

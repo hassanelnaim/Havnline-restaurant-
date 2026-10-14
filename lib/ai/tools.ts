@@ -191,6 +191,24 @@ async function soft<T extends { error: { message: string } | null }>(label: stri
   }
 }
 
+// The price adjustments of every modifier on the given order items, summed
+// per item, in a single query. A failed read throws rather than returning a
+// partial answer: a missing modifier would under-price the order.
+async function modifierTotalsByItem(orderItemIds: string[]): Promise<Map<string, number>> {
+  const totals = new Map<string, number>();
+  if (orderItemIds.length === 0) return totals;
+  const admin = createAdminClient();
+  const { data: mods, error } = await admin
+    .from("order_item_modifiers")
+    .select("order_item_id, price_delta_cents")
+    .in("order_item_id", orderItemIds);
+  if (error) throw new Error(`Could not read an item's modifiers: ${error.message}`);
+  for (const m of mods || []) {
+    totals.set(m.order_item_id, (totals.get(m.order_item_id) || 0) + m.price_delta_cents);
+  }
+  return totals;
+}
+
 async function recomputeOrderSubtotal(orderId: string): Promise<number> {
   const admin = createAdminClient();
   const { data: items, error: itemsError } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
@@ -199,12 +217,13 @@ async function recomputeOrderSubtotal(orderId: string): Promise<number> {
   // to the kitchen). Throw instead; the tool runner turns it into an
   // error the AI can report, and the stored subtotal is left untouched.
   if (itemsError) throw new Error(`Could not read the order's items: ${itemsError.message}`);
+  // One query for every item's modifiers (it used to be one query PER ITEM,
+  // run one after another — an order with six items made seven round trips
+  // to the database every time anything was added or changed).
+  const modifierTotals = await modifierTotalsByItem((items || []).map((i) => i.id));
   let subtotal = 0;
   for (const item of items || []) {
-    const { data: mods, error: modsError } = await admin.from("order_item_modifiers").select("price_delta_cents").eq("order_item_id", item.id);
-    if (modsError) throw new Error(`Could not read an item's modifiers: ${modsError.message}`);
-    const modTotal = (mods || []).reduce((sum, m) => sum + m.price_delta_cents, 0);
-    subtotal += (item.unit_price_cents + modTotal) * item.quantity;
+    subtotal += (item.unit_price_cents + (modifierTotals.get(item.id) || 0)) * item.quantity;
   }
   const { error: updateError } = await admin.from("orders").update({ subtotal_cents: subtotal, total_cents: subtotal }).eq("id", orderId);
   if (updateError) throw new Error(`Could not save the order total: ${updateError.message}`);
@@ -457,11 +476,17 @@ async function get_current_order(_input: unknown, ctx: ToolContext): Promise<Too
   if (!order) return { items: [], subtotal: 0 };
 
   const { data: items } = await admin.from("order_items").select("*").eq("order_id", order.id);
-  const itemsWithModifiers = [];
-  for (const item of items || []) {
-    const { data: mods } = await admin.from("order_item_modifiers").select("modifier_name").eq("order_item_id", item.id);
-    itemsWithModifiers.push({ name: item.item_name, quantity: item.quantity, modifiers: (mods || []).map((m) => m.modifier_name), notes: item.notes });
-  }
+  // One query for all the items' modifiers instead of one per item.
+  const itemIds = (items || []).map((i) => i.id);
+  const { data: allMods } = itemIds.length
+    ? await admin.from("order_item_modifiers").select("order_item_id, modifier_name").in("order_item_id", itemIds)
+    : { data: [] as { order_item_id: string; modifier_name: string }[] };
+  const itemsWithModifiers = (items || []).map((item) => ({
+    name: item.item_name,
+    quantity: item.quantity,
+    modifiers: (allMods || []).filter((m) => m.order_item_id === item.id).map((m) => m.modifier_name),
+    notes: item.notes,
+  }));
 
   return { items: itemsWithModifiers, subtotal: order.subtotal_cents / 100 };
 }
@@ -482,20 +507,26 @@ async function confirm_and_place_order(
   const { data: order } = await admin.from("orders").select("*").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
   if (!order) return { success: false, reason: "No order to confirm — add items first." };
 
-  const { data: orderItems } = await admin.from("order_items").select("id").eq("order_id", order.id);
+  // Three independent reads at once: the emptiness check, the subtotal
+  // recomputed from the actual items (not trusting the stored number —
+  // whether an order is "free" decides if payment is skipped, so that
+  // decision must not rest on a value that could be stale or wrong), and
+  // whether this caller is already a customer. They only read (the
+  // subtotal write is the same value the order already has), so doing them
+  // together changes nothing about what happens — it just stops the caller
+  // waiting through three round trips in a row.
+  const business = ctx.context.business;
+  const [{ data: orderItems }, preClaimSubtotal, { data: existingCustomer }] = await Promise.all([
+    admin.from("order_items").select("id").eq("order_id", order.id),
+    recomputeOrderSubtotal(order.id),
+    admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", input.phone).maybeSingle(),
+  ]);
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
-  // order.subtotal_cents is already kept current by recomputeOrderSubtotal
-  // on every add/remove, so whether this order has anything to collect
-  // at all is knowable before claiming it — needed below to decide
-  // whether this order actually requires payment. (A $0 subtotal is
-  // always a $0 total regardless of tax, so this doesn't need an
-  // actual Stripe Tax call — just the subtotal.)
-  const business = ctx.context.business;
-  // Recomputed from the actual items rather than trusting the stored
-  // number: whether an order is "free" decides if payment is skipped, so
-  // that decision must not rest on a value that could be stale or wrong.
-  const preClaimSubtotal = await recomputeOrderSubtotal(order.id);
+  // order.subtotal_cents is kept current by recomputeOrderSubtotal on every
+  // add/remove; the figure just computed decides whether this order has
+  // anything to collect at all. (A $0 subtotal is always a $0 total
+  // regardless of tax, so this doesn't need an actual Stripe Tax call.)
   const isFreeOrder = preClaimSubtotal === 0;
 
   // Phone payments (Stripe Connect) are mandatory for every REAL phone
@@ -514,7 +545,6 @@ async function confirm_and_place_order(
     };
   }
 
-  const { data: existingCustomer } = await admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", input.phone).maybeSingle();
   let customerId = existingCustomer?.id;
   if (!customerId) {
     const { data: newCustomer } = await admin.from("customers").insert({ business_id: ctx.businessId, name: input.customer_name, phone: input.phone }).select().single();
@@ -547,7 +577,29 @@ async function confirm_and_place_order(
     return { success: true, order_id: order.id, already_placed: true };
   }
 
-  await soft("record call outcome", admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId));
+  // Everything below is independent of everything else in this block, so it
+  // runs together instead of one step after another:
+  //   - the call is marked "order placed" (bookkeeping, never blocks);
+  //   - the order, its items and their modifiers are read for the kitchen
+  //     ticket;
+  //   - the real sales tax is calculated by Stripe Tax from the business's
+  //     own address (lib/billing/stripeTax.ts) — not a manually-entered
+  //     percentage. It only needs the subtotal, which was just computed.
+  //     Works the same whether or not a printer tablet is paired: the AI
+  //     always quotes and records the real total, and the order shows up on
+  //     the dashboard with the right tax/total even if it just sits at
+  //     "confirmed" for the owner to ring in manually.
+  // The tax call is the slow one (a round trip to Stripe), so starting it
+  // alongside the database reads, rather than after them, takes the reads
+  // off the critical path entirely.
+  const taxPromise = calculateTaxCents(business, preClaimSubtotal);
+  const [, orderWithItemsRes, itemsRes] = await Promise.all([
+    soft("record call outcome", admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId)),
+    admin.from("orders").select("*").eq("id", order.id).single(),
+    admin.from("order_items").select("*").eq("order_id", order.id),
+  ]);
+  const itemIds = (itemsRes.data || []).map((i) => i.id);
+  const modifiersRes = itemIds.length ? await admin.from("order_item_modifiers").select("*").in("order_item_id", itemIds) : { data: [] };
 
   // Attempt to actually send this to the kitchen printer app. If this
   // fails (not paired, printer offline), the order still exists and
@@ -556,27 +608,21 @@ async function confirm_and_place_order(
   // business follows up manually rather than the customer being told
   // something went wrong mid-call for a problem that isn't theirs to
   // solve.
-  const orderWithItemsRes = await admin.from("orders").select("*").eq("id", order.id).single();
-  const itemsRes = await admin.from("order_items").select("*").eq("order_id", order.id);
-  const itemIds = (itemsRes.data || []).map((i) => i.id);
-  const modifiersRes = itemIds.length ? await admin.from("order_item_modifiers").select("*").in("order_item_id", itemIds) : { data: [] };
-
   const fullOrder: OrderWithItems = {
     ...orderWithItemsRes.data,
     items: (itemsRes.data || []).map((i) => ({ ...i, modifiers: (modifiersRes.data || []).filter((m) => m.order_item_id === i.id) })),
   };
 
-  // Real sales tax, calculated live via Stripe Tax from the business's
-  // own address (lib/billing/stripeTax.ts) — not a manually-entered
-  // percentage. Works the same whether or not a printer tablet is
-  // paired: the AI always quotes and records the real total, and the
-  // order shows up on the dashboard with the right tax/total even if
-  // it just sits at "confirmed" for the owner to ring in manually.
-  const taxCents = await calculateTaxCents(business, fullOrder.subtotal_cents);
+  // The tax was calculated from the subtotal computed a moment ago; the
+  // row just read must agree. If it somehow doesn't, recalculate from the
+  // row rather than charge tax on a different amount than the order holds.
+  const taxCents =
+    fullOrder.subtotal_cents === preClaimSubtotal ? await taxPromise : await calculateTaxCents(business, fullOrder.subtotal_cents);
   const totalCents = fullOrder.subtotal_cents + taxCents;
   fullOrder.tax_cents = taxCents;
   fullOrder.total_cents = totalCents;
-  await soft("save order tax", admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id));
+  // Started now, awaited before each return below. soft() never throws.
+  const saveTax = soft("save order tax", admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id));
 
   // Test channel: simulate a completed payment instead of touching
   // Stripe or texting a real phone number — this is the owner's own
@@ -588,6 +634,7 @@ async function confirm_and_place_order(
   // was texted so the preview sounds like a real call, even though
   // nothing was actually sent.
   if (ctx.channel === "test") {
+    await saveTax;
     await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
     if (business.printer_app_paired_at) {
       const queued = await queuePrintJob(fullOrder, business);
@@ -606,6 +653,7 @@ async function confirm_and_place_order(
   // testing the printer on a real call without Stripe connected or
   // spending anything: price a menu item at $0 and call in.
   if (totalCents === 0) {
+    await saveTax;
     await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
     if (business.printer_app_paired_at) {
       const queued = await queuePrintJob(fullOrder, business);
@@ -625,6 +673,7 @@ async function confirm_and_place_order(
   // check already guarantees this is set — this is just satisfying the
   // type checker, not a real runtime path.
   if (!business.stripe_connect_account_id) {
+    await saveTax;
     return { success: false, reason: "This business hasn't finished setting up phone payments yet." };
   }
 
@@ -656,16 +705,22 @@ async function confirm_and_place_order(
     // order exists but is unpaid, and the AI's reply (built from
     // this tool result) should say payment couldn't be started
     // right now, not that the order is confirmed.
+    await saveTax;
     return { success: false, reason: checkout.error || "Could not start payment for this order." };
   }
 
-  await soft("save checkout session", admin
-    .from("orders")
-    .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId })
-    .eq("id", order.id));
-
   const paymentSmsBody = `${business.name}: your order total is $${(totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${checkout.url} (link expires in 30 min). Msg&data rates may apply.`;
-  await smsClient.send(ctx.businessId, input.phone, paymentSmsBody);
+  // Saving the checkout session id and texting the payment link don't depend
+  // on each other, so they happen together (and after the tax figure is
+  // saved, so the two writes to this row can't interleave).
+  await saveTax;
+  await Promise.all([
+    soft("save checkout session", admin
+      .from("orders")
+      .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId })
+      .eq("id", order.id)),
+    smsClient.send(ctx.businessId, input.phone, paymentSmsBody),
+  ]);
 
   return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true };
 }
