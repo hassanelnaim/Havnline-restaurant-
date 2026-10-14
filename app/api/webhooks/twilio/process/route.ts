@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, buildTurnResponseTwiml, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
+import { twiml, buildTurnResponseTwiml, getRequestUrl, errorFallbackTwiml, readSeqParam } from "@/lib/ai/twimlHelpers";
 import { warmResponse } from "@/lib/ai/warmup";
 import { createTimer, shortId } from "@/lib/monitoring/timing";
 
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const result = await handleTurn(call.business_id, callId, speechResult, "phone", timer);
+      const result = await handleTurn(call.business_id, callId, speechResult, "phone", { timer, seq: readSeqParam(request.nextUrl) });
       return buildTurnResponseTwiml(call.business_id, callId, result, voice);
     } catch (err) {
       return errorFallbackTwiml(call.business_id, callId, voice, err);

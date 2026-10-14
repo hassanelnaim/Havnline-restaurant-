@@ -3,10 +3,29 @@ import { loadBusinessContext } from "./context";
 import { runTurn, type ConversationMessage, type RunTurnResult } from "./claude";
 import type { ToolContext } from "./tools";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
+import { loadCurrentOrder } from "./orderState";
 
 export interface HandleTurnResult {
   reply: string;
   toolCalls: { name: string; input: unknown; result: any }[];
+  /**
+   * How many things the caller has said so far on this call, counting this
+   * one. The next <Gather> carries it back as `seq` so a repeat of THIS
+   * request can be told apart from the caller genuinely saying the same
+   * word again (see handleTurn).
+   */
+  turnCount?: number;
+}
+
+export interface HandleTurnOptions {
+  /** The calling webhook's timer, so one log line shows the whole turn. */
+  timer?: Timer;
+  /**
+   * `seq` from the request URL: how many caller messages existed when the
+   * TwiML that led to this request was issued. Absent on paths that don't
+   * carry it (and on the dashboard's test chat).
+   */
+  seq?: number | null;
 }
 
 export async function startCall(businessId: string, callerNumber: string, dialedNumber: string): Promise<string> {
@@ -56,12 +75,10 @@ export async function handleTurn(
   callId: string,
   userMessage: string,
   channel: "test" | "phone",
-  // The calling webhook's timer, so one log line shows the whole turn. A
-  // caller without one (the dashboard's test chat) gets its own.
-  parentTimer?: Timer
+  options: HandleTurnOptions = {}
 ): Promise<HandleTurnResult> {
   const admin = createAdminClient();
-  const timer = parentTimer ?? createTimer("turn", { call: shortId(callId) });
+  const timer = options.timer ?? createTimer("turn", { call: shortId(callId) });
 
   try {
     // Everything this turn needs to read, fetched at once. These used to run
@@ -69,59 +86,53 @@ export async function handleTurn(
     // and the caller was waiting in silence through each round trip. None of
     // them depends on another's result, and none of them reads the customer
     // message this turn is about to write.
-    const [{ data: recentMessages }, context, { data: callRow }, { data: priorMessages }] = await Promise.all([
-      admin
-        .from("call_messages")
-        .select("id, role, content, created_at")
-        .eq("call_id", callId)
-        .order("created_at", { ascending: false })
-        .limit(2),
+    const [context, { data: callRow }, { data: priorMessages }, currentOrder] = await Promise.all([
       loadBusinessContext(businessId, { fresh: channel === "test" }),
       admin.from("calls").select("phone").eq("id", callId).maybeSingle(),
-      admin.from("call_messages").select("role, content").eq("call_id", callId).neq("role", "system").order("created_at", { ascending: true }),
+      admin.from("call_messages").select("role, content, tool_call, created_at").eq("call_id", callId).neq("role", "system").order("created_at", { ascending: true }),
+      loadCurrentOrder(callId),
     ]);
     timer.mark("load");
 
-    // Real retry protection. Twilio guarantees "at-least-once" webhook
-    // delivery — if our response takes too long (which genuinely
-    // happens on order turns: menu lookup, adding items, queuing the
-    // print job, confirmation SMS, all in sequence), Twilio assumes the
-    // request failed and retries it, sending the exact same speech text
-    // again. Without this check, that retry would silently reprocess the
-    // whole turn — creating a duplicate order, a duplicate confirmation
-    // text, and double AI cost. This is the actual root cause of an
-    // order "repeating" on the Orders page.
-    const lastCustomerMsg = (recentMessages || []).find((m) => m.role === "customer");
-    if (lastCustomerMsg && lastCustomerMsg.content === userMessage) {
-      const secondsSinceLastIdenticalMessage = (Date.now() - new Date(lastCustomerMsg.created_at).getTime()) / 1000;
-      // 25 seconds comfortably covers Twilio's 15-second hard timeout
-      // plus retry dispatch time, without being long enough to
-      // incorrectly suppress a genuine, separate repeat of the same
-      // phrase later in a real conversation.
-      if (secondsSinceLastIdenticalMessage < 25) {
-        const { data: existingReply } = await admin
-          .from("call_messages")
-          .select("content, tool_call")
-          .eq("call_id", callId)
-          .eq("role", "ai")
-          .gt("created_at", lastCustomerMsg.created_at)
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .maybeSingle();
+    const priorCustomerCount = (priorMessages || []).filter((m) => m.role === "customer").length;
 
-        if (existingReply) {
-          // Already fully processed once — return the cached result
-          // instead of doing everything (including side effects like
-          // placing the order and texting) a second time.
+    // Retry protection. Twilio can deliver the same webhook request twice
+    // (for example if the connection drops mid-request), sending the exact
+    // same speech text again. Reprocessing it would add the items twice and
+    // double the AI cost.
+    //
+    // A repeat is recognised by the request itself, not by its words: every
+    // <Gather> we send back carries `seq`, the number of things the caller
+    // had said when it was issued. A genuine next request carries a seq equal
+    // to the number of messages recorded so far; a repeat of a request that
+    // was already handled carries an OLDER seq (the original has since
+    // recorded another caller message). Comparing words instead — "has the
+    // caller said this same thing in the last 25 seconds?" — can't tell a
+    // repeated request from a caller who legitimately says "no" and then "no"
+    // again, and answered the second "no" with a replay of the reply to the
+    // first, so the assistant asked the same question twice in a row.
+    if (typeof options.seq === "number" && priorCustomerCount > options.seq) {
+      const rows = priorMessages || [];
+      const customerRows = rows.filter((m) => m.role === "customer");
+      const original = customerRows[options.seq];
+      if (original && original.content === userMessage) {
+        const originalIndex = rows.indexOf(original);
+        const next = rows[originalIndex + 1];
+        const reply = next && next.role === "ai" ? next : undefined;
+        if (reply) {
+          // Already fully processed once — return the stored result instead
+          // of doing everything (including side effects like placing the
+          // order and texting) a second time.
           timer.set("retry", true);
           return {
-            reply: existingReply.content,
-            toolCalls: existingReply.tool_call ? JSON.parse(existingReply.tool_call).map((name: string) => ({ name, input: {}, result: {} })) : [],
+            reply: reply.content,
+            toolCalls: reply.tool_call ? JSON.parse(reply.tool_call).map((name: string) => ({ name, input: {}, result: {} })) : [],
+            turnCount: priorCustomerCount,
           };
         }
         // No AI reply logged yet — the original request may still be
-        // genuinely in progress. Fall through rather than risk
-        // returning nothing to a real, still-in-flight turn.
+        // genuinely in progress. Fall through rather than risk returning
+        // nothing to a real, still-in-flight turn.
       }
     }
 
@@ -172,7 +183,7 @@ export async function handleTurn(
     const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone };
     let result: RunTurnResult;
     try {
-      result = await runTurn(history, userMessage, toolCtx);
+      result = await runTurn(history, userMessage, toolCtx, { currentOrder });
     } finally {
       await saveCustomerMessage;
     }
@@ -195,11 +206,11 @@ export async function handleTurn(
     });
     timer.mark("save_reply");
 
-    return result;
+    return { ...result, turnCount: priorCustomerCount + 1 };
   } finally {
     // A timer this function created is finished here; one handed in by a
     // webhook is finished by that webhook.
-    if (!parentTimer) timer.done();
+    if (!options.timer) timer.done();
   }
 }
 

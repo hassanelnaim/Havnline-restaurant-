@@ -40,6 +40,24 @@ export function getRequestUrl(request: Request): string {
   return `${proto}://${host}${url.pathname}${url.search}`;
 }
 
+/**
+ * The URL a <Gather> posts the caller's speech to. `seq` is how many things
+ * the caller had said when this TwiML was issued; handleTurn uses it to tell
+ * a repeated request apart from the caller saying the same word again.
+ * Omitted when it isn't known.
+ */
+export function gatherActionUrl(callId: string, seq?: number | null): string {
+  const base = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+  return typeof seq === "number" && Number.isFinite(seq) ? `${base}&seq=${seq}` : base;
+}
+
+/** Reads `seq` from a request URL; null when absent or not a whole number. */
+export function readSeqParam(url: URL): number | null {
+  const raw = url.searchParams.get("seq");
+  if (raw === null || !/^\d{1,6}$/.test(raw)) return null;
+  return parseInt(raw, 10);
+}
+
 export function escapeXml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -119,7 +137,7 @@ export async function buildTurnResponseTwiml(
     }
   }
 
-  const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+  const gatherAction = gatherActionUrl(callId, result.turnCount);
 
   // The order is in. Waiting the usual 15 seconds of silence before
   // hanging up leaves the caller on a finished call with nothing

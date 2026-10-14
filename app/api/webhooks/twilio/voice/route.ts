@@ -4,7 +4,7 @@ import { resolveBusinessFromPhoneNumber, loadBusinessContext } from "@/lib/ai/co
 import { startCall } from "@/lib/ai/receptionist";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
-import { sayLine, getRequestUrl } from "@/lib/ai/twimlHelpers";
+import { sayLine, getRequestUrl, gatherActionUrl } from "@/lib/ai/twimlHelpers";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
@@ -179,7 +179,7 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   // "is this a real person?" confusion. Lead with the business name
   // itself, same as a human answering the phone would.
   const greeting = buildGreeting(context.business.name);
-  const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+  const gatherAction = gatherActionUrl(callId, 0);
   const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded };
 
   return twiml(`<Response>

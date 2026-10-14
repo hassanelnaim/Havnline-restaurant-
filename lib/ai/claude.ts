@@ -4,6 +4,7 @@ import { TOOL_DEFINITIONS, TOOL_HANDLERS, type ToolContext } from "./tools";
 import type { BusinessContext } from "./context";
 import { logAnthropicUsage } from "@/lib/usage/tracking";
 import { TransientAiError, isTransientAiError } from "./errors";
+import { formatOrderStateBlock, ORDER_PLACED_BLOCK, type CurrentOrder, type OrderSnapshot } from "./orderState";
 
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const PHONE_MODEL = process.env.ANTHROPIC_PHONE_MODEL || "claude-haiku-4-5-20251001";
@@ -84,7 +85,7 @@ export async function runTurn(
   history: ConversationMessage[],
   userMessage: string,
   toolCtx: ToolContext,
-  options: { maxTokens?: number; model?: string } = {}
+  options: { maxTokens?: number; model?: string; currentOrder?: CurrentOrder } = {}
 ): Promise<RunTurnResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -116,9 +117,17 @@ export async function runTurn(
   // the API accepts it. A prompt too short to be cached is processed
   // normally and nothing breaks — the cache_read / cache_write numbers in
   // the [timing] log lines show whether it is actually kicking in.
-  const system = [
-    { type: "text", text: systemText, cache_control: { type: "ephemeral" } },
-  ] as unknown as Anthropic.TextBlockParam[];
+  // The live order goes in a second block AFTER the cache point, so it can
+  // change on every turn without invalidating the cached prefix above it.
+  // (Only the first block is marked; a cache hit covers everything up to it.)
+  // Without an order (the options say nothing), no second block is sent.
+  let orderBlockText = options.currentOrder ? formatOrderStateBlock(options.currentOrder) : null;
+  const buildSystem = () =>
+    [
+      { type: "text", text: systemText, cache_control: { type: "ephemeral" } },
+      ...(orderBlockText ? [{ type: "text", text: orderBlockText }] : []),
+    ] as unknown as Anthropic.TextBlockParam[];
+  let system = buildSystem();
 
   const messages: Anthropic.MessageParam[] = [
     ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -223,6 +232,28 @@ export async function runTurn(
     }
 
     stats.toolMs += Date.now() - toolsStartedAt;
+
+    // If a tool changed the order, its result carries the updated order.
+    // Refresh the CURRENT ORDER block to match, so the next pass never sees
+    // the old order in the system prompt next to a newer one in the tool
+    // result.
+    if (options.currentOrder) {
+      for (let i = toolCalls.length - 1; i >= 0; i--) {
+        const call = toolCalls[i];
+        const result = call.result as { current_order?: unknown; success?: unknown; order_id?: unknown } | null;
+        if (call.name === "confirm_and_place_order" && result?.success === true && result.order_id) {
+          orderBlockText = ORDER_PLACED_BLOCK;
+          system = buildSystem();
+          break;
+        }
+        const updated = result?.current_order;
+        if (updated && typeof updated === "object" && Array.isArray((updated as OrderSnapshot).items)) {
+          orderBlockText = formatOrderStateBlock({ status: "ok", order: updated as OrderSnapshot });
+          system = buildSystem();
+          break;
+        }
+      }
+    }
 
     messages.push({ role: "user", content: toolResults });
   }

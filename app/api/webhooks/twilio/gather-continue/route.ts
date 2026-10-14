@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam } from "@/lib/ai/twimlHelpers";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
 
@@ -40,6 +40,7 @@ async function handleContinue(request: NextRequest, callId: string, original: st
   const params: Record<string, string> = {};
   formData.forEach((value, key) => (params[key] = String(value)));
 
+  const seq = readSeqParam(request.nextUrl);
   const state = await loadCallWebhookState(callId, "gather-continue");
   timer.mark("load_call");
   if (!state) return twiml(`<Response><Say>Sorry, something went wrong. Goodbye.</Say><Hangup/></Response>`);
@@ -59,7 +60,7 @@ async function handleContinue(request: NextRequest, callId: string, original: st
     // Not expected in practice (Twilio only calls this action when it
     // actually captured speech), but fail the same safe way /gather's
     // own no-speech case does rather than a dead-end hangup.
-    const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+    const gatherAction = gatherActionUrl(callId, seq);
     return twiml(`<Response>
   <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
     ${sayLine(voice, "Sorry, could you say that again?", call.business_id)}
@@ -70,7 +71,7 @@ async function handleContinue(request: NextRequest, callId: string, original: st
   }
 
   try {
-    const result = await handleTurn(call.business_id, callId, combinedSpeech, "phone", timer);
+    const result = await handleTurn(call.business_id, callId, combinedSpeech, "phone", { timer, seq });
     return buildTurnResponseTwiml(call.business_id, callId, result, voice);
   } catch (err) {
     return errorFallbackTwiml(call.business_id, callId, voice, err);

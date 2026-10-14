@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam } from "@/lib/ai/twimlHelpers";
 import { isFarewell, POST_ORDER_GOODBYE } from "@/lib/ai/fillers";
 import { warmResponse } from "@/lib/ai/warmup";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
@@ -53,7 +53,12 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   }
 
   const speechResult = params.SpeechResult;
-  const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+  // How many things the caller had said when this request's TwiML was issued
+  // (see gatherActionUrl). Carried forward unchanged when nothing new has
+  // been recorded yet: the re-prompt below and the filler path both lead to
+  // the same point in the conversation.
+  const seq = readSeqParam(request.nextUrl);
+  const gatherAction = gatherActionUrl(callId, seq);
 
   if (!speechResult) {
     return twiml(`<Response>
@@ -92,7 +97,7 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   if (!filler) {
     timer.set("path", "direct");
     try {
-      const result = await handleTurn(call.business_id, callId, speechResult, "phone", timer);
+      const result = await handleTurn(call.business_id, callId, speechResult, "phone", { timer, seq });
       return buildTurnResponseTwiml(call.business_id, callId, result, voice);
     } catch (err) {
       return errorFallbackTwiml(call.business_id, callId, voice, err);
@@ -100,7 +105,8 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   }
 
   timer.set("path", "filler");
-  const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}`;
+  const seqParam = seq === null ? "" : `&seq=${seq}`;
+  const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}${seqParam}`;
 
   // The filler used to be a bare <Say> with no <Gather> around it —
   // Twilio isn't listening for speech at all while a bare <Say> plays,
@@ -115,7 +121,7 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   // to the same /process redirect as before. timeout is kept short
   // (1s) since this adds pure wait time to the common case where the
   // customer really is done talking.
-  const continueAction = `${SITE_URL}/api/webhooks/twilio/gather-continue?callId=${callId}&original=${encodeURIComponent(speechResult)}`;
+  const continueAction = `${SITE_URL}/api/webhooks/twilio/gather-continue?callId=${callId}&original=${encodeURIComponent(speechResult)}${seqParam}`;
 
   return twiml(`<Response>
   <Gather input="speech" action="${escapeXml(continueAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="1">

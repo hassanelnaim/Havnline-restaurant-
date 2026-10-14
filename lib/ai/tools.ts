@@ -9,6 +9,7 @@ import { isBusinessOpenNow } from "@/lib/business/hours";
 import { calculateTaxCents } from "@/lib/billing/stripeTax";
 import { describeTimePricing, quoteItemPrice } from "@/lib/business/pricing";
 import { shouldAttemptLiveTransfer, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "./liveTransfer";
+import { buildOrderSnapshot, orderSubtotalCents, type OrderSnapshot, type OrderItemRow, type OrderModifierRow } from "./orderState";
 import type { BusinessContext } from "./context";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -191,43 +192,47 @@ async function soft<T extends { error: { message: string } | null }>(label: stri
   }
 }
 
-// The price adjustments of every modifier on the given order items, summed
-// per item, in a single query. A failed read throws rather than returning a
-// partial answer: a missing modifier would under-price the order.
-async function modifierTotalsByItem(orderItemIds: string[]): Promise<Map<string, number>> {
-  const totals = new Map<string, number>();
-  if (orderItemIds.length === 0) return totals;
+// Recomputes the order's stored subtotal from its actual items and returns it
+// together with the order as the AI should see it (every line with its real
+// quantity and price). Reading the items to price them and reading them to
+// describe them is the same read, so the snapshot costs no extra queries.
+async function recomputeOrder(orderId: string): Promise<{ subtotalCents: number; snapshot: OrderSnapshot }> {
   const admin = createAdminClient();
-  const { data: mods, error } = await admin
-    .from("order_item_modifiers")
-    .select("order_item_id, price_delta_cents")
-    .in("order_item_id", orderItemIds);
-  if (error) throw new Error(`Could not read an item's modifiers: ${error.message}`);
-  for (const m of mods || []) {
-    totals.set(m.order_item_id, (totals.get(m.order_item_id) || 0) + m.price_delta_cents);
-  }
-  return totals;
-}
-
-async function recomputeOrderSubtotal(orderId: string): Promise<number> {
-  const admin = createAdminClient();
-  const { data: items, error: itemsError } = await admin.from("order_items").select("id, unit_price_cents, quantity").eq("order_id", orderId);
+  const { data: items, error: itemsError } = await admin
+    .from("order_items")
+    .select("id, item_name, quantity, unit_price_cents, notes")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
   // A failed read must never be treated as "no items": that would write a
   // $0 subtotal, and a $0 order is treated as free (no payment, straight
   // to the kitchen). Throw instead; the tool runner turns it into an
   // error the AI can report, and the stored subtotal is left untouched.
   if (itemsError) throw new Error(`Could not read the order's items: ${itemsError.message}`);
+
   // One query for every item's modifiers (it used to be one query PER ITEM,
   // run one after another — an order with six items made seven round trips
-  // to the database every time anything was added or changed).
-  const modifierTotals = await modifierTotalsByItem((items || []).map((i) => i.id));
-  let subtotal = 0;
-  for (const item of items || []) {
-    subtotal += (item.unit_price_cents + (modifierTotals.get(item.id) || 0)) * item.quantity;
+  // to the database every time anything was added or changed). A failed read
+  // throws rather than returning a partial answer: a missing modifier would
+  // under-price the order.
+  const itemRows = (items || []) as OrderItemRow[];
+  let modifierRows: OrderModifierRow[] = [];
+  if (itemRows.length > 0) {
+    const { data: mods, error: modsError } = await admin
+      .from("order_item_modifiers")
+      .select("order_item_id, modifier_name, price_delta_cents")
+      .in("order_item_id", itemRows.map((i) => i.id));
+    if (modsError) throw new Error(`Could not read an item's modifiers: ${modsError.message}`);
+    modifierRows = (mods || []) as OrderModifierRow[];
   }
-  const { error: updateError } = await admin.from("orders").update({ subtotal_cents: subtotal, total_cents: subtotal }).eq("id", orderId);
+
+  const subtotalCents = orderSubtotalCents(itemRows, modifierRows);
+  const { error: updateError } = await admin.from("orders").update({ subtotal_cents: subtotalCents, total_cents: subtotalCents }).eq("id", orderId);
   if (updateError) throw new Error(`Could not save the order total: ${updateError.message}`);
-  return subtotal;
+  return { subtotalCents, snapshot: buildOrderSnapshot(itemRows, modifierRows) };
+}
+
+async function recomputeOrderSubtotal(orderId: string): Promise<number> {
+  return (await recomputeOrder(orderId)).subtotalCents;
 }
 
 async function add_item_to_order(
@@ -304,11 +309,12 @@ async function add_item_to_order(
             matchedModifiers.map((m) => ({ order_item_id: candidate.id, modifier_id: m.id, modifier_name: m.name, price_delta_cents: m.price_delta_cents }))
           ));
         }
-        const subtotal = await recomputeOrderSubtotal(orderId);
+        const { subtotalCents, snapshot } = await recomputeOrder(orderId);
         return {
           success: true,
           added: { item: menuItem.name, quantity: 1, modifiers: matchedModifiers.map((m) => m.name) },
-          running_subtotal: subtotal / 100,
+          running_subtotal: subtotalCents / 100,
+          current_order: snapshot,
         };
       }
     }
@@ -351,7 +357,7 @@ async function add_item_to_order(
     ));
   }
 
-  const subtotal = await recomputeOrderSubtotal(orderId);
+  const { subtotalCents, snapshot } = await recomputeOrder(orderId);
 
   return {
     success: true,
@@ -364,7 +370,8 @@ async function add_item_to_order(
         ? { promotion_applied: `${quote.promotion.title} (${quote.promotion.description})`, regular_unit_price: quote.priceBeforePromotionCents / 100 }
         : {}),
     },
-    running_subtotal: subtotal / 100,
+    running_subtotal: subtotalCents / 100,
+    current_order: snapshot,
   };
 }
 
@@ -399,8 +406,8 @@ async function update_item_quantity(input: { item_name: string; quantity: number
     await must("update order item", admin.from("order_items").update({ quantity: newQuantity }).eq("id", matches[0].id));
   }
 
-  const subtotal = await recomputeOrderSubtotal(order.id);
-  return { success: true, item: input.item_name, new_quantity: newQuantity <= 0 ? 0 : newQuantity, running_subtotal: subtotal / 100 };
+  const { subtotalCents, snapshot } = await recomputeOrder(order.id);
+  return { success: true, item: input.item_name, new_quantity: newQuantity <= 0 ? 0 : newQuantity, running_subtotal: subtotalCents / 100, current_order: snapshot };
 }
 
 // A dedicated, single-call fix for correcting an item's toppings/notes
@@ -446,8 +453,8 @@ async function update_item_modifiers(input: { item_name: string; modifier_names?
     matchedModifierNames = matchedModifiers.map((m) => m.name);
   }
 
-  const subtotal = await recomputeOrderSubtotal(order.id);
-  return { success: true, item: input.item_name, modifiers: matchedModifierNames, notes: input.notes || null, running_subtotal: subtotal / 100 };
+  const { subtotalCents, snapshot } = await recomputeOrder(order.id);
+  return { success: true, item: input.item_name, modifiers: matchedModifierNames, notes: input.notes || null, running_subtotal: subtotalCents / 100, current_order: snapshot };
 }
 
 async function remove_item_from_order(input: { item_name: string }, ctx: ToolContext): Promise<ToolResult> {
@@ -466,8 +473,8 @@ async function remove_item_from_order(input: { item_name: string }, ctx: ToolCon
   if (!matches || matches.length === 0) return { success: false, reason: `"${input.item_name}" isn't in the current order.` };
 
   await must("remove order item", admin.from("order_items").delete().eq("id", matches[0].id));
-  const subtotal = await recomputeOrderSubtotal(order.id);
-  return { success: true, removed: input.item_name, running_subtotal: subtotal / 100 };
+  const { subtotalCents, snapshot } = await recomputeOrder(order.id);
+  return { success: true, removed: input.item_name, running_subtotal: subtotalCents / 100, current_order: snapshot };
 }
 
 async function get_current_order(_input: unknown, ctx: ToolContext): Promise<ToolResult> {
@@ -845,7 +852,7 @@ export const TOOL_DEFINITIONS = [
       required: ["item_name"],
     },
   },
-  { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. Use this to read the order back to the customer before confirming.", input_schema: { type: "object" as const, properties: {} } },
+  { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. The current order is already provided to you at the start of every turn and in every add/change/remove result, so you normally do NOT need this — call it only if you are unsure the order you have is up to date.", input_schema: { type: "object" as const, properties: {} } },
   {
     name: "confirm_and_place_order",
     description: "Lock in the order. Only call this AFTER reading the full order and total back to the customer out loud and getting their explicit confirmation. For a pay-at-pickup business this actually places the order — never claim it's placed before calling this and getting success back. For a business that collects payment up front, a successful result means a payment link was texted, NOT that the order is placed yet — check the result's payment_link_sent field and respond accordingly.",
