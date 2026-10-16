@@ -80,12 +80,22 @@ export function getSpecialSuggestions(
       }
     }
     if (slowestIdx !== -1 && slowestAvg < overallAvg * 0.7) {
-      const pctBelow = Math.round((1 - slowestAvg / overallAvg) * 100);
-      suggestions.push({
-        title: `${WEEKDAY_DISPLAY[slowestIdx]}s are your slowest day`,
-        detail: `Averaging ${pctBelow}% below your typical day over the last ${windowDays} days. A ${WEEKDAY_DISPLAY[slowestIdx]}-only special could be worth testing.`,
-        href: "/dashboard/menu",
-      });
+      const day = WEEKDAY_DISPLAY[slowestIdx];
+      if (slowestAvg === 0) {
+        // "100% below your typical day" is technically true but reads oddly.
+        suggestions.push({
+          title: `No sales on ${day}s lately`,
+          detail: `Nothing sold on a ${day} in the last ${windowDays} days. A ${day}-only special could bring in some business.`,
+          href: "/dashboard/menu",
+        });
+      } else {
+        const pctBelow = Math.round((1 - slowestAvg / overallAvg) * 100);
+        suggestions.push({
+          title: `${day}s are your slowest day`,
+          detail: `${day}s bring in about ${pctBelow}% less than your typical day over the last ${windowDays} days. A ${day}-only special could be worth testing.`,
+          href: "/dashboard/menu",
+        });
+      }
     }
   }
 

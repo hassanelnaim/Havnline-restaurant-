@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { PhoneCall, ClipboardList, AlertTriangle, ArrowUpRight, DollarSign, Receipt, TrendingUp } from "lucide-react";
+import { PhoneCall, ClipboardList, AlertTriangle, ArrowUpRight, DollarSign } from "lucide-react";
 import { getBusiness } from "@/lib/data/business";
 import { getCalls } from "@/lib/data/calls";
 import { getOrdersForBusiness, getOrderTotalsSince, getOrdersWithItemsSince } from "@/lib/data/orders";
@@ -20,7 +20,7 @@ function toBizDateString(iso: string, timezone: string): string {
 }
 
 // Rolling, not calendar-aligned, so it visibly moves week to week
-// instead of settling into one flat number — see the "This week" cards
+// instead of settling into one flat number — see the "On pace for" figure
 // below.
 const TRAILING_WINDOW_DAYS = 7;
 const PROJECTED_MONTH_DAYS = 30;
@@ -59,31 +59,6 @@ function StatTile({ href, label, value, icon: Icon, hint, accentClass }: StatTil
   );
 }
 
-interface StaticStatTileProps {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-  hint?: string;
-}
-
-// "Projected monthly income" is a forward-looking estimate (this week's
-// pace × 30), not a record of anything that already happened — unlike
-// every other tile here, there's no page it actually corresponds to, so
-// it stays a plain, non-clickable card instead of linking somewhere
-// that isn't really "more detail on this number."
-function StaticStatTile({ label, value, icon: Icon, hint }: StaticStatTileProps) {
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">{label}</span>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Icon className="h-4 w-4" /></div>
-      </div>
-      <div className="mt-2 font-display text-[28px] font-semibold text-ink">{value}</div>
-      {hint && <div className="mt-1 text-[11.5px] text-text-faint">{hint}</div>}
-    </div>
-  );
-}
-
 export default async function OverviewPage() {
   const business = await getBusiness();
   const sinceIso = new Date(Date.now() - TRAILING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -91,7 +66,7 @@ export default async function OverviewPage() {
 
   const timezone = business.timezone || "America/New_York";
 
-  const [calls, orders, weekOrders, patternOrders, menu, salesSeries, sellerData] = await Promise.all([
+  const [calls, orders, weekOrders, patternOrders, menu, salesData, sellerData] = await Promise.all([
     getCalls(),
     getOrdersForBusiness(business.id),
     getOrderTotalsSince(business.id, sinceIso),
@@ -111,7 +86,7 @@ export default async function OverviewPage() {
   // still waiting on an unpaid phone-payments link).
   // Prefer the database's own daily total (the Orders list above is capped
   // at the 100 most recent orders, which a busy day can exceed).
-  const todayBucket = salesSeries?.day[salesSeries.day.length - 1];
+  const todayBucket = salesData?.series.day[salesData.series.day.length - 1];
   const salesTodayCents = todayBucket && todayBucket.local.startsWith(todayInBizTz)
     ? todayBucket.totalCents
     : ordersTodayList.filter(countsTowardSales).reduce((sum, o) => sum + o.total_cents, 0);
@@ -124,7 +99,6 @@ export default async function OverviewPage() {
   // AI paying for itself" on an ongoing basis.
   const weekSalesOrders = weekOrders.filter(countsTowardSales);
   const weekRevenueCents = weekSalesOrders.reduce((sum, o) => sum + o.total_cents, 0);
-  const avgOrderValueCents = weekSalesOrders.length > 0 ? Math.round(weekRevenueCents / weekSalesOrders.length) : 0;
   const projectedMonthlyIncomeCents = Math.round((weekRevenueCents / TRAILING_WINDOW_DAYS) * PROJECTED_MONTH_DAYS);
 
   const specialSuggestions = getSpecialSuggestions(patternOrders, menu.items, timezone, PATTERN_WINDOW_DAYS);
@@ -149,40 +123,26 @@ export default async function OverviewPage() {
       </div>
 
       <div className="mt-6">
-        <SalesCard series={salesSeries} />
+        <SalesCard data={salesData} projectedMonthlyCents={projectedMonthlyIncomeCents} />
       </div>
 
       <div className="mt-6">
-        <h2 className="font-display text-[15px] font-semibold text-ink">This week</h2>
-        <p className="mt-0.5 text-[12px] text-text-faint">Based on the last 7 days — moves as the week does, instead of settling into one number forever.</p>
-        <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <StatTile href="/dashboard/orders" label="Average order value" value={`$${(avgOrderValueCents / 100).toFixed(2)}`} icon={Receipt} />
-          <StaticStatTile
-            label="Projected monthly income"
-            value={`$${(projectedMonthlyIncomeCents / 100).toFixed(2)}`}
-            icon={TrendingUp}
-            hint="At this week's pace"
-          />
-        </div>
+        <TopSellers data={sellerData} />
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-[15px] font-semibold text-ink">Ideas for specials</h2>
-            <Link href="/dashboard/menu" className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">Edit menu <ArrowUpRight className="h-3.5 w-3.5" /></Link>
-          </div>
-          <div className="space-y-1">
-            {specialSuggestions.map((s) => (
-              <Link key={s.title} href={s.href} className="block rounded-lg px-2 py-2.5 hover:bg-paper">
-                <div className="text-[13px] font-medium text-text">{s.title}</div>
-                <div className="mt-0.5 text-[12px] leading-relaxed text-text-faint">{s.detail}</div>
-              </Link>
-            ))}
-          </div>
+      <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-card sm:p-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-[15px] font-semibold text-ink">Ideas for specials</h2>
+          <Link href="/dashboard/menu" className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">Edit menu <ArrowUpRight className="h-3.5 w-3.5" /></Link>
         </div>
-
-        <TopSellers data={sellerData} />
+        <div className="grid gap-2 md:grid-cols-2">
+          {specialSuggestions.map((s) => (
+            <Link key={s.title} href={s.href} className="block rounded-xl border border-border-soft px-4 py-3 transition-colors hover:border-brand/40 hover:bg-brand-soft/20">
+              <div className="text-[13px] font-medium text-text">{s.title}</div>
+              <div className="mt-0.5 text-[12px] leading-relaxed text-text-faint">{s.detail}</div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );

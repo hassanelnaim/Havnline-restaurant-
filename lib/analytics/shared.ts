@@ -20,6 +20,40 @@ export const SALES_UNITS: SalesUnit[] = ["hour", "day", "week", "month"];
 
 export type SalesSeries = Record<SalesUnit, SalesBucket[]>;
 
+export interface SalesPeriodTotals {
+  totalCents: number;
+  orders: number;
+}
+
+/**
+ * What the Sales card shows: the bars for each timeframe, plus the totals of
+ * the equal-length stretch just before it (the previous 8 weeks for the
+ * weekly view, and so on) for the "vs previous" comparison.
+ */
+export interface SalesData {
+  series: SalesSeries;
+  previous: Record<SalesUnit, SalesPeriodTotals>;
+}
+
+/** Whole-number percentage change, or null when there's nothing to compare against. */
+export function percentChange(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+/**
+ * Short money label for the top of a bar, so neighbouring labels never
+ * collide: $8.50, $245, $1.2k, $12k.
+ */
+export function compactDollars(cents: number): string {
+  const dollars = cents / 100;
+  if (dollars === 0) return "$0";
+  if (dollars < 100) return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+  if (Math.round(dollars) < 1000) return `$${Math.round(dollars)}`;
+  if (Math.round(dollars / 100) < 100) return `$${(Math.round(dollars / 100) / 10).toString()}k`;
+  return `$${Math.round(dollars / 1000)}k`;
+}
+
 export interface SellerRow {
   menuItemId: string;
   name: string;
@@ -41,6 +75,9 @@ export interface CategorySellers {
   category: string;
   top: SellerRow[];
   notSelling: SellerRow[];
+  /** Every unit sold in this category in the window (not just the top items). */
+  totalUnits: number;
+  totalRevenueCents: number;
 }
 
 export function groupSellersByCategory(rows: SellerRow[], topPerCategory = 3): CategorySellers[] {
@@ -54,9 +91,14 @@ export function groupSellersByCategory(rows: SellerRow[], topPerCategory = 3): C
   for (const [category, items] of byCategory) {
     const sold = items.filter((i) => i.units > 0).sort((a, b) => b.units - a.units || b.revenueCents - a.revenueCents || a.name.localeCompare(b.name));
     const notSelling = items.filter((i) => i.units === 0).sort((a, b) => a.name.localeCompare(b.name));
-    result.push({ category, top: sold.slice(0, topPerCategory), notSelling });
+    result.push({
+      category,
+      top: sold.slice(0, topPerCategory),
+      notSelling,
+      totalUnits: sold.reduce((sum, i) => sum + i.units, 0),
+      totalRevenueCents: sold.reduce((sum, i) => sum + i.revenueCents, 0),
+    });
   }
   // Categories with the most sales first; "Other" last.
-  const total = (c: CategorySellers) => c.top.reduce((s, i) => s + i.units, 0);
-  return result.sort((a, b) => (a.category === "Other" ? 1 : b.category === "Other" ? -1 : total(b) - total(a) || a.category.localeCompare(b.category)));
+  return result.sort((a, b) => (a.category === "Other" ? 1 : b.category === "Other" ? -1 : b.totalUnits - a.totalUnits || b.totalRevenueCents - a.totalRevenueCents || a.category.localeCompare(b.category)));
 }

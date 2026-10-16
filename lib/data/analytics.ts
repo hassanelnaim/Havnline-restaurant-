@@ -1,21 +1,29 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { SALES_UNITS, SALES_WINDOWS, SELLER_WINDOW_DAYS } from "@/lib/analytics/shared";
-import type { SalesBucket, SalesSeries, SalesUnit, SellerData, SellerRow } from "@/lib/analytics/shared";
+import type { SalesBucket, SalesData, SalesPeriodTotals, SalesUnit, SellerData, SellerRow } from "@/lib/analytics/shared";
 
-async function loadBuckets(businessId: string, unit: SalesUnit, timezone: string): Promise<SalesBucket[]> {
+// Twice the visible window: the newer half is drawn, the older half is the
+// "previous" stretch the total is compared against. (The database function
+// accepts up to 60 periods; the largest request here is 48 hours.)
+async function loadBuckets(businessId: string, unit: SalesUnit, timezone: string): Promise<{ current: SalesBucket[]; previous: SalesPeriodTotals }> {
   const supabase = createClient();
+  const count = SALES_WINDOWS[unit];
   const { data, error } = await supabase.rpc("sales_buckets", {
     p_business_id: businessId,
     p_unit: unit,
     p_tz: timezone,
-    p_count: SALES_WINDOWS[unit],
+    p_count: count * 2,
   });
   if (error) throw new Error(`sales_buckets(${unit}) failed: ${error.message}`);
-  return ((data || []) as { bucket_local: string; total_cents: number | string; order_count: number | string }[]).map((r) => ({
-    local: r.bucket_local,
-    totalCents: Number(r.total_cents),
-    orders: Number(r.order_count),
-  }));
+  const all = ((data || []) as { bucket_local: string; total_cents: number | string; order_count: number | string }[])
+    .map((r) => ({ local: r.bucket_local, totalCents: Number(r.total_cents), orders: Number(r.order_count) }))
+    .sort((a, b) => (a.local < b.local ? -1 : a.local > b.local ? 1 : 0));
+  const current = all.slice(-count);
+  const older = all.slice(0, Math.max(0, all.length - count));
+  return {
+    current,
+    previous: { totalCents: older.reduce((s, b) => s + b.totalCents, 0), orders: older.reduce((s, b) => s + b.orders, 0) },
+  };
 }
 
 /**
@@ -24,11 +32,14 @@ async function loadBuckets(businessId: string, unit: SalesUnit, timezone: string
  * loaded (not configured, or the database function hasn't been created yet)
  * so the dashboard shows a notice instead of crashing.
  */
-export async function getSalesSeries(businessId: string, timezone: string): Promise<SalesSeries | null> {
+export async function getSalesSeries(businessId: string, timezone: string): Promise<SalesData | null> {
   if (!isSupabaseConfigured()) return null;
   try {
     const [hour, day, week, month] = await Promise.all(SALES_UNITS.map((u) => loadBuckets(businessId, u, timezone)));
-    return { hour, day, week, month };
+    return {
+      series: { hour: hour.current, day: day.current, week: week.current, month: month.current },
+      previous: { hour: hour.previous, day: day.previous, week: week.previous, month: month.previous },
+    };
   } catch (err) {
     console.error("getSalesSeries failed:", err);
     return null;
