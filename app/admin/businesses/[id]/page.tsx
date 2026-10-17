@@ -12,29 +12,46 @@ import { StatusEditor } from "@/components/admin/status-editor";
 import { FeeEditor } from "@/components/admin/fee-editor";
 import { IssuesPanel } from "@/components/admin/issues-panel";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
+import { TextingRegistration, type TextingRegistrationInfo } from "@/components/admin/texting-registration";
 
 export const dynamic = "force-dynamic";
 
 export default async function PlatformBusinessDetailPage({ params }: { params: { id: string } }) {
   const demoMode = !isSupabaseConfigured();
 
-  const { business, callCount, orderCount } = demoMode
+  const { business, callCount, orderCount, integrationRows } = demoMode
     ? {
         business: mockAdminBusinessDetails.find((b) => b.id === params.id) || null,
         callCount: mockCalls.length,
         orderCount: mockOrders.filter((o) => o.status !== "cancelled").length,
+        integrationRows: [] as { provider: string; status: string; metadata: unknown }[],
       }
     : await (async () => {
         const admin = createAdminClient();
-        const [{ data: biz }, { count: calls }, { count: orders }] = await Promise.all([
+        const [{ data: biz }, { count: calls }, { count: orders }, { data: integ }] = await Promise.all([
           admin.from("businesses").select("*").eq("id", params.id).maybeSingle(),
           admin.from("calls").select("*", { count: "exact", head: true }).eq("business_id", params.id),
           admin.from("orders").select("*", { count: "exact", head: true }).eq("business_id", params.id).neq("status", "building").neq("status", "cancelled"),
+          admin.from("integrations").select("provider, status, metadata").eq("business_id", params.id).in("provider", ["twilio", "sms"]),
         ]);
-        return { business: biz, callCount: calls || 0, orderCount: orders || 0 };
+        return { business: biz, callCount: calls || 0, orderCount: orders || 0, integrationRows: (integ || []) as { provider: string; status: string; metadata: unknown }[] };
       })();
 
   if (!business) notFound();
+
+  const twilioRow = integrationRows.find((r) => r.provider === "twilio" && r.status === "connected");
+  const twilioMeta = (twilioRow?.metadata || null) as Record<string, unknown> | null;
+  const texting: TextingRegistrationInfo = {
+    legalBusinessName: business.legal_business_name ?? null,
+    ein: business.ein ?? null,
+    address: [business.address, business.address_city, [business.address_state, business.address_zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,
+    website: business.website ?? null,
+    contactPhone: business.phone ?? null,
+    havnlineNumber: (twilioMeta?.phone_number as string) || null,
+    // Only the SID (an identifier) is shown, never the sub-account token.
+    subaccountSid: (twilioMeta?.subaccount_sid as string) || null,
+    approved: integrationRows.some((r) => r.provider === "sms" && r.status === "connected"),
+  };
 
   const [costs, issues] = await Promise.all([getBusinessCostBreakdown(params.id), demoMode ? Promise.resolve([]) : getBusinessIssues(params.id)]);
 
@@ -101,6 +118,8 @@ export default async function PlatformBusinessDetailPage({ params }: { params: {
           </div>
         </div>
       </div>
+
+      <TextingRegistration businessId={business.id} info={texting} />
 
       <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-card">
         <div className="flex items-center gap-2">

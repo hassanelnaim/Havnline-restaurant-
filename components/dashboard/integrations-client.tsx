@@ -142,9 +142,10 @@ export function IntegrationsClient({
 
   // ── Texting ──
   // Texts go out from the phone number above, so they can't work without
-  // one. The "sms" row only exists once HavnLine marks carrier approval as
-  // done (set it to "connected" for the business when the A2P campaign is
-  // approved); until then texts may be filtered by the carriers.
+  // one. HavnLine registers each business with the carriers (A2P 10DLC) by
+  // hand, using the legal name and EIN collected here, and marks it approved
+  // from the admin business page (setTextingApprovedAction), which sets the
+  // "sms" row to connected.
   const textingApproved = integrations.find((i) => i.provider === "sms")?.status === "connected";
   const identityOnFile = Boolean(textingIdentity.legalBusinessName) && textingIdentity.hasEin;
   const [identity, setIdentity] = useState({ legalBusinessName: textingIdentity.legalBusinessName || "", ein: "" });
@@ -461,49 +462,53 @@ export function IntegrationsClient({
             status={
               !hasNumber ? <StatusPill tone="neutral">Not set up</StatusPill>
               : textingApproved ? <StatusPill tone="success">Active</StatusPill>
-              : <StatusPill tone="warning">Awaiting approval</StatusPill>
+              : identitySaved ? <StatusPill tone="warning">Registration in progress</StatusPill>
+              : <StatusPill tone="warning">Details needed</StatusPill>
             }
           >
             {!hasNumber || !phoneNumber ? (
               <p className="text-[12.5px] leading-relaxed text-text-muted">Texts are sent from your HavnLine number. Get a number first and texting is set up with it.</p>
-            ) : (
+            ) : textingApproved ? (
               <>
                 <p className="text-[12.5px] leading-relaxed text-text-muted">
                   Sent automatically from <span className="font-medium text-ink">{formatPhone(phoneNumber)}</span> after each order.
                 </p>
-                {textingApproved ? (
-                  <p className="mt-3 flex items-center gap-1.5 text-[12.5px] font-medium text-success"><CheckCircle2 className="h-4 w-4" /> Approved by US carriers</p>
-                ) : (
+                <p className="mt-3 flex items-center gap-1.5 text-[12.5px] font-medium text-success"><CheckCircle2 className="h-4 w-4" /> Approved by US carriers</p>
+              </>
+            ) : (
+              <>
+                <p className="text-[12.5px] leading-relaxed text-text-muted">
+                  US phone carriers only deliver business texts from registered businesses. <span className="font-medium text-ink">HavnLine registers you for you</span>; we just need your legal business name and EIN, exactly as the IRS has them.
+                </p>
+                {identitySaved && !editingIdentity ? (
                   <>
-                    <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-800">
-                      US carriers have to approve business texting first. Until then, payment links may not reach customers. Approval needs your legal business name and EIN, exactly as the IRS has them.
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-paper px-4 py-3">
+                      <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink">
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+                        <span className="truncate">{savedName} · EIN on file</span>
+                      </span>
+                      <button type="button" onClick={() => setEditingIdentity(true)} className="text-[12.5px] font-medium text-brand-dark hover:text-brand">Edit</button>
+                    </div>
+                    <p className="mt-3 text-[12px] leading-relaxed text-text-muted">
+                      We&apos;ve got what we need. Carrier approval usually takes 2 to 3 weeks, and this card switches to Active when it&apos;s done. Until then, payment-link texts may not reach your customers.
                     </p>
-                    {identitySaved && !editingIdentity ? (
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-paper px-4 py-3">
-                        <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-                          <span className="truncate">{savedName} · EIN on file</span>
-                        </span>
-                        <button type="button" onClick={() => setEditingIdentity(true)} className="text-[12.5px] font-medium text-brand-dark hover:text-brand">Edit</button>
-                      </div>
-                    ) : (
-                      <div className="mt-3 space-y-2.5 rounded-xl border border-border bg-paper px-4 py-3">
-                        <div>
-                          <label htmlFor="legal-name" className="text-[12px] font-medium text-text-muted">Legal business name</label>
-                          <Input id="legal-name" className="mt-1" placeholder="e.g. Main Street Grill LLC" value={identity.legalBusinessName} onChange={(e) => setIdentity((s) => ({ ...s, legalBusinessName: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label htmlFor="ein" className="text-[12px] font-medium text-text-muted">EIN</label>
-                          <Input id="ein" className="mt-1 w-40" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="12-3456789" value={identity.ein} onChange={(e) => setIdentity((s) => ({ ...s, ein: e.target.value }))} />
-                        </div>
-                        {identityError && <p className="text-[12px] text-danger">{identityError}</p>}
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="brand" onClick={saveIdentity} disabled={savingIdentity}>{savingIdentity ? "Saving…" : "Save"}</Button>
-                          {editingIdentity && <Button size="sm" variant="ghost" onClick={() => { setEditingIdentity(false); setIdentityError(null); }}>Cancel</Button>}
-                        </div>
-                      </div>
-                    )}
                   </>
+                ) : (
+                  <div className="mt-3 space-y-2.5 rounded-xl border border-border bg-paper px-4 py-3">
+                    <div>
+                      <label htmlFor="legal-name" className="text-[12px] font-medium text-text-muted">Legal business name</label>
+                      <Input id="legal-name" className="mt-1" placeholder="e.g. Main Street Grill LLC" value={identity.legalBusinessName} onChange={(e) => setIdentity((s) => ({ ...s, legalBusinessName: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label htmlFor="ein" className="text-[12px] font-medium text-text-muted">EIN</label>
+                      <Input id="ein" className="mt-1 w-40" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="12-3456789" value={identity.ein} onChange={(e) => setIdentity((s) => ({ ...s, ein: e.target.value }))} />
+                    </div>
+                    {identityError && <p className="text-[12px] text-danger">{identityError}</p>}
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="brand" onClick={saveIdentity} disabled={savingIdentity}>{savingIdentity ? "Saving…" : "Send to HavnLine"}</Button>
+                      {editingIdentity && <Button size="sm" variant="ghost" onClick={() => { setEditingIdentity(false); setIdentityError(null); }}>Cancel</Button>}
+                    </div>
+                  </div>
                 )}
               </>
             )}

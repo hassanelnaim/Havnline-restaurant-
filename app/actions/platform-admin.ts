@@ -57,6 +57,36 @@ export async function updatePlatformFeeAction(businessId: string, feePercent: nu
   return { success: true };
 }
 
+/**
+ * Carrier (A2P 10DLC) registration is done by HavnLine for each business,
+ * by hand in Twilio. Once the business's campaign is approved, this marks
+ * texting as active: the "sms" integration row is what the business's
+ * Integrations page reads to show "Active" instead of "Registration in
+ * progress". Turning it off puts the card back to in-progress.
+ */
+export async function setTextingApprovedAction(businessId: string, approved: boolean): Promise<ActionResult> {
+  const allowed = await isPlatformAdmin();
+  if (!allowed) return { success: false, error: "Not authorized." };
+  if (!isSupabaseConfigured()) return { success: false, error: DEMO_MODE_ERROR };
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("integrations").upsert(
+    {
+      business_id: businessId,
+      provider: "sms",
+      status: approved ? "connected" : "not_connected",
+      connected_at: approved ? new Date().toISOString() : null,
+      metadata: null,
+    },
+    { onConflict: "business_id,provider" }
+  );
+  if (error) return dbErrorResult(error, "setTextingApprovedAction", "Could not update texting status.");
+
+  revalidatePath(`/admin/businesses/${businessId}`);
+  revalidatePath("/dashboard/integrations");
+  return { success: true };
+}
+
 export async function moderateReviewAction(reviewId: string, status: "approved" | "rejected"): Promise<ActionResult> {
   const allowed = await isPlatformAdmin();
   if (!allowed) return { success: false, error: "Not authorized." };
