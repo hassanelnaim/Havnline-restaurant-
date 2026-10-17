@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Play, Square, Check, Loader2, RefreshCw } from "lucide-react";
+import { Play, Square, Check, Loader2, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,8 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+  const [query, setQuery] = useState("");
+  const [tag, setTag] = useState<string | null>(null);
 
   async function loadVoices() {
     setLoading(true);
@@ -77,36 +79,50 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
     return <div className="rounded-lg border border-dashed border-border bg-paper px-4 py-6 text-center text-[13px] text-text-muted">No voices found in your ElevenLabs account.</div>;
   }
 
+  // Filter chips from the voices' own labels (accent etc.), most common first.
+  const tagCounts = new Map<string, number>();
+  for (const v of voices) if (v.description) tagCounts.set(v.description, (tagCounts.get(v.description) || 0) + 1);
+  const tags = Array.from(tagCounts.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t).slice(0, 8);
+  const q = query.trim().toLowerCase();
+  const shown = voices.filter((v) => (!tag || v.description === tag) && (!q || v.name.toLowerCase().includes(q)));
+
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-[12px] text-text-faint">{voices.length} voices in your ElevenLabs library</p>
-        <Button size="sm" variant="ghost" onClick={loadVoices}><RefreshCw className="h-3.5 w-3.5" /> Refresh</Button>
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-faint" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${voices.length} voices…`} className="h-9 w-full rounded-lg border border-border bg-paper pl-8 pr-3 text-[13px] focus:border-brand focus:outline-none" />
+        </div>
+        <Button size="sm" variant="ghost" onClick={loadVoices} title="Reload your ElevenLabs library"><RefreshCw className="h-3.5 w-3.5" /></Button>
       </div>
-      <p className="text-[11.5px] text-text-faint">The round button plays ElevenLabs' own sample of each voice.</p>
-      <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-        {voices.map((voice) => {
+      {tags.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {[null, ...tags].map((t) => (
+            <button key={t ?? "all"} onClick={() => setTag(t)} className={cn("rounded-full border px-2.5 py-0.5 text-[12px] font-medium capitalize transition-colors", tag === t ? "border-brand bg-brand text-white" : "border-border bg-card text-text-muted hover:border-brand/40")}>
+              {t ?? "All"}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="text-[11.5px] text-text-faint">▶ plays ElevenLabs&apos; own sample of each voice.</p>
+      <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+        {shown.length === 0 && <p className="py-4 text-[13px] text-text-muted">No voices match.</p>}
+        {shown.map((voice) => {
           const isSelected = selectedVoiceRef === voice.voiceId;
+          const [first, ...rest] = voice.name.split(" - ");
           return (
-            <div key={voice.voiceId} className={cn("flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5", isSelected ? "border-brand bg-brand-soft" : "border-border bg-card")}>
-              <div className="flex items-center gap-3">
-                {voice.previewUrl && (
-                  <button type="button" onClick={() => togglePreview(voice)} title="Play ElevenLabs' sample" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-text-muted hover:bg-paper">
-                    {playingId === voice.voiceId ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                  </button>
-                )}
-                <div>
-                  <div className="text-[13px] font-medium text-ink">{voice.name}</div>
-                  {(voice.category || voice.description) && (
-                    <div className="mt-0.5 flex gap-1.5">
-                      {voice.category && <Badge variant="neutral">{voice.category}</Badge>}
-                      {voice.description && <Badge variant="neutral">{voice.description}</Badge>}
-                    </div>
-                  )}
-                </div>
+            <div key={voice.voiceId} className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5", isSelected ? "border-brand bg-brand-soft" : "border-border bg-card")}>
+              {voice.previewUrl ? (
+                <button type="button" onClick={() => togglePreview(voice)} title="Play ElevenLabs' sample" className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full border", playingId === voice.voiceId ? "border-brand bg-brand text-white" : "border-border bg-card text-text-muted hover:bg-paper")}>
+                  {playingId === voice.voiceId ? <Square className="h-3 w-3" /> : <Play className="ml-0.5 h-3.5 w-3.5" />}
+                </button>
+              ) : <span className="h-8 w-8 shrink-0" />}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-semibold text-ink">{first}</div>
+                <div className="truncate text-[11.5px] text-text-muted">{rest.join(" - ") || voice.description || voice.category}</div>
               </div>
               <Button size="sm" variant={isSelected ? "brand" : "outline"} onClick={() => onSelect(voice.voiceId, voice.name)}>
-                {isSelected ? <><Check className="h-3.5 w-3.5" /> Selected</> : "Choose"}
+                {isSelected ? <><Check className="h-3.5 w-3.5" /> Chosen</> : "Choose"}
               </Button>
             </div>
           );

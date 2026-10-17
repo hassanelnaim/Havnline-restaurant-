@@ -25,7 +25,7 @@ export function SpecialIdeas({ ideas }: { ideas: SpecialSuggestion[] }) {
             <p className="text-[12px] text-text-muted">Based on your own orders from the last 4 weeks</p>
           </div>
         </div>
-        <Link href="/dashboard/knowledge?tab=promotions" className="text-[12.5px] font-medium text-brand hover:underline">All promotions</Link>
+        <Link href="/dashboard/menu?tab=promotions" className="text-[12.5px] font-medium text-brand hover:underline">All promotions</Link>
       </div>
 
       <div className={`mt-4 grid gap-3 ${ideas.length > 1 ? "md:grid-cols-2" : ""}`}>

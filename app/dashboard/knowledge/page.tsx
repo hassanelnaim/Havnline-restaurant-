@@ -1,10 +1,7 @@
+import { redirect } from "next/navigation";
 import { getKnowledgeItems } from "@/lib/data/knowledge";
-import { getPromotions } from "@/lib/data/promotions";
-import { getBusiness } from "@/lib/data/business";
-import { getMenuForBusiness } from "@/lib/data/menu";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { KnowledgeClient } from "@/components/dashboard/knowledge-client";
-import { readPromotionPrefill, readInitialKnowledgeTab } from "@/lib/analytics/promotionPrefill";
 
 export const dynamic = "force-dynamic";
 
@@ -14,20 +11,21 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 180;
 
 export default async function KnowledgePage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
-  const business = await getBusiness();
-  const [items, promotions, menu] = await Promise.all([getKnowledgeItems(), getPromotions(), getMenuForBusiness(business.id)]);
-  const menuOptions = menu.items.filter((i) => i.is_active).map((i) => ({ id: i.id, name: i.name }));
+  // Promotions moved to the Menu page. Old links (bookmarks, earlier
+  // dashboard ideas) still land on the right form, with their prefill.
+  if (searchParams.tab === "promotions" || searchParams.prefill === "1") {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(searchParams)) if (typeof v === "string") q.set(k, v);
+    q.set("tab", "promotions");
+    redirect(`/dashboard/menu?${q.toString()}`);
+  }
+
+  const items = await getKnowledgeItems();
 
   return (
     <div>
-      <PageHeader title="Knowledge" description="What your AI order-taker knows about your business and policies. For menu items and prices, see the Menu page." />
-      <KnowledgeClient
-        initialItems={items}
-        initialPromotions={promotions}
-        menuOptions={menuOptions}
-        initialTab={readInitialKnowledgeTab(searchParams)}
-        prefill={readPromotionPrefill(searchParams)}
-      />
+      <PageHeader title="Knowledge" description="What your AI knows about your restaurant beyond the menu — answers to common questions, policies and business info." />
+      <KnowledgeClient initialItems={items} />
     </div>
   );
 }

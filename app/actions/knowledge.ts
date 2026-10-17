@@ -43,6 +43,7 @@ export async function addKnowledgeItemAction(input: { category: KnowledgeCategor
 
   if (error) return dbErrorResult(error, "addKnowledgeItemAction", "Could not save that.");
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true };
 }
 
@@ -67,6 +68,7 @@ export async function updateKnowledgeItemAction(id: string, input: { title?: str
 
   if (error) return dbErrorResult(error, "updateKnowledgeItemAction", "Could not save that.");
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true };
 }
 
@@ -83,6 +85,7 @@ export async function deleteKnowledgeItemAction(id: string): Promise<ActionResul
 
   if (error) return dbErrorResult(error, "deleteKnowledgeItemAction", "Could not delete that.");
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true };
 }
 
@@ -122,6 +125,7 @@ export async function importWebsiteKnowledgeAction(url: string): Promise<ImportW
   if (error) return dbErrorResult(error, "importWebsiteKnowledgeAction", "Could not save the imported items.");
 
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true, itemsAdded: items.length };
 }
 
@@ -161,6 +165,7 @@ export async function importPastedKnowledgeAction(rawText: string): Promise<Impo
   if (error) return dbErrorResult(error, "importPastedKnowledgeAction", "Could not save the imported items.");
 
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true, itemsAdded: items.length };
 }
 
@@ -228,6 +233,7 @@ export async function addPromotionAction(input: AddPromotionInput): Promise<Acti
 
   if (error) return dbErrorResult(error, "addPromotionAction", "Could not add that promotion.");
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true };
 }
 
@@ -244,6 +250,7 @@ export async function togglePromotionAction(id: string, isActive: boolean): Prom
 
   if (error) return dbErrorResult(error, "togglePromotionAction", "Could not update that promotion.");
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true };
 }
 
@@ -260,5 +267,6 @@ export async function deletePromotionAction(id: string): Promise<ActionResult> {
 
   if (error) return dbErrorResult(error, "deletePromotionAction", "Could not delete that promotion.");
   revalidatePath("/dashboard/knowledge");
+  revalidatePath("/dashboard/menu");
   return { success: true };
 }

@@ -1,6 +1,6 @@
 /**
  * Lets a dashboard idea ("Create a Sunday special") open the promotion form
- * already filled in. The values travel in the Knowledge page's URL and are
+ * already filled in. The values travel in the Menu page's URL and are
  * validated on the way in; nothing is saved until the owner presses Add.
  * Client-safe: no server imports.
  */
@@ -28,7 +28,7 @@ export function promotionPrefillHref(p: PromotionPrefill): string {
   if (p.discountValue) q.set("discountValue", p.discountValue);
   if (p.start) q.set("start", p.start);
   if (p.end) q.set("end", p.end);
-  return `/dashboard/knowledge?${q.toString()}`;
+  return `/dashboard/menu?${q.toString()}`;
 }
 
 type Params = Record<string, string | string[] | undefined>;
@@ -62,7 +62,7 @@ export function readPromotionPrefill(params: Params): PromotionPrefill | null {
   };
 }
 
-export function readInitialKnowledgeTab(params: Params): string | undefined {
+export function readInitialMenuTab(params: Params): string | undefined {
   const tab = one(params.tab);
-  return tab && ["faqs", "promotions", "policies", "import"].includes(tab) ? tab : undefined;
+  return tab && ["items", "addons", "promotions", "import"].includes(tab) ? tab : undefined;
 }

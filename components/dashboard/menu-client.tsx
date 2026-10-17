@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X } from "lucide-react";
+import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X, Percent } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 import type { AddonTemplate } from "@/lib/data/menu";
 import { EASY_TO_MISS_HIGHLIGHT, EASY_TO_MISS_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { PromotionsPanel } from "@/components/dashboard/promotions-panel";
 
 const UNCATEGORIZED = "__uncategorized__";
 const ALL = "__all__";
@@ -33,10 +34,14 @@ export function MenuClient({
   initialCategories,
   initialItems,
   initialAddonTemplates,
+  initialTab,
+  promotions,
 }: {
   initialCategories: DbMenuCategory[];
   initialItems: MenuItemWithModifiers[];
   initialAddonTemplates: AddonTemplate[];
+  initialTab?: string;
+  promotions?: React.ComponentProps<typeof PromotionsPanel>;
 }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
@@ -154,10 +159,11 @@ export function MenuClient({
   const shownGroups = searching || currentTab === ALL ? groupedItems : groupedItems.filter((g) => g.key === currentTab);
 
   return (
-    <Tabs defaultValue="items">
-      <TabsList>
+    <Tabs defaultValue={initialTab ?? "items"}>
+      <TabsList className="flex-wrap">
         <TabsTrigger value="items">Menu items</TabsTrigger>
-        <TabsTrigger value="addons"><Tags className="h-3.5 w-3.5" /> Add-ons library</TabsTrigger>
+        <TabsTrigger value="addons"><Tags className="h-3.5 w-3.5" /> Add-ons</TabsTrigger>
+        {promotions && <TabsTrigger value="promotions"><Percent className="h-3.5 w-3.5" /> Promotions</TabsTrigger>}
         <TabsTrigger value="import"><Globe className="h-3.5 w-3.5" /> Import</TabsTrigger>
       </TabsList>
 
@@ -291,8 +297,14 @@ export function MenuClient({
       </TabsContent>
 
       <TabsContent value="addons">
-        <AddonLibraryPanel templates={addonTemplates} setTemplates={setAddonTemplates} onRefresh={refresh} />
+        <AddonLibraryPanel templates={addonTemplates} setTemplates={setAddonTemplates} onRefresh={refresh} items={items} />
       </TabsContent>
+
+      {promotions && (
+        <TabsContent value="promotions">
+          <PromotionsPanel {...promotions} />
+        </TabsContent>
+      )}
 
       <TabsContent value="import">
         <MenuImportPanel onImported={refresh} />
@@ -565,33 +577,74 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
   );
 }
 
-function AddonLibraryPanel({ templates, setTemplates, onRefresh }: {
+// One-click starting points for the most common add-on groups. They only
+// fill the form; prices are left for the owner to set.
+const ADDON_STARTERS: { name: string; required: boolean; multiple: boolean; options: string[] }[] = [
+  { name: "Size", required: true, multiple: false, options: ["Small", "Medium", "Large"] },
+  { name: "Toppings", required: false, multiple: true, options: ["Cheese", "Onions", "Tomato", "Lettuce", "Pickles"] },
+  { name: "Bread choice", required: true, multiple: false, options: ["White", "Wheat", "Rye", "Sourdough"] },
+  { name: "Cheese", required: false, multiple: false, options: ["American", "Swiss", "Cheddar", "Provolone"] },
+  { name: "Dressing", required: false, multiple: false, options: ["Ranch", "Italian", "Caesar", "Balsamic"] },
+  { name: "Egg style", required: true, multiple: false, options: ["Scrambled", "Over easy", "Over medium", "Sunny side up"] },
+];
+
+function AddonLibraryPanel({ templates, setTemplates, onRefresh, items }: {
   templates: AddonTemplate[];
   setTemplates: (updater: (prev: AddonTemplate[]) => AddonTemplate[]) => void;
   onRefresh: () => void;
+  items: MenuItemWithModifiers[];
 }) {
   const [, startTransition] = useTransition();
 
-  // New template form
+  // New group form
   const [name, setName] = useState("");
   const [required, setRequired] = useState(false);
-  const [options, setOptions] = useState([{ name: "", priceDelta: "" }]);
+  const [multiple, setMultiple] = useState(false);
+  const [options, setOptions] = useState([{ name: "", priceDelta: "" }, { name: "", priceDelta: "" }]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState<string | null>(null);
 
-  function addOptionRow() {
-    setOptions((prev) => [...prev, { name: "", priceDelta: "" }]);
+  // How many menu items each group is attached to.
+  const usage = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) for (const g of item.modifier_groups) counts.set(g.id, (counts.get(g.id) || 0) + 1);
+    return counts;
+  }, [items]);
+
+  function applyStarter(starter: (typeof ADDON_STARTERS)[number]) {
+    setName(starter.name);
+    setRequired(starter.required);
+    setMultiple(starter.multiple);
+    setOptions(starter.options.map((o) => ({ name: o, priceDelta: "" })));
+    setError(null);
+    setCreated(null);
+  }
+
+  function updateOption(index: number, patch: Partial<{ name: string; priceDelta: string }>) {
+    setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, ...patch } : o)));
   }
 
   function createTemplate() {
-    if (!name.trim()) { setError("Name is required."); return; }
+    if (!name.trim()) { setError("Give the group a name, like Toppings."); return; }
+    const filled = options.filter((o) => o.name.trim());
+    if (filled.length === 0) { setError("Add at least one option."); return; }
     setSaving(true);
     setError(null);
     startTransition(async () => {
-      const result = await createAddonTemplateAction({ name, required, minSelect: required ? 1 : 0, maxSelect: 1, options });
+      const result = await createAddonTemplateAction({
+        name,
+        required,
+        minSelect: required ? 1 : 0,
+        // "Several" lets the caller pick any number of the options (toppings);
+        // "one" keeps it to a single choice (size, bread).
+        maxSelect: multiple ? Math.max(1, filled.length) : 1,
+        options: filled,
+      });
       setSaving(false);
       if (!result.success) { setError(result.error || "Could not create add-on group."); return; }
-      setName(""); setRequired(false); setOptions([{ name: "", priceDelta: "" }]);
+      setCreated(name.trim());
+      setName(""); setRequired(false); setMultiple(false); setOptions([{ name: "", priceDelta: "" }, { name: "", priceDelta: "" }]);
       onRefresh();
     });
   }
@@ -602,54 +655,106 @@ function AddonLibraryPanel({ templates, setTemplates, onRefresh }: {
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      {/* Left: new group */}
+      <Card className="lg:sticky lg:top-20">
         <CardHeader>
-          <CardTitle>Your add-on groups</CardTitle>
-          <CardDescription>Reusable add-ons like "Size" or "Toppings" — attach any of these to as many menu items as you want from the Menu items tab. Edit one here and it updates everywhere it's attached.</CardDescription>
+          <CardTitle className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Tags className="h-4 w-4" /></span> New add-on group</CardTitle>
+          <CardDescription className="mt-1">Make it once, attach it to as many items as you like. Editing it updates every item it&apos;s on.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
+          <div>
+            <div className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Start from</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {ADDON_STARTERS.map((st) => (
+                <button key={st.name} onClick={() => applyStarter(st)} className="rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-medium text-text-muted transition-colors hover:border-brand/40 hover:bg-brand-50 hover:text-brand-dark">
+                  {st.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div><Label>Name</Label><Input className="mt-1.5" placeholder="e.g. Toppings" value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <label className="mt-6 flex items-center gap-2 text-[12.5px] text-text-muted"><Switch checked={required} onCheckedChange={setRequired} /> Required when attached</label>
+          {created && !error && <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success"><CheckCircle2 className="h-4 w-4" /> Created &ldquo;{created}&rdquo;. Attach it from any item on the Menu items tab.</div>}
+
+          <div><Label>Group name</Label><Input className="mt-1.5" placeholder="e.g. Toppings" value={name} onChange={(e) => { setName(e.target.value); setCreated(null); }} /></div>
+
+          <div>
+            <Label>Options</Label>
+            <div className="mt-1.5 space-y-1.5">
+              {options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <Input className="h-9 flex-1" placeholder={i === 0 ? "e.g. Cheese" : "Another option"} value={opt.name} onChange={(e) => updateOption(i, { name: e.target.value })} />
+                  <div className="relative w-24">
+                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12.5px] text-text-faint">+$</span>
+                    <Input className="h-9 pl-7" placeholder="0.00" value={opt.priceDelta} onChange={(e) => updateOption(i, { priceDelta: e.target.value })} />
+                  </div>
+                  <button
+                    onClick={() => setOptions((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [{ name: "", priceDelta: "" }]))}
+                    className="rounded-md p-1.5 text-text-faint hover:bg-danger-soft hover:text-danger"
+                    aria-label="Remove option"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setOptions((prev) => [...prev, { name: "", priceDelta: "" }])} className="mt-2 inline-flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">
+              <Plus className="h-3.5 w-3.5" /> Add option
+            </button>
           </div>
-          <div className="space-y-1.5">
-            {options.map((opt, i) => (
-              <div key={i} className="flex gap-2">
-                <Input placeholder="Option name, e.g. Cheese" value={opt.name} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, name: e.target.value } : o)))} />
-                <Input placeholder="+$ (optional)" className="w-28" value={opt.priceDelta} onChange={(e) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, priceDelta: e.target.value } : o)))} />
-              </div>
-            ))}
+
+          <div className="space-y-2.5 rounded-xl bg-paper p-3">
+            <label className="flex items-center justify-between gap-3 text-[13px] text-text">
+              <span>Customer must choose one<span className="block text-[11.5px] text-text-faint">The AI won&apos;t add the item until they pick</span></span>
+              <Switch checked={required} onCheckedChange={setRequired} />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-[13px] text-text">
+              <span>Can pick more than one<span className="block text-[11.5px] text-text-faint">On for toppings, off for size or bread</span></span>
+              <Switch checked={multiple} onCheckedChange={setMultiple} />
+            </label>
           </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={addOptionRow}><Plus className="h-3.5 w-3.5" /> Add option</Button>
-            <Button variant="brand" size="sm" onClick={createTemplate} disabled={saving}>{saving ? "Creating…" : "Create add-on group"}</Button>
-          </div>
+
+          <Button variant="brand" className="w-full" onClick={createTemplate} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create add-on group
+          </Button>
         </CardContent>
       </Card>
 
-      {templates.length === 0 ? (
-        <EmptyState icon={Tags} title="No add-on groups yet" description="Create one above — then attach it to any menu item from the Menu items tab." />
-      ) : (
-        <div className="space-y-2.5">
-          {templates.map((template) => (
-            <AddonTemplateRow key={template.id} template={template} onRemove={removeTemplate} onRefresh={onRefresh} />
-          ))}
+      {/* Right: existing groups */}
+      <div className="min-w-0">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h3 className="font-display text-[15px] font-semibold text-ink">Your add-on groups</h3>
+          <span className="text-[12px] text-text-faint">{templates.length} group{templates.length === 1 ? "" : "s"}</span>
         </div>
-      )}
+        {templates.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card px-5 py-8 text-center">
+            <Tags className="mx-auto h-6 w-6 text-text-faint" />
+            <p className="mt-2 text-[13px] font-medium text-ink">No add-on groups yet</p>
+            <p className="mt-0.5 text-[12.5px] text-text-muted">Pick a starter on the left, or make your own.</p>
+          </div>
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {templates.map((template) => (
+              <AddonTemplateRow key={template.id} template={template} usedOn={usage.get(template.id) || 0} onRemove={removeTemplate} onRefresh={onRefresh} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function AddonTemplateRow({ template, onRemove, onRefresh }: {
+function AddonTemplateRow({ template, usedOn, onRemove, onRefresh }: {
   template: AddonTemplate;
+  usedOn: number;
   onRemove: (id: string) => void;
   onRefresh: () => void;
 }) {
   const [, startTransition] = useTransition();
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(template.name);
+  const [adding, setAdding] = useState(false);
   const [newOptionName, setNewOptionName] = useState("");
   const [newOptionPrice, setNewOptionPrice] = useState("");
 
@@ -671,40 +776,56 @@ function AddonTemplateRow({ template, onRemove, onRefresh }: {
     startTransition(async () => { await deleteAddonOptionAction(modifierId); onRefresh(); });
   }
 
+  const pickMany = (template.max_select ?? 1) > 1;
+
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between gap-4">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           {renaming ? (
-            <div className="flex flex-1 items-center gap-2">
-              <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 max-w-xs" autoFocus />
+            <div className="flex items-center gap-2">
+              <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveRename(); }} className="h-8" autoFocus />
               <Button size="sm" variant="brand" onClick={saveRename}>Save</Button>
             </div>
           ) : (
-            <button className="flex items-center gap-1.5 text-[13.5px] font-medium text-text hover:text-brand-dark" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>
-              {template.name}{template.is_required ? <span className="text-[11px] font-normal text-text-faint">(required)</span> : null}
-              <Pencil className="h-3 w-3 text-text-faint" />
+            <button className="group flex items-center gap-1.5 text-left font-display text-[14px] font-semibold text-ink hover:text-brand-dark" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>
+              {template.name}
+              <Pencil className="h-3 w-3 text-text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           )}
-          <button onClick={() => onRemove(template.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete add-on group"><Trash2 className="h-3.5 w-3.5" /></button>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">
+            {template.is_required && <span className="rounded-full bg-brand-soft px-2 py-0.5 font-medium text-brand-dark">Required</span>}
+            <span className="rounded-full bg-paper px-2 py-0.5 text-text-muted">{pickMany ? "Pick any" : "Pick one"}</span>
+            <span className="text-text-faint">{usedOn === 0 ? "Not on any items yet" : `On ${usedOn} item${usedOn === 1 ? "" : "s"}`}</span>
+          </div>
         </div>
+        <button onClick={() => onRemove(template.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete add-on group"><Trash2 className="h-3.5 w-3.5" /></button>
+      </div>
 
-        <div className="mt-3 space-y-1.5">
-          {template.modifiers.map((m) => (
-            <div key={m.id} className="flex items-center justify-between rounded-lg bg-paper px-3 py-1.5 text-[12.5px] text-text">
-              <span>{m.name}{m.price_delta_cents ? ` (+$${(m.price_delta_cents / 100).toFixed(2)})` : ""}</span>
-              <button onClick={() => removeOption(m.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3 w-3" /></button>
-            </div>
-          ))}
-        </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {template.modifiers.map((m) => (
+          <span key={m.id} className="group inline-flex items-center gap-1 rounded-full border border-border bg-paper py-0.5 pl-2.5 pr-1 text-[12px] text-text">
+            {m.name}
+            {m.price_delta_cents ? <span className="text-text-faint">+${(m.price_delta_cents / 100).toFixed(2)}</span> : null}
+            <button onClick={() => removeOption(m.id)} className="rounded-full p-0.5 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label={`Remove ${m.name}`}><X className="h-3 w-3" /></button>
+          </span>
+        ))}
+        {!adding && (
+          <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-full border border-dashed border-brand/40 px-2.5 py-0.5 text-[12px] font-medium text-brand hover:bg-brand-50">
+            <Plus className="h-3 w-3" /> Option
+          </button>
+        )}
+      </div>
 
-        <div className="mt-2 flex gap-2">
-          <Input placeholder="Add an option, e.g. Bacon" className="h-8" value={newOptionName} onChange={(e) => setNewOptionName(e.target.value)} />
-          <Input placeholder="+$" className="h-8 w-24" value={newOptionPrice} onChange={(e) => setNewOptionPrice(e.target.value)} />
-          <Button size="sm" variant="brand" onClick={addOption}><Plus className="h-3.5 w-3.5" /> Add</Button>
+      {adding && (
+        <div className="mt-2.5 flex gap-1.5">
+          <Input placeholder="e.g. Bacon" className="h-8 flex-1" value={newOptionName} autoFocus onChange={(e) => setNewOptionName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addOption(); }} />
+          <Input placeholder="+$" className="h-8 w-20" value={newOptionPrice} onChange={(e) => setNewOptionPrice(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addOption(); }} />
+          <Button size="sm" variant="brand" onClick={addOption}>Add</Button>
+          <button onClick={() => setAdding(false)} className="rounded-md px-1.5 text-text-faint hover:text-ink" aria-label="Cancel"><X className="h-3.5 w-3.5" /></button>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
