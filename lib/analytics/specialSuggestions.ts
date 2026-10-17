@@ -1,10 +1,24 @@
 import type { OrderWithItems, MenuItemWithModifiers } from "@/lib/database/types";
 import { countsTowardSales } from "@/lib/orders/sales";
 
+import { promotionPrefillHref } from "@/lib/analytics/promotionPrefill";
+
+export type SuggestionKind = "slow-day" | "cold-item" | "bundle" | "steady" | "not-enough-data";
+
 export interface SpecialSuggestion {
+  kind: SuggestionKind;
   title: string;
   detail: string;
   href: string;
+  /** The button on the card: opens the promotion form pre-filled for this idea. */
+  actionLabel: string;
+}
+
+/** Today and four weeks from today, as YYYY-MM-DD in the business's timezone. */
+function promotionWindow(timezone: string): { start: string; end: string } {
+  const fmt = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const now = new Date();
+  return { start: fmt(now), end: fmt(new Date(now.getTime() + 27 * 24 * 60 * 60 * 1000)) };
 }
 
 const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -41,6 +55,8 @@ export function getSpecialSuggestions(
   if (salesOrders.length < MIN_ORDERS_FOR_PATTERNS) {
     return [
       {
+        kind: "not-enough-data",
+        actionLabel: "View orders",
         title: "Not enough order history yet",
         detail: "Once you've got a couple weeks of real orders in, this will start surfacing slow days, cooling menu items, and bundle ideas based on your own numbers.",
         href: "/dashboard/orders",
@@ -49,6 +65,7 @@ export function getSpecialSuggestions(
   }
 
   const suggestions: SpecialSuggestion[] = [];
+  const promoDates = promotionWindow(timezone);
 
   // --- 1. Slowest weekday, by revenue per calendar occurrence -----------
   // Total order count alone would just restate which days you're open
@@ -81,19 +98,32 @@ export function getSpecialSuggestions(
     }
     if (slowestIdx !== -1 && slowestAvg < overallAvg * 0.7) {
       const day = WEEKDAY_DISPLAY[slowestIdx];
+      const daySpecialHref = promotionPrefillHref({
+        title: `${day} special`,
+        description: `10% off every ${day}`,
+        appliesTo: "Whole menu",
+        days: [slowestIdx],
+        discountType: "percent",
+        discountValue: "10",
+        ...promoDates,
+      });
       if (slowestAvg === 0) {
         // "100% below your typical day" is technically true but reads oddly.
         suggestions.push({
+          kind: "slow-day",
           title: `No sales on ${day}s lately`,
           detail: `Nothing sold on a ${day} in the last ${windowDays} days. A ${day}-only special could bring in some business.`,
-          href: "/dashboard/menu",
+          href: daySpecialHref,
+          actionLabel: `Create a ${day} special`,
         });
       } else {
         const pctBelow = Math.round((1 - slowestAvg / overallAvg) * 100);
         suggestions.push({
+          kind: "slow-day",
           title: `${day}s are your slowest day`,
           detail: `${day}s bring in about ${pctBelow}% less than your typical day over the last ${windowDays} days. A ${day}-only special could be worth testing.`,
-          href: "/dashboard/menu",
+          href: daySpecialHref,
+          actionLabel: `Create a ${day} special`,
         });
       }
     }
@@ -115,9 +145,19 @@ export function getSpecialSuggestions(
 
   if (coldItem) {
     suggestions.push({
+      kind: "cold-item",
       title: `"${coldItem.name}" hasn't sold in ${windowDays} days`,
       detail: `It's still active on your menu at $${(coldItem.price_cents / 100).toFixed(2)} — featuring it or running it as a limited-time discount could get it moving again.`,
-      href: "/dashboard/menu",
+      href: promotionPrefillHref({
+        title: `${coldItem.name} special`,
+        description: `15% off ${coldItem.name} for a limited time`,
+        appliesTo: coldItem.name,
+        itemIds: [coldItem.id],
+        discountType: "percent",
+        discountValue: "15",
+        ...promoDates,
+      }),
+      actionLabel: `Discount ${coldItem.name}`,
     });
   }
 
@@ -127,17 +167,21 @@ export function getSpecialSuggestions(
 
   if (avgItemsPerOrder > 0 && avgItemsPerOrder <= 1.3) {
     suggestions.push({
+      kind: "bundle",
+      actionLabel: "Create a combo deal",
       title: "Most orders are a single item",
       detail: `Averaging ${avgItemsPerOrder.toFixed(1)} items per order over the last ${windowDays} days. A simple combo or "add a side" special could raise your average order value.`,
-      href: "/dashboard/menu",
+      href: promotionPrefillHref({ title: "Combo deal", description: "Add a side and a drink to any entrée for a set price", ...promoDates }),
     });
   }
 
   if (suggestions.length === 0) {
     suggestions.push({
+      kind: "steady",
+      actionLabel: "Create a promotion",
       title: "No red flags in your recent orders",
       detail: "Sales are steady across the week with no obviously cooling items — still a good time to test a new limited-time offer if you want to push growth further.",
-      href: "/dashboard/menu",
+      href: promotionPrefillHref({ ...promoDates }),
     });
   }
 

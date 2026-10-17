@@ -9,6 +9,7 @@ import { countsTowardSales } from "@/lib/orders/sales";
 import { getSpecialSuggestions } from "@/lib/analytics/specialSuggestions";
 import { SalesCard } from "@/components/dashboard/sales-card";
 import { TopSellers } from "@/components/dashboard/top-sellers";
+import { SpecialIdeas } from "@/components/dashboard/special-ideas";
 import { getSalesSeries, getSellerData } from "@/lib/data/analytics";
 
 export const dynamic = "force-dynamic";
@@ -127,22 +128,11 @@ export default async function OverviewPage() {
       </div>
 
       <div className="mt-6">
-        <TopSellers data={sellerData} />
+        <SpecialIdeas ideas={specialSuggestions} />
       </div>
 
-      <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-card sm:p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-[15px] font-semibold text-ink">Ideas for specials</h2>
-          <Link href="/dashboard/menu" className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">Edit menu <ArrowUpRight className="h-3.5 w-3.5" /></Link>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2">
-          {specialSuggestions.map((s) => (
-            <Link key={s.title} href={s.href} className="block rounded-xl border border-border-soft px-4 py-3 transition-colors hover:border-brand/40 hover:bg-brand-soft/20">
-              <div className="text-[13px] font-medium text-text">{s.title}</div>
-              <div className="mt-0.5 text-[12px] leading-relaxed text-text-faint">{s.detail}</div>
-            </Link>
-          ))}
-        </div>
+      <div className="mt-6">
+        <TopSellers data={sellerData} />
       </div>
     </div>
   );

@@ -26,6 +26,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
 
 const UNCATEGORIZED = "__uncategorized__";
+const ALL = "__all__";
+const NEW_CATEGORY = "__new__";
 
 export function MenuClient({
   initialCategories,
@@ -59,9 +61,16 @@ export function MenuClient({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [category, setCategory] = useState("");
+  // "" = uncategorized, NEW_CATEGORY = type a new one, otherwise a category id.
+  const [categoryChoice, setCategoryChoice] = useState("");
+  const [newCategory, setNewCategory] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  // Which category tab the list on the right shows.
+  const [activeCategory, setActiveCategory] = useState<string>(ALL);
+  // On a phone the add form is tucked behind a button so the menu comes first.
+  const [showAddOnPhone, setShowAddOnPhone] = useState(false);
 
   function refresh() {
     router.refresh();
@@ -72,11 +81,20 @@ export function MenuClient({
     setSaving(true);
     setError(null);
     startTransition(async () => {
-      const categoryId = categories.find((c) => c.name.toLowerCase() === category.trim().toLowerCase())?.id || null;
-      const result = await addMenuItemAction({ name, description, price, categoryId });
+      const isNew = categoryChoice === NEW_CATEGORY;
+      if (isNew && !newCategory.trim()) { setSaving(false); setError("Type a name for the new category, or pick an existing one."); return; }
+      const result = await addMenuItemAction({
+        name,
+        description,
+        price,
+        categoryId: isNew || !categoryChoice ? null : categoryChoice,
+        newCategoryName: isNew ? newCategory : undefined,
+      });
       setSaving(false);
       if (!result.success) { setError(result.error || "Could not add item."); return; }
+      setJustAdded(name.trim());
       setName(""); setDescription(""); setPrice("");
+      if (isNew) { setNewCategory(""); setCategoryChoice(""); }
       refresh();
     });
   }
@@ -116,6 +134,24 @@ export function MenuClient({
   }, [items, categories, search]);
 
   const totalVisible = groupedItems.reduce((sum, g) => sum + g.items.length, 0);
+  const searching = search.trim().length > 0;
+
+  // One tab per category that has items, with counts (unaffected by search).
+  const categoryTabs = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const key = item.category_id || UNCATEGORIZED;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const tabs = categories.filter((c) => counts.has(c.id)).map((c) => ({ key: c.id, name: c.name, count: counts.get(c.id)! }));
+    if (counts.has(UNCATEGORIZED)) tabs.push({ key: UNCATEGORIZED, name: "Uncategorized", count: counts.get(UNCATEGORIZED)! });
+    return tabs;
+  }, [items, categories]);
+
+  // A tab whose category emptied out falls back to All.
+  const currentTab = activeCategory === ALL || categoryTabs.some((t) => t.key === activeCategory) ? activeCategory : ALL;
+  // While searching, show matches from every category; otherwise only the chosen tab.
+  const shownGroups = searching || currentTab === ALL ? groupedItems : groupedItems.filter((g) => g.key === currentTab);
 
   return (
     <Tabs defaultValue="items">
@@ -126,62 +162,132 @@ export function MenuClient({
       </TabsList>
 
       <TabsContent value="items">
-        <Card className="mb-4">
-          <CardHeader><CardTitle>Add a menu item</CardTitle><CardDescription>Your AI only offers items and prices listed here — never invented.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div><Label>Name</Label><Input className="mt-1.5" value={name} onChange={(e) => setName(e.target.value)} /></div>
-              <div><Label>Price ($)</Label><Input type="number" step="0.01" className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
-              <div className="sm:col-span-2"><Label>Description</Label><Input className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
-              <div><Label>Category</Label><Input className="mt-1.5" list="menu-categories" placeholder="e.g. Burgers" value={category} onChange={(e) => setCategory(e.target.value)} />
-                <datalist id="menu-categories">{categories.map((c) => <option key={c.id} value={c.name} />)}</datalist>
-              </div>
-            </div>
-            <Button variant="brand" size="sm" onClick={addItem} disabled={saving}><Plus className="h-3.5 w-3.5" /> Add item</Button>
-          </CardContent>
-        </Card>
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          {/* Left: add an item. On a phone it sits behind a button, below the menu. */}
+          <div className={`order-2 lg:order-1 lg:sticky lg:top-20 ${showAddOnPhone ? "" : "hidden lg:block"}`}>
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Plus className="h-4 w-4" /></span> Add a menu item</CardTitle>
+                    <CardDescription className="mt-1">Your AI only offers items and prices listed here — never invented.</CardDescription>
+                  </div>
+                  <button onClick={() => setShowAddOnPhone(false)} className="rounded-md p-1 text-text-faint hover:bg-paper lg:hidden" aria-label="Close"><X className="h-4 w-4" /></button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
+                {justAdded && !error && (
+                  <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success">
+                    <CheckCircle2 className="h-4 w-4" /> Added &ldquo;{justAdded}&rdquo; to your menu.
+                  </div>
+                )}
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="sm:col-span-2"><Label>Name</Label><Input className="mt-1.5" value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); }} placeholder="e.g. Cheeseburger" /></div>
+                  <div><Label>Price ($)</Label><Input type="number" step="0.01" min="0" className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" /></div>
+                </div>
+                <div><Label>Description</Label><Input className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional — what comes on it" /></div>
+                <div>
+                  <Label>Category</Label>
+                  <select
+                    className="mt-1.5 h-10 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text"
+                    value={categoryChoice}
+                    onChange={(e) => setCategoryChoice(e.target.value)}
+                  >
+                    <option value="">No category</option>
+                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value={NEW_CATEGORY}>+ New category…</option>
+                  </select>
+                  {categoryChoice === NEW_CATEGORY && (
+                    <Input className="mt-2" autoFocus value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name, e.g. Desserts" />
+                  )}
+                </div>
+                <Button variant="brand" className="w-full" onClick={addItem} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add item
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
 
-        {items.length === 0 ? (
-          <EmptyState icon={UtensilsCrossed} title="No menu items yet" description="Add your first item above, or import your whole menu from a website or photo." />
-        ) : (
-          <>
-            <div className="relative mb-4 max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-faint" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search the menu…"
-                className="h-9 w-full rounded-lg border border-border bg-paper pl-8 pr-3 text-[13px]"
-              />
-            </div>
+          {/* Right: the menu, one category at a time. */}
+          <div className="order-1 min-w-0 lg:order-2">
+            <Card>
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-faint" />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search the menu…"
+                      className="h-10 w-full rounded-lg border border-border bg-paper pl-8 pr-8 text-[13px] focus:border-brand focus:outline-none"
+                    />
+                    {searching && (
+                      <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-faint hover:text-ink" aria-label="Clear search"><X className="h-3.5 w-3.5" /></button>
+                    )}
+                  </div>
+                  <Button variant="brand" size="sm" className="lg:hidden" onClick={() => setShowAddOnPhone(true)}><Plus className="h-3.5 w-3.5" /> Add item</Button>
+                </div>
 
-            {totalVisible === 0 ? (
-              <p className="py-8 text-center text-[13px] text-text-muted">No items match "{search}".</p>
-            ) : (
-              <div className="space-y-6">
-                {groupedItems.map((group) => (
-                  <div key={group.key}>
-                    <h3 className="mb-2 font-display text-[14px] font-semibold text-ink">{group.name}</h3>
-                    <div className="space-y-2.5">
-                      {group.items.map((item) => (
-                        <MenuItemRow
-                          key={item.id}
-                          item={item}
-                          addonTemplates={addonTemplates}
-                          onToggle={toggleActive}
-                          onRemove={removeItem}
-                          onRefresh={refresh}
-                        />
+                {items.length > 0 && (
+                  <div role="tablist" aria-label="Menu categories" className={`mt-3 flex flex-wrap gap-1.5 ${searching ? "opacity-50" : ""}`}>
+                    {[{ key: ALL, name: "All", count: items.length }, ...categoryTabs].map((t) => {
+                      const selected = !searching && t.key === currentTab;
+                      return (
+                        <button
+                          key={t.key}
+                          role="tab"
+                          aria-selected={selected}
+                          onClick={() => { setActiveCategory(t.key); setSearch(""); }}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12.5px] font-medium transition-colors ${
+                            selected ? "border-brand bg-brand text-white shadow-sm" : "border-border bg-card text-text-muted hover:border-brand/40 hover:text-ink"
+                          }`}
+                        >
+                          {t.name}
+                          <span className={`rounded-full px-1.5 text-[11px] ${selected ? "bg-white/20 text-white" : "bg-paper text-text-faint"}`}>{t.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-4 border-t border-border pt-4">
+                  {items.length === 0 ? (
+                    <EmptyState icon={UtensilsCrossed} title="No menu items yet" description="Add your first item, or import your whole menu from a website or photo in the Import tab." />
+                  ) : totalVisible === 0 ? (
+                    <p className="py-8 text-center text-[13px] text-text-muted">No items match &ldquo;{search}&rdquo;.</p>
+                  ) : (
+                    <div className="space-y-6">
+                      {searching && <p className="text-[12px] text-text-faint">{totalVisible} match{totalVisible === 1 ? "" : "es"} across all categories</p>}
+                      {shownGroups.map((group) => (
+                        <div key={group.key}>
+                          {(searching || currentTab === ALL) && (
+                            <h3 className="mb-2 flex items-center gap-2 font-display text-[13px] font-semibold uppercase tracking-wide text-text-muted">
+                              {group.name}<span className="text-[11px] font-normal normal-case text-text-faint">{group.items.length}</span>
+                            </h3>
+                          )}
+                          <div className="space-y-2.5">
+                            {group.items.map((item) => (
+                              <MenuItemRow
+                                key={item.id}
+                                item={item}
+                                addonTemplates={addonTemplates}
+                                onToggle={toggleActive}
+                                onRemove={removeItem}
+                                onRefresh={refresh}
+                              />
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </TabsContent>
 
       <TabsContent value="addons">
@@ -328,7 +434,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
             </div>
           </button>
           <div className="flex items-center gap-3">
-            <div className="font-mono text-[12.5px] text-text">${(item.price_cents / 100).toFixed(2)}</div>
+            <div className="text-[13px] font-semibold tabular-nums text-ink">${(item.price_cents / 100).toFixed(2)}</div>
             <Switch checked={item.is_active} onCheckedChange={(checked) => onToggle(item.id, checked)} />
             <button onClick={() => onRemove(item.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete item"><Trash2 className="h-3.5 w-3.5" /></button>
           </div>
@@ -722,18 +828,10 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-text-faint" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented. Won't work on an online-ordering page (Toast, ChowNow, etc.) — use "Paste menu text" below for those instead.</CardDescription></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-brand" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented. Won't work on an online-ordering page (Toast, ChowNow, etc.) — use "Paste menu text" at the bottom for those instead.</CardDescription></CardHeader>
         <CardContent className="flex gap-2">
           <Input placeholder="yourrestaurant.com/menu" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
           <Button variant="brand" onClick={fromWebsite} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardPaste className="h-4 w-4 text-brand" /> Paste menu text</CardTitle><CardDescription>Open your menu page in your own browser (this works for any site, including online-ordering pages that "Import from your website" can't read), select all the text — click into individual items first if you want their addons included — and paste it here.</CardDescription></CardHeader>
-        <CardContent className="space-y-2">
-          <Textarea value={pastedText} onChange={(e) => setPastedText(e.target.value)} placeholder="Paste your menu text here…" className="min-h-[120px]" />
-          <Button variant="brand" size="sm" onClick={fromText} disabled={importing || pastedText.trim().length < 20}>{importing ? "Reading…" : "Import from pasted text"}</Button>
         </CardContent>
       </Card>
 
@@ -744,6 +842,14 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
           <Button variant="brand" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
             {importing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading…</> : <><Camera className="h-3.5 w-3.5" /> Take or upload a photo</>}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardPaste className="h-4 w-4 text-brand" /> Paste menu text</CardTitle><CardDescription>Open your menu page in your own browser (this works for any site, including online-ordering pages that "Import from your website" can't read), select all the text — click into individual items first if you want their addons included — and paste it here.</CardDescription></CardHeader>
+        <CardContent className="space-y-2">
+          <Textarea value={pastedText} onChange={(e) => setPastedText(e.target.value)} placeholder="Paste your menu text here…" className="min-h-[120px]" />
+          <Button variant="brand" size="sm" onClick={fromText} disabled={importing || pastedText.trim().length < 20}>{importing ? "Reading…" : "Import from pasted text"}</Button>
         </CardContent>
       </Card>
 

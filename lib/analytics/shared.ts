@@ -78,6 +78,8 @@ export interface CategorySellers {
   /** Every unit sold in this category in the window (not just the top items). */
   totalUnits: number;
   totalRevenueCents: number;
+  /** How many different items in this category sold at least once. */
+  soldItemCount: number;
 }
 
 export function groupSellersByCategory(rows: SellerRow[], topPerCategory = 3): CategorySellers[] {
@@ -97,6 +99,7 @@ export function groupSellersByCategory(rows: SellerRow[], topPerCategory = 3): C
       notSelling,
       totalUnits: sold.reduce((sum, i) => sum + i.units, 0),
       totalRevenueCents: sold.reduce((sum, i) => sum + i.revenueCents, 0),
+      soldItemCount: sold.length,
     });
   }
   // Categories with the most sales first; "Other" last.

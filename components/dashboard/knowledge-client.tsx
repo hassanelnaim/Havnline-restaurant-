@@ -2,7 +2,7 @@
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, Globe, Tag, Percent, Pencil, ClipboardPaste } from "lucide-react";
+import { Plus, Trash2, Globe, Tag, Percent, Pencil, ClipboardPaste, Lightbulb } from "lucide-react";
 import type { DbKnowledgeItem, DbPromotion, KnowledgeCategory } from "@/lib/database/types";
 import { addKnowledgeItemAction, updateKnowledgeItemAction, deleteKnowledgeItemAction, importWebsiteKnowledgeAction, importPastedKnowledgeAction, addPromotionAction, togglePromotionAction, deletePromotionAction } from "@/app/actions/knowledge";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -15,9 +15,22 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { DayPicker } from "@/components/dashboard/day-picker";
+import type { PromotionPrefill } from "@/lib/analytics/promotionPrefill";
 import { describeSchedule, describeDiscount } from "@/lib/business/pricing";
 
-export function KnowledgeClient({ initialItems, initialPromotions, menuOptions }: { initialItems: DbKnowledgeItem[]; initialPromotions: DbPromotion[]; menuOptions: { id: string; name: string }[] }) {
+export function KnowledgeClient({
+  initialItems,
+  initialPromotions,
+  menuOptions,
+  initialTab,
+  prefill,
+}: {
+  initialItems: DbKnowledgeItem[];
+  initialPromotions: DbPromotion[];
+  menuOptions: { id: string; name: string }[];
+  initialTab?: string;
+  prefill?: PromotionPrefill | null;
+}) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [, startTransition] = useTransition();
@@ -114,17 +127,19 @@ export function KnowledgeClient({ initialItems, initialPromotions, menuOptions }
 
   // Promotions
   const [promotions, setPromotions] = useState(initialPromotions);
-  const [promoTitle, setPromoTitle] = useState("");
-  const [promoDescription, setPromoDescription] = useState("");
-  const [promoAppliesTo, setPromoAppliesTo] = useState("");
-  const [promoStart, setPromoStart] = useState("");
-  const [promoEnd, setPromoEnd] = useState("");
-  const [promoDays, setPromoDays] = useState<number[]>([]);
+  const [promoTitle, setPromoTitle] = useState(prefill?.title ?? "");
+  const [promoDescription, setPromoDescription] = useState(prefill?.description ?? "");
+  const [promoAppliesTo, setPromoAppliesTo] = useState(prefill?.appliesTo ?? "");
+  const [promoStart, setPromoStart] = useState(prefill?.start ?? "");
+  const [promoEnd, setPromoEnd] = useState(prefill?.end ?? "");
+  const [promoDays, setPromoDays] = useState<number[]>(prefill?.days ?? []);
   const [promoStartTime, setPromoStartTime] = useState("");
   const [promoEndTime, setPromoEndTime] = useState("");
-  const [promoDiscountType, setPromoDiscountType] = useState<"none" | "percent" | "amount">("none");
-  const [promoDiscountValue, setPromoDiscountValue] = useState("");
-  const [promoItemIds, setPromoItemIds] = useState<string[]>([]);
+  const [promoDiscountType, setPromoDiscountType] = useState<"none" | "percent" | "amount">(prefill?.discountType ?? "none");
+  const [promoDiscountValue, setPromoDiscountValue] = useState(prefill?.discountValue ?? "");
+  // Only items still on the menu: an idea may name one that was removed since.
+  const [promoItemIds, setPromoItemIds] = useState<string[]>((prefill?.itemIds ?? []).filter((id) => menuOptions.some((m) => m.id === id)));
+  const [showPrefillNote, setShowPrefillNote] = useState(Boolean(prefill));
   const [promoError, setPromoError] = useState<string | null>(null);
 
   useEffect(() => { setPromotions(initialPromotions); }, [initialPromotions]);
@@ -147,7 +162,7 @@ export function KnowledgeClient({ initialItems, initialPromotions, menuOptions }
       });
       if (!result.success) { setPromoError(result.error || "Could not add that promotion."); return; }
       setPromoTitle(""); setPromoDescription(""); setPromoAppliesTo(""); setPromoStart(""); setPromoEnd("");
-      setPromoDays([]); setPromoStartTime(""); setPromoEndTime(""); setPromoDiscountType("none"); setPromoDiscountValue(""); setPromoItemIds([]);
+      setPromoDays([]); setPromoStartTime(""); setPromoEndTime(""); setPromoDiscountType("none"); setPromoDiscountValue(""); setPromoItemIds([]); setShowPrefillNote(false);
       router.refresh();
     });
   }
@@ -165,7 +180,7 @@ export function KnowledgeClient({ initialItems, initialPromotions, menuOptions }
   const policies = items.filter((i) => i.category === "policy");
 
   return (
-    <Tabs defaultValue="faqs">
+    <Tabs defaultValue={initialTab ?? "faqs"}>
       <TabsList className="flex-wrap">
         <TabsTrigger value="faqs">FAQs</TabsTrigger>
         <TabsTrigger value="promotions"><Percent className="h-3.5 w-3.5" /> Promotions</TabsTrigger>
@@ -215,6 +230,13 @@ export function KnowledgeClient({ initialItems, initialPromotions, menuOptions }
         <p className="mb-4 text-[12.5px] text-text-muted">
           A promotion runs between its start and end dates, on the days and hours you choose, and can take money off automatically: your AI quotes the discounted price and the order is charged at it. Leave the discount off and it&apos;s just something your AI can mention. To change an item&apos;s own price on certain days or hours (like a breakfast price), use the item&apos;s time-based price on the <Link href="/dashboard/menu" className="font-medium text-brand hover:underline">Menu</Link> page.
         </p>
+        {showPrefillNote && (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-brand/25 bg-brand-50 px-4 py-3 text-[13px] text-ink">
+            <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+            <div className="flex-1">Filled in from your dashboard idea. Check the dates, days and discount, change anything you like, then press <strong>Add promotion</strong>. Nothing is saved until you do.</div>
+            <button onClick={() => setShowPrefillNote(false)} className="text-[12px] font-medium text-brand hover:underline">Dismiss</button>
+          </div>
+        )}
         <Card className="mb-4">
           <CardHeader><CardTitle>Add a promotion</CardTitle></CardHeader>
           <CardContent className="space-y-3">

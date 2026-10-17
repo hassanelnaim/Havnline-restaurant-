@@ -44,14 +44,30 @@ export interface MenuItemInput {
   categoryId: string | null;
 }
 
-export async function addMenuItemAction(input: MenuItemInput): Promise<ActionResult> {
+export async function addMenuItemAction(input: MenuItemInput & { newCategoryName?: string }): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
 
+  // A new category typed in the add-item form: reuse one with the same name
+  // (ignoring case, so "breakfast" never becomes a second "Breakfast"), or
+  // create it, then file the item under it.
+  let categoryId = input.categoryId;
+  const newCategoryName = input.newCategoryName?.trim().slice(0, 80);
+  if (!categoryId && newCategoryName) {
+    const { data: existing } = await admin.from("menu_categories").select("id").eq("business_id", businessId).ilike("name", newCategoryName.replace(/[%_\\]/g, "\\$&")).limit(1).maybeSingle();
+    if (existing) {
+      categoryId = existing.id;
+    } else {
+      const { data: created, error: catError } = await admin.from("menu_categories").insert({ business_id: businessId, name: newCategoryName }).select("id").single();
+      if (catError || !created) return dbErrorResult(catError, "addMenuItemAction:category", "Could not create that category.");
+      categoryId = created.id;
+    }
+  }
+
   const { error } = await admin.from("menu_items").insert({
     business_id: businessId,
-    category_id: input.categoryId,
+    category_id: categoryId,
     name: input.name,
     description: input.description || null,
     price_cents: Math.round((parseFloat(input.price) || 0) * 100),

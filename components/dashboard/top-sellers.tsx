@@ -51,14 +51,12 @@ export function TopSellers({ data }: { data: SellerData | null }) {
                     <span className="truncate text-[13px] font-semibold text-ink">{g.category}</span>
                     <span className="shrink-0 text-[12px] text-text-muted">{dollars(g.totalRevenueCents)}</span>
                   </div>
-                  <div className="mt-1.5 flex items-center gap-3">
-                    <div className="h-3 flex-1 overflow-hidden rounded-full bg-brand-soft">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-brand-light to-brand"
-                        style={{ width: `${Math.max(4, Math.round((g.totalUnits / maxUnits) * 100))}%` }}
-                      />
-                    </div>
-                    <span className="w-16 shrink-0 text-right text-[13px] font-semibold text-brand-dark">{g.totalUnits} sold</span>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div
+                      className="h-3 rounded-full bg-gradient-to-r from-brand-light to-brand"
+                      style={{ width: `${Math.max(3, Math.round((g.totalUnits / maxUnits) * 82))}%` }}
+                    />
+                    <span className="shrink-0 text-[13px] font-semibold text-brand-dark">{g.totalUnits} sold</span>
                   </div>
                   <ol className="mt-2 space-y-0.5">
                     {g.top.map((item, i) => (
@@ -83,7 +81,9 @@ export function TopSellers({ data }: { data: SellerData | null }) {
                     <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1 text-[13px] text-text hover:bg-paper [&::-webkit-details-marker]:hidden">
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-faint transition-transform group-open:rotate-90" />
                       <span className="flex-1 truncate">{g.category}</span>
-                      <span className="shrink-0 text-[12px] text-text-faint">{g.notSelling.length} item{g.notSelling.length === 1 ? "" : "s"}</span>
+                      <span className="shrink-0 text-[12px] text-text-faint">
+                        {g.soldItemCount > 0 ? `${g.notSelling.length} of ${g.notSelling.length + g.soldItemCount} items` : `${g.notSelling.length} item${g.notSelling.length === 1 ? "" : "s"}`}
+                      </span>
                     </summary>
                     <div className="flex flex-wrap gap-1.5 px-6 pb-1 pt-2">
                       {g.notSelling.map((i) => (
