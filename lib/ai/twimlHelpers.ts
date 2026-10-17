@@ -46,9 +46,44 @@ export function getRequestUrl(request: Request): string {
  * a repeated request apart from the caller saying the same word again.
  * Omitted when it isn't known.
  */
-export function gatherActionUrl(callId: string, seq?: number | null): string {
-  const base = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
-  return typeof seq === "number" && Number.isFinite(seq) ? `${base}&seq=${seq}` : base;
+export function gatherActionUrl(callId: string, seq?: number | null, missed?: number): string {
+  let url = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+  if (typeof seq === "number" && Number.isFinite(seq)) url += `&seq=${seq}`;
+  if (typeof missed === "number" && missed > 0) url += `&miss=${missed}`;
+  return url;
+}
+
+/** How many times in a row nothing was heard (see the gather route). */
+export function readMissParam(url: URL): number {
+  const raw = url.searchParams.get("miss");
+  return raw && /^\d{1,2}$/.test(raw) ? parseInt(raw, 10) : 0;
+}
+
+/**
+ * Words a caller often answers with in one or two syllables. Twilio's speech
+ * recognition most often misses short answers, and a "yes" it doesn't catch
+ * is heard as silence. Listing them as hints makes them far likelier to be
+ * recognised.
+ */
+const SPEECH_HINTS = [
+  "yes", "yeah", "yep", "yes please", "no", "nope", "no thanks", "correct", "that's correct", "that's right",
+  "that's it", "that's all", "that's everything", "nothing else", "sounds good", "okay", "sure", "go ahead",
+  "place the order", "plain", "one", "two", "three",
+].join(", ");
+
+/**
+ * The opening <Gather> tag for listening to the caller. One place, so every
+ * listen step uses the same recognition settings:
+ * - phone_call model with `enhanced` (Twilio's recommended setup for short
+ *   answers on phone audio) and the hints above;
+ * - `retryOnSilence`: when nothing is heard, still post to the action URL
+ *   (actionOnEmptyResult) so the caller is asked again instead of the call
+ *   moving on to "goodbye". Off for the filler's short listen (silence there
+ *   is normal and continues to the real answer) and after an order is placed.
+ * The listening times themselves (timeout, speechTimeout) are unchanged.
+ */
+export function speechGatherOpen(action: string, timeoutSeconds: number, opts: { retryOnSilence?: boolean } = {}): string {
+  return `<Gather input="speech" action="${escapeXml(action)}" method="POST" speechTimeout="auto" speechModel="phone_call" enhanced="true" hints="${escapeXml(SPEECH_HINTS)}" timeout="${timeoutSeconds}"${opts.retryOnSilence ? ' actionOnEmptyResult="true"' : ""}>`;
 }
 
 /** Reads `seq` from a request URL; null when absent or not a whole number. */
@@ -152,7 +187,7 @@ export async function buildTurnResponseTwiml(
   const closing = orderPlaced ? POST_ORDER_GOODBYE : "Thanks for calling. Goodbye.";
 
   return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="${listenSeconds}">
+  ${speechGatherOpen(gatherAction, listenSeconds, { retryOnSilence: !orderPlaced })}
     ${sayLine(voice, result.reply, businessId)}
   </Gather>
   ${sayLine(voice, closing, businessId)}
@@ -214,7 +249,7 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
       const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
       await settleWithin(ownerAlert, 1500);
       return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
+  ${speechGatherOpen(gatherAction, 15, { retryOnSilence: true })}
     ${sayLine(voice, "Sorry, I missed that. Could you say it again?", businessId)}
   </Gather>
   ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", businessId)}

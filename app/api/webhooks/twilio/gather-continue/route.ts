@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
 
@@ -62,7 +62,7 @@ async function handleContinue(request: NextRequest, callId: string, original: st
     // own no-speech case does rather than a dead-end hangup.
     const gatherAction = gatherActionUrl(callId, seq);
     return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
+  ${speechGatherOpen(gatherAction, 15, { retryOnSilence: true })}
     ${sayLine(voice, "Sorry, could you say that again?", call.business_id)}
   </Gather>
   ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", call.business_id)}

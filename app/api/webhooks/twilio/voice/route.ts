@@ -4,7 +4,7 @@ import { resolveBusinessFromPhoneNumber, loadBusinessContext } from "@/lib/ai/co
 import { startCall } from "@/lib/ai/receptionist";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
-import { sayLine, getRequestUrl, gatherActionUrl } from "@/lib/ai/twimlHelpers";
+import { sayLine, getRequestUrl, gatherActionUrl, speechGatherOpen } from "@/lib/ai/twimlHelpers";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
@@ -183,7 +183,7 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   const voice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded };
 
   return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
+  ${speechGatherOpen(gatherAction, 15, { retryOnSilence: true })}
     ${sayLine(voice, greeting, businessId)}
   </Gather>
   ${sayLine(voice, "Sorry, I didn't catch that. Please call back. Goodbye.", businessId)}

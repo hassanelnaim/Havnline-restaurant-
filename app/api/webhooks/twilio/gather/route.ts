@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { handleTurn } from "@/lib/ai/receptionist";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam } from "@/lib/ai/twimlHelpers";
+import { twiml, escapeXml, buildTurnResponseTwiml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam, readMissParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
 import { isFarewell, POST_ORDER_GOODBYE } from "@/lib/ai/fillers";
 import { warmResponse } from "@/lib/ai/warmup";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
@@ -12,6 +12,9 @@ import { getSiteUrl } from "@/lib/env";
 export const dynamic = "force-dynamic";
 
 const SITE_URL = getSiteUrl();
+
+// Re-prompts after silence before giving up on the call.
+const MAX_MISSED_LISTENS = 2;
 
 // Start-up ping sent from the voice webhook while the greeting plays (see
 // lib/ai/warmup.ts). Does no work and returns nothing.
@@ -61,8 +64,19 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   const gatherAction = gatherActionUrl(callId, seq);
 
   if (!speechResult) {
+    // Nothing was heard (Twilio now asks us instead of moving straight on to
+    // "goodbye" — see speechGatherOpen). Ask again, up to twice in a row,
+    // so a short "yes" the recogniser missed doesn't end the call.
+    const missed = readMissParam(request.nextUrl);
+    timer.set("path", "no_speech");
+    if (missed >= MAX_MISSED_LISTENS) {
+      return twiml(`<Response>
+  ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", call.business_id)}
+  <Hangup/>
+</Response>`);
+    }
     return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(gatherAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="15">
+  ${speechGatherOpen(gatherActionUrl(callId, seq, missed + 1), 15, { retryOnSilence: true })}
     ${sayLine(voice, "Sorry, could you say that again?", call.business_id)}
   </Gather>
   ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", call.business_id)}
@@ -124,7 +138,7 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   const continueAction = `${SITE_URL}/api/webhooks/twilio/gather-continue?callId=${callId}&original=${encodeURIComponent(speechResult)}${seqParam}`;
 
   return twiml(`<Response>
-  <Gather input="speech" action="${escapeXml(continueAction)}" method="POST" speechTimeout="auto" speechModel="phone_call" timeout="1">
+  ${speechGatherOpen(continueAction, 1)}
     ${sayLine(voice, filler, call.business_id)}
   </Gather>
   <Redirect method="POST">${escapeXml(processUrl)}</Redirect>
