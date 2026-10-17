@@ -1,7 +1,7 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Check, Loader2, Mic, MessageSquare, Plus, Sliders, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, Loader2, Mic, MessageSquare, Play, Plus, Sliders, Square, X } from "lucide-react";
 import type { AiResponsibilities, DbAiReceptionist, DbAiVoiceConfig, DbBusinessHours, Personality } from "@/lib/database/types";
 import { updateAiEmployeeAction } from "@/app/actions/business";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -69,6 +69,23 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
   const [customVoiceRef, setCustomVoiceRef] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_ref : null);
   const [customVoiceName, setCustomVoiceName] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_name : null);
   const [changingVoice, setChangingVoice] = useState(false);
+
+  // ElevenLabs' sample clip for each voice, so the current voice can be played
+  // without opening the picker.
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+  const [playingCurrent, setPlayingCurrent] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    fetch("/api/elevenlabs/voices")
+      .then((r) => r.json())
+      .then((data: { voices?: { voiceId: string; previewUrl: string | null }[] }) => {
+        const map: Record<string, string> = {};
+        for (const v of data.voices || []) if (v.previewUrl) map[v.voiceId] = v.previewUrl;
+        setPreviewUrls(map);
+      })
+      .catch(() => {});
+    return () => { audioRef.current?.pause(); };
+  }, []);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -111,6 +128,19 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
     setError(null);
   }
 
+  const currentPreview = customVoiceRef ? previewUrls[customVoiceRef] : undefined;
+  function toggleCurrentPreview() {
+    if (playingCurrent) { audioRef.current?.pause(); setPlayingCurrent(false); return; }
+    if (!currentPreview) return;
+    audioRef.current?.pause();
+    const audio = new Audio(currentPreview);
+    audio.onended = () => setPlayingCurrent(false);
+    audioRef.current = audio;
+    audio.play().then(() => setPlayingCurrent(true)).catch(() => setPlayingCurrent(false));
+  }
+  // A new voice was picked: stop the old sample.
+  useEffect(() => { audioRef.current?.pause(); setPlayingCurrent(false); }, [customVoiceRef]);
+
   const toneLabel = PERSONALITIES.find((p) => p.id === personality)?.label ?? personality;
 
   return (
@@ -145,10 +175,20 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand-50 px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand text-white"><Mic className="h-5 w-5" /></span>
+                    <button
+                      type="button"
+                      onClick={toggleCurrentPreview}
+                      disabled={!currentPreview}
+                      title={currentPreview ? (playingCurrent ? "Stop" : "Play a sample of this voice") : "Loading sample…"}
+                      aria-label={playingCurrent ? "Stop voice sample" : "Play voice sample"}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm transition-colors hover:bg-brand-dark disabled:opacity-60"
+                    >
+                      {playingCurrent ? <Square className="h-4 w-4" /> : currentPreview ? <Play className="ml-0.5 h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                    </button>
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-brand-dark">Current voice</div>
                       <div className="text-[14px] font-semibold text-ink">{customVoiceName || "Default voice"}</div>
+                      {currentPreview && <div className="text-[11.5px] text-text-muted">{playingCurrent ? "Playing ElevenLabs' sample…" : "Press play to hear it"}</div>}
                     </div>
                   </div>
                   <Button variant={changingVoice ? "outline" : "brand"} size="sm" onClick={() => setChangingVoice((v) => !v)}>

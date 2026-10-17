@@ -80,11 +80,12 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
   }
 
   // Filter chips from the voices' own labels (accent etc.), most common first.
+  const norm = (t: string | null) => (t ? t.trim().toLowerCase() : "");
   const tagCounts = new Map<string, number>();
-  for (const v of voices) if (v.description) tagCounts.set(v.description, (tagCounts.get(v.description) || 0) + 1);
+  for (const v of voices) { const t = norm(v.description); if (t) tagCounts.set(t, (tagCounts.get(t) || 0) + 1); }
   const tags = Array.from(tagCounts.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t).slice(0, 8);
   const q = query.trim().toLowerCase();
-  const shown = voices.filter((v) => (!tag || v.description === tag) && (!q || v.name.toLowerCase().includes(q)));
+  const shown = voices.filter((v) => (!tag || norm(v.description) === tag) && (!q || v.name.toLowerCase().includes(q)));
 
   return (
     <div className="space-y-3">
@@ -107,11 +108,14 @@ export function ElevenLabsVoiceBrowser({ selectedVoiceRef, onSelect }: { selecte
       <p className="text-[11.5px] text-text-faint">▶ plays ElevenLabs&apos; own sample of each voice.</p>
       <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
         {shown.length === 0 && <p className="py-4 text-[13px] text-text-muted">No voices match.</p>}
-        {shown.map((voice) => {
+        {shown.map((voice, index) => {
           const isSelected = selectedVoiceRef === voice.voiceId;
+          // An odd number of voices leaves the last one alone in its row;
+          // stretch it across both columns so the bottom edge lines up.
+          const spanLast = shown.length % 2 === 1 && index === shown.length - 1;
           const [first, ...rest] = voice.name.split(" - ");
           return (
-            <div key={voice.voiceId} className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5", isSelected ? "border-brand bg-brand-soft" : "border-border bg-card")}>
+            <div key={voice.voiceId} className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5", spanLast && "sm:col-span-2", isSelected ? "border-brand bg-brand-soft" : "border-border bg-card")}>
               {voice.previewUrl ? (
                 <button type="button" onClick={() => togglePreview(voice)} title="Play ElevenLabs' sample" className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full border", playingId === voice.voiceId ? "border-brand bg-brand text-white" : "border-border bg-card text-text-muted hover:bg-paper")}>
                   {playingId === voice.voiceId ? <Square className="h-3 w-3" /> : <Play className="ml-0.5 h-3.5 w-3.5" />}
