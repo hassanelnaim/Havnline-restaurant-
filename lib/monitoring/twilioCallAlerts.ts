@@ -9,6 +9,14 @@
  * such as texting/A2P registration errors, which belong to messages, not
  * calls. Never throws: a monitoring check must not be able to break the
  * webhook that runs it.
+ *
+ * Twilio's Alerts list can only be filtered by log level and date — it has
+ * no per-call filter, and silently ignores one if you send it. This used to
+ * send `ResourceSid=<call>` and trust the result, so every call reported the
+ * account's 20 most recent errors of any kind (old texting errors, an old
+ * webhook 404), whether or not they had anything to do with that call. Now
+ * it asks for the recent window only and keeps the alerts whose
+ * resource_sid really is this call.
  */
 
 export interface TwilioCallAlert {
@@ -19,6 +27,8 @@ export interface TwilioCallAlert {
 }
 
 const MAX_MESSAGE_LENGTH = 300;
+const LOOKBACK_MS = 3 * 60 * 60 * 1000;
+const PAGE_SIZE = 500;
 
 // Twilio stores alert_text as a URL-encoded form string, e.g.
 // "Msg=Invalid%20voice&ErrorCode=13520&...". Pull out the human part.
@@ -40,10 +50,14 @@ export async function fetchCallErrorAlerts(
   accountSid: string,
   authToken: string,
   callSid: string,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  now: Date = new Date()
 ): Promise<TwilioCallAlert[]> {
   try {
-    const url = `https://monitor.twilio.com/v1/Alerts?ResourceSid=${encodeURIComponent(callSid)}&LogLevel=error&PageSize=20`;
+    // A call's errors are logged while it is in progress, so the last few
+    // hours always cover it (no call lasts that long).
+    const since = new Date(now.getTime() - LOOKBACK_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const url = `https://monitor.twilio.com/v1/Alerts?LogLevel=error&StartDate=${encodeURIComponent(since)}&PageSize=${PAGE_SIZE}`;
     const response = await fetchImpl(url, {
       headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}` },
       signal: AbortSignal.timeout(5000),
@@ -53,7 +67,7 @@ export async function fetchCallErrorAlerts(
       return [];
     }
     const body = (await response.json()) as { alerts?: Array<Record<string, unknown>> };
-    return (body.alerts || []).map((a) => ({
+    return (body.alerts || []).filter((a) => a.resource_sid === callSid).map((a) => ({
       errorCode: a.error_code != null ? String(a.error_code) : null,
       message: parseAlertText(a.alert_text),
       moreInfo: typeof a.more_info === "string" ? a.more_info : null,
