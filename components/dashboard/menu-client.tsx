@@ -718,6 +718,9 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
   const [committing, setCommitting] = useState(false);
   const [committed, setCommitted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Which import method is open. One at a time, so the page shows one
+  // thing to do instead of three long forms.
+  const [method, setMethod] = useState<"website" | "photo" | "paste">("website");
 
   // Claude's vision models resize any image down to ~1568px on the
   // long edge before reading it anyway — sending more than that is
@@ -827,29 +830,89 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4 text-brand" /> Import from your website</CardTitle><CardDescription>Reads your website's real menu text — nothing is invented. Won't work on an online-ordering page (Toast, ChowNow, etc.) — use "Paste menu text" at the bottom for those instead.</CardDescription></CardHeader>
-        <CardContent className="flex gap-2">
-          <Input placeholder="yourrestaurant.com/menu" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
-          <Button variant="brand" onClick={fromWebsite} disabled={importing || !websiteUrl.trim()}>{importing ? "Reading…" : "Import"}</Button>
-        </CardContent>
-      </Card>
+      <div>
+        <h2 className="font-display text-[15px] font-semibold text-ink">How do you want to bring your menu in?</h2>
+        <p className="mt-0.5 text-[12.5px] text-text-muted">Everything is read from your real menu — nothing is invented — and you review it before anything is added.</p>
+        <div role="tablist" aria-label="Import method" className="mt-3 grid gap-3 sm:grid-cols-3">
+          {([
+            { key: "website", icon: Globe, title: "From your website", line: "Paste your menu page's address" },
+            { key: "photo", icon: Camera, title: "From a photo", line: "A printed menu, price list or screenshot" },
+            { key: "paste", icon: ClipboardPaste, title: "Paste text", line: "Works for Toast, ChowNow and any site" },
+          ] as const).map((m) => {
+            const selected = method === m.key;
+            const Icon = m.icon;
+            return (
+              <button
+                key={m.key}
+                role="tab"
+                aria-selected={selected}
+                onClick={() => { setMethod(m.key); setImportError(null); }}
+                className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition-all ${
+                  selected ? "border-brand bg-brand-50 shadow-card ring-1 ring-brand" : "border-border bg-card hover:border-brand/40 hover:bg-brand-50/50"
+                }`}
+              >
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${selected ? "bg-brand text-white" : "bg-brand-soft text-brand-dark"}`}>
+                  <Icon className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-semibold text-ink">{m.title}</span>
+                  <span className="mt-0.5 block text-[12px] text-text-muted">{m.line}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Camera className="h-4 w-4 text-brand" /> Import from a photo</CardTitle><CardDescription>Take a picture of a printed menu, price list, or PDF page you've exported as an image.</CardDescription></CardHeader>
-        <CardContent>
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={fromPhoto} className="hidden" />
-          <Button variant="brand" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-            {importing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading…</> : <><Camera className="h-3.5 w-3.5" /> Take or upload a photo</>}
-          </Button>
-        </CardContent>
-      </Card>
+        <CardContent className="p-5">
+          {method === "website" && (
+            <div>
+              <Label>Menu page address</Label>
+              <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+                <Input placeholder="yourrestaurant.com/menu" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && websiteUrl.trim() && !importing) fromWebsite(); }} />
+                <Button variant="brand" onClick={fromWebsite} disabled={importing || !websiteUrl.trim()}>
+                  {importing ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <><Globe className="h-4 w-4" /> Import</>}
+                </Button>
+              </div>
+              <p className="mt-2 text-[12px] text-text-faint">Doesn&apos;t work on online-ordering pages (Toast, ChowNow and similar). For those, use <button onClick={() => setMethod("paste")} className="font-medium text-brand hover:underline">Paste text</button>.</p>
+            </div>
+          )}
 
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardPaste className="h-4 w-4 text-brand" /> Paste menu text</CardTitle><CardDescription>Open your menu page in your own browser (this works for any site, including online-ordering pages that "Import from your website" can't read), select all the text — click into individual items first if you want their addons included — and paste it here.</CardDescription></CardHeader>
-        <CardContent className="space-y-2">
-          <Textarea value={pastedText} onChange={(e) => setPastedText(e.target.value)} placeholder="Paste your menu text here…" className="min-h-[120px]" />
-          <Button variant="brand" size="sm" onClick={fromText} disabled={importing || pastedText.trim().length < 20}>{importing ? "Reading…" : "Import from pasted text"}</Button>
+          {method === "photo" && (
+            <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-50/50 px-4 py-8 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-dark"><Camera className="h-6 w-6" /></span>
+              <div>
+                <div className="text-[14px] font-semibold text-ink">Take or upload a photo of your menu</div>
+                <p className="mt-0.5 text-[12px] text-text-muted">A printed menu, price list, or a PDF page saved as an image. Flat, well-lit and straight-on works best.</p>
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={fromPhoto} className="hidden" />
+              <Button variant="brand" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+                {importing ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <><Camera className="h-4 w-4" /> Choose a photo</>}
+              </Button>
+            </div>
+          )}
+
+          {method === "paste" && (
+            <div className="space-y-3">
+              <ol className="grid gap-2 text-[12.5px] text-text-muted sm:grid-cols-3">
+                {["Open your menu page in your browser (any site works)", "Select all the text and copy it — open items first to include their add-ons", "Paste it below"].map((step, i) => (
+                  <li key={step} className="flex gap-2 rounded-lg bg-paper px-3 py-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">{i + 1}</span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+              <Textarea value={pastedText} onChange={(e) => setPastedText(e.target.value)} placeholder="Paste your menu text here…" className="min-h-[160px]" />
+              <Button variant="brand" onClick={fromText} disabled={importing || pastedText.trim().length < 20}>
+                {importing ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <><ClipboardPaste className="h-4 w-4" /> Import from pasted text</>}
+              </Button>
+            </div>
+          )}
+
+          {importing && (
+            <p className="mt-3 flex items-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin text-brand" /> Reading your menu — this can take up to a minute. You can stay on this page.</p>
+          )}
         </CardContent>
       </Card>
 
