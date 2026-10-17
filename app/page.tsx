@@ -2,22 +2,26 @@ import Link from "next/link";
 import {
   ArrowRight, Phone, PhoneIncoming, MessageSquareText, DoorOpen, ChefHat, UserRound,
   Mic2, ClipboardList, Check, Globe, UtensilsCrossed, Pizza, Coffee, Beef, Soup, Star, Printer, PhoneOutgoing,
-  Utensils, Truck, Croissant, Sandwich,
+  Utensils, Truck, Croissant, Sandwich, ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/brand/logo";
 import { getApprovedReviews } from "@/lib/data/reviews";
 import { MONTHLY_PRICE_DISPLAY, DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY } from "@/lib/billing/constants";
+import { HeroPhone } from "@/components/landing/hero-phone";
+import { DemoCall } from "@/components/landing/demo-call";
+import { SavingsCalculator } from "@/components/landing/savings-calculator";
+import { MobileCta } from "@/components/landing/mobile-cta";
 
 export const dynamic = "force-dynamic";
 
 const FEATURES = [
-  { icon: Phone, title: "Answers every call, day or night", detail: "Picks up 24/7 and takes real phone orders, even during your dinner rush." },
-  { icon: ClipboardList, title: "Takes the full order", detail: "Walks callers through your real menu — sizes, add-ons, substitutions and all." },
-  { icon: Globe, title: "Learns your menu in minutes", detail: "Paste your website or a photo of your menu — items and prices import automatically." },
-  { icon: MessageSquareText, title: "Texts a confirmation automatically", detail: "Every order gets a real SMS with the total, no extra step for you." },
-  { icon: Mic2, title: "Sounds like a real person", detail: "Natural voices, not a robotic phone tree." },
-  { icon: PhoneOutgoing, title: "Hands off when it should", detail: "Complicated requests or upset callers get escalated to you — it never guesses." },
+  { icon: Phone, title: "Answers every call, day or night", detail: "Picks up right away, 24/7 — during the dinner rush, on your day off, when three lines ring at once. No hold music, no voicemail." },
+  { icon: ClipboardList, title: "Takes the full order", detail: "Asks about sizes, toppings and anything to leave off, keeps track of every item, then reads the whole order back with the total before placing it." },
+  { icon: Globe, title: "Learns your menu in minutes", detail: "Import it from your website, a photo, or pasted text. Prices, add-ons and day-or-time specials come along." },
+  { icon: MessageSquareText, title: "Texts the customer", detail: "The order details and payment link go out by text right after the call — nothing for your staff to send." },
+  { icon: Mic2, title: "Sounds like a real person", detail: "A natural voice you pick, short conversational replies, and never a \u201cpress 1 for…\u201d menu." },
+  { icon: PhoneOutgoing, title: "Hands off when it should", detail: "Refunds, complaints or anything it isn't sure about get passed to your phone or logged for a callback. It never guesses." },
 ];
 
 const DISRUPTIONS = [
@@ -25,13 +29,6 @@ const DISRUPTIONS = [
   { icon: UserRound, who: "Your server", cost: "Steps away mid-table to take a phone order — the table in front of them notices, every time." },
   { icon: ChefHat, who: "Your cook", cost: "Comes off the line to grab a handwritten order — and the ticket already in front of them slows down." },
 ];
-
-// The root of the "applies to every restaurant" tree below — rendered
-// on its own, on top, with CUISINE_TYPES branching down from it. Kept
-// separate from the leaves rather than as a 5th item in that list,
-// which is what made it read as just another flat card before instead
-// of the thing all the others fall under.
-const ANY_RESTAURANT = { icon: UtensilsCrossed, label: "Any Restaurant" };
 
 const CUISINE_TYPES = [
   { icon: Pizza, label: "Pizzerias" },
@@ -51,13 +48,13 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: "Will it sound like a robot?", a: "No — natural voices, not an old-school phone tree. Most callers don't realize they're not talking to a person until you tell them." },
+  { q: "Will it sound like a robot?", a: "No — it uses natural voices that sound like a person, not an old-school phone tree, and keeps its replies short and conversational." },
   { q: "What if it gets an order wrong?", a: "It only orders off what you've actually loaded into your menu — it can't invent an item, a size, or a price. If it's ever unsure what a caller means, it asks instead of guessing." },
   { q: "Does it work with my POS?", a: "It prints phone orders straight to your kitchen printer with our tablet app — no POS integration needed, and no per-item mapping to set up first." },
   { q: "What if a customer asks for something off-menu or gets upset?", a: "It hands off to you instead of guessing. It never invents prices, items, or policies it wasn't given." },
   { q: "Do I need to be technical to set this up?", a: "No setup scripts or prompt-writing. You tell us about your restaurant and menu, pick a voice, and forward your line — most owners are live the same day." },
   { q: "Do I need a new phone number?", a: "No. Forward your existing restaurant line, or use a new one we provide." },
-  { q: "What happens after my free trial?", a: "You're billed automatically unless you cancel first. No surprise commitment." },
+  { q: "What happens after my free trial?", a: "You're billed automatically unless you cancel first. There's no contract — cancel anytime from Billing in your dashboard." },
   { q: "Can I control what it says?", a: "Yes — personality, voice, and ordering rules are all yours to set. No prompt-writing needed." },
 ];
 
@@ -65,9 +62,13 @@ export default async function LandingPage() {
   const reviews = await getApprovedReviews();
   return (
     <div className="min-h-screen bg-paper">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-paper/85 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
         <Logo />
-        <nav className="flex items-center gap-3">
+        <nav className="flex items-center gap-1 sm:gap-3">
+          <a href="#how" className="hidden px-2 text-[13px] font-medium text-text-muted hover:text-ink md:inline">How it works</a>
+          <a href="#pricing" className="hidden px-2 text-[13px] font-medium text-text-muted hover:text-ink md:inline">Pricing</a>
+          <a href="#faq" className="hidden px-2 text-[13px] font-medium text-text-muted hover:text-ink md:inline">FAQ</a>
           <Button variant="ghost" size="sm" asChild>
             <Link href="/login">Log in</Link>
           </Button>
@@ -75,135 +76,89 @@ export default async function LandingPage() {
             <Link href="/signup">Get started <ArrowRight className="h-3.5 w-3.5" /></Link>
           </Button>
         </nav>
+        </div>
       </header>
 
       <main>
-        {/* 1. Problem — the page opens on the pain, not the pitch. Dark, no CTA yet. */}
-        <section className="bg-ink py-14">
-          <div className="mx-auto max-w-6xl px-6">
-            <div className="text-center">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-[#B8C0D0]">
+        {/* 1. Hero — the problem, the promise, a button, and the product in one picture. */}
+        <section className="relative overflow-hidden bg-ink">
+          <div aria-hidden className="pointer-events-none absolute -right-40 -top-40 h-[480px] w-[480px] rounded-full bg-brand/25 blur-3xl" />
+          <div className="relative mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:py-20">
+            <div className="text-center lg:text-left">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11.5px] font-medium text-[#B8C0D0]">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-ring" />
-                Now taking phone orders for restaurants
+                An AI that answers your restaurant&apos;s phone
               </span>
-              <h1 className="mx-auto mt-5 max-w-2xl font-display text-[34px] font-semibold leading-[1.1] text-white sm:text-[48px]">
-                The phone rings. The whole restaurant pauses.
+              <h1 className="mt-5 font-display text-[36px] font-semibold leading-[1.08] text-white sm:text-[52px]">
+                The phone rings.<br />
+                <span className="text-brand-light">Nobody has to stop.</span>
               </h1>
-              <p className="mx-auto mt-4 max-w-lg text-[14px] leading-relaxed text-[#B8C0D0]">
-                Every phone order costs you a moment somewhere else in the building — a door left, a table left,
-                a ticket delayed. It's not about missed calls. It's about who has to stop what they're doing to answer.
+              <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-[#B8C0D0] lg:mx-0">
+                HavnLine picks up your restaurant&apos;s calls, takes the order off your real menu, and sends it straight to your kitchen — so your host, servers and cooks never have to drop what they&apos;re doing.
               </p>
+              <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
+                <Button variant="brand" size="lg" className="w-full sm:w-auto" asChild>
+                  <Link href="/signup">Start your free trial <ArrowRight className="h-4 w-4" /></Link>
+                </Button>
+                <a href="#how" className="inline-flex items-center gap-1.5 px-3 py-2 text-[14px] font-medium text-white/85 hover:text-white">
+                  See how it works <ChevronDown className="h-4 w-4" />
+                </a>
+              </div>
+              <p className="mt-3 text-[12px] text-[#8A93A6]">7 days free, then {MONTHLY_PRICE_DISPLAY}/month + {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} per paid order. Cancel anytime.</p>
             </div>
-            <div className="mt-9 grid gap-5 sm:grid-cols-3">
+            <HeroPhone />
+          </div>
+
+          {/* Who stops for the phone today — one compact strip instead of three tall cards. */}
+          <div className="relative border-t border-white/10 bg-white/[0.03]">
+            <div className="mx-auto grid max-w-6xl gap-4 px-6 py-6 sm:grid-cols-3">
               {DISRUPTIONS.map((d) => (
-                <div key={d.who} className="rounded-2xl border border-[#25324A] bg-[#131C30] p-5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-brand-light">
-                    <d.icon className="h-4 w-4" />
+                <div key={d.who} className="flex items-start gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/5 text-brand-light"><d.icon className="h-4 w-4" /></span>
+                  <div>
+                    <div className="text-[13px] font-semibold text-white">Without HavnLine, {d.who.toLowerCase()}…</div>
+                    <p className="mt-0.5 text-[12px] leading-relaxed text-[#8A93A6]">{d.cost}</p>
                   </div>
-                  <div className="mt-3 font-display text-[14px] font-semibold text-white">{d.who}</div>
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-[#B8C0D0]">{d.cost}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* 2. Solution — HavnLine picks up instead. First CTA on the page lives at the end of this section. */}
-        <section className="mx-auto max-w-6xl px-6 py-14">
+        {/* 2. The fix — what stays the same, what changes. */}
+        <section className="mx-auto max-w-6xl px-6 py-16">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div>
-              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">The fix</p>
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">The fix</p>
               <h2 className="mt-2.5 max-w-lg font-display text-[28px] font-semibold leading-[1.15] text-ink sm:text-[32px]">
-                HavnLine picks up instead — so nobody has to stop.
+                Same number. Same ringing phone. A different person answers.
               </h2>
               <p className="mt-4 max-w-md text-[14px] leading-relaxed text-text-muted">
-                Same phone number, same ringing line. The only thing that changes is who answers. Your host stays
-                at the door, your server stays at the table, your cook stays on the line — HavnLine takes the
-                call, off your real menu, every time.
+                Keep your existing number. When it rings, HavnLine takes the call off your real menu, every time — and your team stays exactly where they&apos;re needed.
               </p>
-              <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Button variant="brand" size="lg" asChild>
-                  <Link href="/signup">Start your free trial <ArrowRight className="h-4 w-4" /></Link>
-                </Button>
-                <Button variant="outline" size="lg" asChild>
-                  <Link href="/login">I have an account</Link>
-                </Button>
-              </div>
-              <p className="mt-3 text-[11.5px] text-text-faint">7 days free, then {MONTHLY_PRICE_DISPLAY}/month. Cancel anytime.</p>
             </div>
-
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">
-                <PhoneIncoming className="h-3.5 w-3.5" /> Incoming call — (845) 555-0142
-              </div>
-              <div className="mt-3 space-y-2.5">
-                <div className="flex items-center justify-between rounded-xl border border-dashed border-border bg-paper p-4">
-                  <div className="flex items-center gap-2 text-[13px] text-text-muted">
-                    <span className="h-2 w-2 rounded-full bg-text-faint" /> Ringing…
-                  </div>
-                  <span className="text-[11.5px] text-text-faint">7:12 PM</span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl border border-brand/30 bg-brand-soft p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-medium text-brand-dark">
-                    <Check className="h-3.5 w-3.5" /> Answered by HavnLine
-                  </div>
-                  <span className="text-[11.5px] text-brand-dark">0:01</span>
-                </div>
-              </div>
-              <p className="mt-3 text-[11.5px] text-text-faint">Sarah stays at Table 6 the whole time — nobody left the floor to pick up.</p>
-            </div>
+            <ul className="space-y-3">
+              {["Your host stays at the door", "Your servers stay with their tables", "Your cooks stay on the line", "Every order lands in the kitchen, written down right"].map((item) => (
+                <li key={item} className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-[14px] font-medium text-ink shadow-card">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-dark"><Check className="h-4 w-4" /></span>
+                  {item}
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
         {/* 3. How orders are taken — the conversation and where it lands, shown together as one loop. */}
-        <section className="border-y border-border bg-card py-14">
+        <section id="how" className="scroll-mt-16 border-y border-border bg-card py-16">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mx-auto max-w-xl text-center">
-              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Hear it for yourself</p>
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Hear it for yourself</p>
               <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">What an actual order sounds like — and where it lands</h2>
               <p className="mx-auto mt-2 max-w-lg text-[13px] text-text-muted">A real exchange off a real menu, no scripts — then straight to your kitchen printer, exactly like a walk-in or online order.</p>
             </div>
 
-            <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
-              <div className="rounded-2xl border border-border bg-paper p-5 shadow-card">
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">
-                  <ClipboardList className="h-3.5 w-3.5" /> The call
-                </div>
-                <div className="mt-3 space-y-2">
-                  {[
-                    { from: "caller", text: "Hey, can I get a large pepperoni pizza and an order of garlic knots?" },
-                    { from: "ai", text: "You got it — one large pepperoni, one garlic knots. Anything to drink, or any other sides?" },
-                    { from: "caller", text: "Yeah, add a 2-liter Coke." },
-                    { from: "ai", text: "Perfect. So that's a large pepperoni, garlic knots, and a 2-liter Coke — comes to $28.75 for pickup. Sound right?" },
-                  ].map((line, i) => (
-                    <div key={i} className={`flex ${line.from === "ai" ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed ${line.from === "ai" ? "bg-brand-soft text-brand-dark" : "bg-card text-text"}`}>
-                        {line.text}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <ArrowRight className="mx-auto hidden h-6 w-6 shrink-0 text-text-faint lg:block" />
-
-              <div className="rounded-2xl border border-border bg-paper p-5 shadow-card">
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">
-                  <Printer className="h-3.5 w-3.5" /> Kitchen ticket
-                </div>
-                <div className="mt-3 rounded-xl border border-dashed border-border bg-card p-4 font-mono text-[12.5px] leading-relaxed text-text">
-                  <div className="flex justify-between text-text-faint"><span>ORDER #1042</span><span>PICKUP</span></div>
-                  <div className="mt-2 border-t border-border-soft pt-2">
-                    1x Large Pepperoni Pizza<br />
-                    1x Garlic Knots<br />
-                    1x 2-Liter Coke
-                  </div>
-                  <div className="mt-2 flex justify-between border-t border-border-soft pt-2 font-semibold">
-                    <span>Total</span><span>$28.75</span>
-                  </div>
-                </div>
-                <p className="mt-3 text-[11.5px] text-text-faint">Same format your kitchen already reads. Confirmation texted to the customer automatically.</p>
-              </div>
+            <div className="mt-8">
+              <DemoCall />
             </div>
 
             <ul className="mx-auto mt-8 grid max-w-2xl gap-2.5 sm:grid-cols-2">
@@ -217,57 +172,37 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        {/* 4. Applies to all restaurants — tree layout makes "Any Restaurant" read as the thing every category below falls under, instead of just another card in the row. */}
+        {/* 4. Who it's for — one row, not a tree. */}
         <section className="mx-auto max-w-6xl px-6 py-14 text-center">
-          <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Built for restaurants</p>
-          <h2 className="mt-2.5 font-display text-[22px] font-semibold text-ink">If you take phone orders, this is for you.</h2>
-
-          <div className="mt-9 flex flex-col items-center">
-            <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-brand bg-brand-soft px-7 py-5 shadow-card">
-              <ANY_RESTAURANT.icon className="h-8 w-8 text-brand-dark" />
-              <span className="font-display text-[15px] font-semibold text-ink">{ANY_RESTAURANT.label}</span>
-            </div>
-
-            {/* Trunk down from the root node to the branch line — lines only read cleanly at lg+, where the grid below is a stable 4-wide shape; smaller breakpoints just show root-then-grid, which still conveys the hierarchy. */}
-            <div className="h-7 w-px bg-border" aria-hidden />
-
-            <div className="relative w-full">
-              <div aria-hidden className="absolute inset-x-6 top-0 hidden h-px bg-border lg:block" />
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {CUISINE_TYPES.map((c) => (
-                  <div key={c.label} className="flex flex-col items-center">
-                    <div className="hidden h-5 w-px bg-border lg:block" aria-hidden />
-                    <div className="flex w-full flex-col items-center gap-2.5 rounded-2xl border border-border bg-card px-4 py-6">
-                      <c.icon className="h-7 w-7 text-brand" />
-                      <span className="text-[14px] font-semibold text-ink">{c.label}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Built for restaurants</p>
+          <h2 className="mt-2.5 font-display text-[24px] font-semibold text-ink">If you take phone orders, this is for you.</h2>
+          <div className="mt-7 flex flex-wrap justify-center gap-2.5">
+            {CUISINE_TYPES.map((c) => (
+              <span key={c.label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-[13.5px] font-medium text-ink shadow-sm">
+                <c.icon className="h-4 w-4 text-brand" /> {c.label}
+              </span>
+            ))}
+            <span className="inline-flex items-center gap-2 rounded-full border border-brand/30 bg-brand-soft px-4 py-2 text-[13.5px] font-medium text-brand-dark">
+              <UtensilsCrossed className="h-4 w-4" /> …and any restaurant that takes calls
+            </span>
           </div>
-
-          <p className="mx-auto mt-7 max-w-md text-[13px] leading-relaxed text-text-muted">
-            Every one of these deals with the same interruption — a host, a server, a cook pulled away mid-task.
-            HavnLine fixes it the same way for all of them.
-          </p>
         </section>
 
         {/* What it actually does — supplementary capabilities not already shown above. */}
         <section className="border-y border-border bg-card py-14">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">What it actually does</p>
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">What it actually does</p>
               <h2 className="mt-2.5 font-display text-[26px] font-semibold leading-tight text-ink">A great order-taker — without the payroll.</h2>
             </div>
             <div className="mt-7 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURES.map((f) => (
-                <div key={f.title} className="rounded-2xl border border-border bg-paper p-4">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-dark">
-                    <f.icon className="h-4 w-4" />
+                <div key={f.title} className="group rounded-2xl border border-border bg-paper p-5 transition-colors hover:border-brand/40 hover:bg-brand-50">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white shadow-sm">
+                    <f.icon className="h-5 w-5" />
                   </div>
-                  <div className="mt-3 font-display text-[14px] font-semibold text-ink">{f.title}</div>
-                  <p className="mt-1 text-[12.5px] leading-relaxed text-text-muted">{f.detail}</p>
+                  <div className="mt-4 font-display text-[15px] font-semibold text-ink">{f.title}</div>
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-text-muted">{f.detail}</p>
                 </div>
               ))}
             </div>
@@ -277,12 +212,13 @@ export default async function LandingPage() {
         {/* 5. Steps — functional, no re-selling. */}
         <section className="mx-auto max-w-6xl px-6 py-14">
           <div className="mx-auto max-w-2xl text-center">
-            <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Live in three steps</p>
+            <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Live in three steps</p>
+            <h2 className="mt-2.5 font-display text-[24px] font-semibold text-ink">Most owners are set up the same day.</h2>
           </div>
-          <div className="mt-5 grid gap-3.5 sm:grid-cols-3">
+          <div className="mt-7 grid gap-3.5 sm:grid-cols-3">
             {STEPS.map((step, i) => (
               <div key={step.label} className="rounded-2xl border border-border bg-card p-4">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-paper font-mono text-[11.5px] font-medium text-text-muted">{i + 1}</div>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-[13px] font-semibold text-white">{i + 1}</div>
                 <div className="mt-3 font-display text-[14px] font-semibold text-ink">{step.label}</div>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-text-muted">{step.detail}</p>
               </div>
@@ -290,11 +226,25 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        {/* What it saves — the visitor's own numbers, nothing invented. */}
+        <section className="border-t border-border bg-card py-16">
+          <div className="mx-auto max-w-5xl px-6">
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Do the math</p>
+              <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">How much time does the phone take from your team?</h2>
+              <p className="mx-auto mt-2 max-w-lg text-[13px] text-text-muted">Move the sliders to match your restaurant.</p>
+            </div>
+            <div className="mt-8">
+              <SavingsCalculator monthlyPriceDisplay={MONTHLY_PRICE_DISPLAY} feePercentDisplay={DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} />
+            </div>
+          </div>
+        </section>
+
         {/* 6. Reviews — real submissions only, checked before appearing here. Honest empty state kept live. */}
         <section className="border-y border-border bg-card py-14">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mx-auto max-w-4xl text-center">
-              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">From real restaurant owners</p>
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">From real restaurant owners</p>
               <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">What it's actually like to use HavnLine</h2>
             </div>
 
@@ -329,10 +279,10 @@ export default async function LandingPage() {
         </section>
 
         {/* 7. Pricing — moved ahead of FAQ so the price lands before objections are addressed. */}
-        <section className="py-14">
+        <section id="pricing" className="scroll-mt-16 py-16">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mx-auto max-w-2xl text-center">
-              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Pricing</p>
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Pricing</p>
               <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">One plan. Everything included.</h2>
             </div>
             <div className="mx-auto mt-6 max-w-md rounded-2xl border-2 border-brand bg-card p-7 text-center shadow-card">
@@ -351,7 +301,11 @@ export default async function LandingPage() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 text-[11.5px] text-text-faint">The {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} fee applies to each paid phone order once your free trial ends. It's deducted automatically — no separate bill for it.</p>
+              <div className="mt-5 rounded-xl bg-paper px-4 py-3 text-left text-[12.5px] text-text-muted">
+                <div className="font-semibold text-ink">How the {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} works</div>
+                <div className="mt-1 flex justify-between"><span>A $25.00 phone order</span><span className="font-semibold text-ink">you pay $0.75</span></div>
+                <p className="mt-1.5 text-[11.5px] text-text-faint">Only on orders customers actually pay for, only after your free trial, and taken out automatically — no separate bill. No contract: cancel anytime from Billing.</p>
+              </div>
               <Button variant="brand" size="lg" className="mt-6 w-full" asChild>
                 <Link href="/signup">Start your free trial <ArrowRight className="h-4 w-4" /></Link>
               </Button>
@@ -360,10 +314,10 @@ export default async function LandingPage() {
         </section>
 
         {/* 8. FAQ — mops up remaining objections, now including ones raised by the harder problem-first opening. The width/padding used to sit directly on this <section>, so its bg-card band and top border only ever spanned 3xl instead of the full width every other banded section gets — moved onto a nested div, same pattern as the other border-y/bg-card sections above. */}
-        <section className="border-t border-border bg-card py-14">
+        <section id="faq" className="scroll-mt-16 border-t border-border bg-card py-16">
           <div className="mx-auto max-w-3xl px-6">
             <div className="text-center">
-              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">Questions</p>
+              <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Questions</p>
               <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">Before you get started</h2>
             </div>
             <div className="mt-7 divide-y divide-border-soft">
@@ -391,8 +345,10 @@ export default async function LandingPage() {
         </section>
       </main>
 
-      <footer className="border-t border-border py-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 text-[11.5px] text-text-faint">
+      <MobileCta />
+
+      <footer className="border-t border-border pb-28 pt-8 sm:pb-8">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 text-[11.5px] text-text-faint sm:flex-row">
           <span>© {new Date().getFullYear()} HavnLine</span>
           <div className="flex items-center gap-4">
             <Link href="/terms" className="hover:text-text">Terms</Link>
