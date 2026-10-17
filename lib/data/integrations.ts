@@ -8,6 +8,19 @@ const ALL_PROVIDERS: IntegrationProvider[] = ["twilio", "sms", "printer_app"];
 
 const COMING_SOON: IntegrationProvider[] = [];
 
+/**
+ * These rows go straight to the browser (the Integrations page is a client
+ * component), and the Twilio row's metadata also holds the business's
+ * sub-account SID and auth token. Only the fields the page shows are passed
+ * on; the credentials stay on the server.
+ */
+function publicMetadata(row: DbIntegration): Record<string, unknown> | null {
+  const meta = row.metadata as Record<string, unknown> | null;
+  if (!meta) return null;
+  if (row.provider === "twilio") return typeof meta.phone_number === "string" ? { phone_number: meta.phone_number } : null;
+  return null;
+}
+
 export async function getIntegrations(): Promise<DbIntegration[]> {
   if (!isSupabaseConfigured()) return mockIntegrations.filter((i) => ALL_PROVIDERS.includes(i.provider));
   const businessId = await getCurrentBusinessId();
@@ -39,7 +52,7 @@ export async function getIntegrations(): Promise<DbIntegration[]> {
       } as DbIntegration;
     }
     const found = existing.find((i) => i.provider === provider);
-    if (found) return found;
+    if (found) return { ...found, metadata: publicMetadata(found) } as DbIntegration;
     return {
       id: `stub_${provider}`,
       business_id: businessId,

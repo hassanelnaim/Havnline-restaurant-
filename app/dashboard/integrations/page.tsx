@@ -8,13 +8,17 @@ export const dynamic = "force-dynamic";
 export default async function IntegrationsPage() {
   const [integrations, business] = await Promise.all([getIntegrations(), getBusiness()]);
   return (
-    <div>
-      <PageHeader title="Integrations" description="Connect your kitchen printer, phone, your AI's voice, and payments." />
+    // Extra bottom space so the live-chat bubble never sits on top of the
+    // last card.
+    <div className="pb-24">
+      <PageHeader title="Integrations" description="Connect your phone number, payments, and kitchen tablet." />
       <IntegrationsClient
         initialIntegrations={integrations}
         stripeConnectAccountId={business.stripe_connect_account_id}
         stripeConnectChargesEnabled={business.stripe_connect_charges_enabled}
         platformFeeBps={business.platform_fee_bps}
+        // Only whether the EIN is on file is sent to the browser, never the number.
+        textingIdentity={{ legalBusinessName: business.legal_business_name, hasEin: Boolean(business.ein) }}
       />
     </div>
   );

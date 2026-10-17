@@ -130,6 +130,32 @@ export async function updateBusinessProfileAction(input: {
   return { success: true };
 }
 
+/**
+ * The legal name and EIN carriers check before they let a business text
+ * customers (A2P 10DLC registration). Collected at signup as optional; this
+ * lets the owner add or fix them later from the Integrations page. The EIN
+ * is never logged and never sent back to the browser.
+ */
+export async function saveTextingIdentityAction(input: { legalBusinessName: string; ein: string }): Promise<ActionResult> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+
+  const legalName = input.legalBusinessName.trim();
+  const einDigits = input.ein.replace(/\D/g, "");
+  if (!legalName) return { success: false, error: "Enter your legal business name, exactly as it appears with the IRS." };
+  if (einDigits.length !== 9) return { success: false, error: "An EIN is 9 digits, like 12-3456789." };
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("businesses").update({ legal_business_name: legalName, ein: einDigits }).eq("id", businessId);
+  if (error) return dbErrorResult(error, "saveTextingIdentityAction", "Could not save your business details.");
+  revalidatePath("/dashboard/integrations");
+  return { success: true };
+}
+
 // The tablet-redesign PIN (see lib/security/moneyPin.ts) that staff
 // enter on the paired tablet before a refund or discount. Set or
 // changed from here, same as the tax rate above — no "current PIN" is
