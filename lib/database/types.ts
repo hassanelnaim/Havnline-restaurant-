@@ -186,6 +186,15 @@ export interface MenuItemWithModifiers extends DbMenuItem {
   modifier_groups: (DbModifierGroup & { modifiers: DbModifier[] })[];
 }
 
+/** A whole day the business is closed (holiday etc.). closed_on is "YYYY-MM-DD" in the business's timezone. Migration 031. */
+export interface DbBusinessClosure {
+  id: UUID;
+  business_id: UUID;
+  closed_on: string;
+  note: string | null;
+  created_at: ISODateTime;
+}
+
 // --------------------------------------------------------------------------
 // Orders
 // --------------------------------------------------------------------------

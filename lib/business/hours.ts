@@ -1,6 +1,25 @@
 import type { DbBusiness, DbBusinessHours, Weekday } from "@/lib/database/types";
 
 const WEEKDAY_SEQUENCE: Weekday[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** Today's date in the business's timezone, "YYYY-MM-DD". */
+export function localDateKeyNow(timezone: string, now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+/** "2026-11-26" + 3 days -> "2026-11-29" (pure calendar arithmetic, no timezone involved). */
+export function addDaysToDateKey(dateKey: string, days: number): string {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** "2026-11-26" -> "Thursday, November 26" — for speaking a specific date. */
+export function speakDateKey(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  return `${capitalize(WEEKDAY_SEQUENCE[d.getUTCDay()])}, ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -45,7 +64,10 @@ export function formatTimeForSpeech(time: string): string {
  * blocking every order for a business that simply hasn't filled in
  * its hours yet would be a footgun, not a real safeguard.
  */
-export function isBusinessOpenNow(business: Pick<DbBusiness, "timezone">, hours: DbBusinessHours[]): boolean {
+export function isBusinessOpenNow(business: Pick<DbBusiness, "timezone">, hours: DbBusinessHours[], closedDates: readonly string[] = []): boolean {
+  // A holiday closure (migration 031) shuts the whole local calendar day,
+  // whatever the weekly hours say.
+  if (closedDates.length > 0 && closedDates.includes(localDateKeyNow(business.timezone))) return false;
   if (hours.length === 0) return true;
 
   const currentWeekday = new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, weekday: "long" })
@@ -89,7 +111,7 @@ export function isBusinessOpenNow(business: Pick<DbBusiness, "timezone">, hours:
  * the rest of today, or closed all day today, still gets a correct
  * answer pointing at whichever day it actually reopens.
  */
-export function nextOpenTimeText(business: Pick<DbBusiness, "timezone">, hours: DbBusinessHours[]): string | null {
+export function nextOpenTimeText(business: Pick<DbBusiness, "timezone">, hours: DbBusinessHours[], closedDates: readonly string[] = []): string | null {
   const currentWeekdayName = (new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, weekday: "long" })
     .format(new Date())
     .toLowerCase()) as Weekday;
@@ -102,9 +124,14 @@ export function nextOpenTimeText(business: Pick<DbBusiness, "timezone">, hours: 
 
   const todayIndex = WEEKDAY_SEQUENCE.indexOf(currentWeekdayName);
   if (todayIndex === -1) return null;
+  const todayKey = localDateKeyNow(business.timezone);
 
-  for (let offset = 0; offset <= 7; offset++) {
+  // Looks up to three weeks ahead so a run of holiday closures still finds
+  // the real reopening day (a plain week covers the normal case).
+  for (let offset = 0; offset <= 21; offset++) {
     const weekday = WEEKDAY_SEQUENCE[(todayIndex + offset) % 7];
+    const dateKey = addDaysToDateKey(todayKey, offset);
+    if (closedDates.includes(dateKey)) continue;
     const dayHours = hours.find((h) => h.weekday === weekday);
     if (!dayHours?.is_open || !dayHours.open_time) continue;
 
@@ -124,6 +151,9 @@ export function nextOpenTimeText(business: Pick<DbBusiness, "timezone">, hours: 
       return `today at ${formatTimeForSpeech(openTime)}`;
     }
     if (offset === 1) return `tomorrow at ${formatTimeForSpeech(openTime)}`;
+    // A week or more away, the weekday alone would be ambiguous ("Monday"
+    // could mean this coming Monday), so the date is spoken too.
+    if (offset >= 7) return `${speakDateKey(dateKey)} at ${formatTimeForSpeech(openTime)}`;
     return `${capitalize(weekday)} at ${formatTimeForSpeech(openTime)}`;
   }
   return null;

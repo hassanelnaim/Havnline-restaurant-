@@ -6,6 +6,7 @@ import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
+import { closedDatesOf } from "@/lib/ai/context";
 import { calculateTaxCents } from "@/lib/billing/stripeTax";
 import { describeTimePricing, quoteItemPrice } from "@/lib/business/pricing";
 import { shouldAttemptLiveTransfer, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "./liveTransfer";
@@ -245,7 +246,7 @@ async function add_item_to_order(
   // prompt, but that's just an instruction it could fail to follow. A
   // closed business cannot have an order built or placed, period,
   // regardless of what the model does or says.
-  if (!isBusinessOpenNow(ctx.context.business, ctx.context.hours)) {
+  if (!isBusinessOpenNow(ctx.context.business, ctx.context.hours, closedDatesOf(ctx.context))) {
     return { success: false, reason: "This business is currently closed and can't accept orders right now. Tell the customer you're closed rather than adding this item." };
   }
 
@@ -507,7 +508,7 @@ async function confirm_and_place_order(
   // Same hard cutoff as add_item_to_order. Checked again here (not just
   // when items were added) because a call can sit in progress across
   // the exact moment a business's closing time passes.
-  if (!isBusinessOpenNow(ctx.context.business, ctx.context.hours)) {
+  if (!isBusinessOpenNow(ctx.context.business, ctx.context.hours, closedDatesOf(ctx.context))) {
     return { success: false, reason: "This business is currently closed and can't accept orders right now. Tell the customer you're closed rather than placing this order." };
   }
 
@@ -754,7 +755,7 @@ async function escalate_to_human(input: { reason: string; summary: string }, ctx
   const live = shouldAttemptLiveTransfer({
     channel: ctx.channel,
     restaurantPhone: escalationTargetPhone(ctx.context.business),
-    isOpen: isBusinessOpenNow(ctx.context.business, ctx.context.hours),
+    isOpen: isBusinessOpenNow(ctx.context.business, ctx.context.hours, closedDatesOf(ctx.context)),
     alreadyAttempted,
     callerPhone: ctx.callerPhone,
   });

@@ -1,6 +1,7 @@
 import type { BusinessContext } from "./context";
 import type { AiResponsibilities } from "@/lib/database/types";
-import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech } from "@/lib/business/hours";
+import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech, localDateKeyNow, speakDateKey } from "@/lib/business/hours";
+import { closedDatesOf } from "./context";
 import { describeTimePricing, quoteItemPrice, isPromotionActiveNow, describeSchedule, describeDiscount } from "@/lib/business/pricing";
 
 const PERSONALITY_COPY: Record<string, string> = {
@@ -94,11 +95,21 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
     timeZone: business.timezone, weekday: "long", year: "numeric", month: "long", day: "numeric",
   }).format(now);
 
-  const isOpenRightNow = isBusinessOpenNow(business, hours);
+  const closedDates = closedDatesOf(ctx);
+  const isOpenRightNow = isBusinessOpenNow(business, hours, closedDates);
   // Precomputed so the model never has to work out which day's row
   // applies (today vs. tomorrow) or convert its time to AM/PM itself —
   // null only when closed with no valid hours configured at all.
-  const reopensAtText = !isOpenRightNow ? nextOpenTimeText(business, hours) : null;
+  const reopensAtText = !isOpenRightNow ? nextOpenTimeText(business, hours, closedDates) : null;
+  // Holiday closures (migration 031): today's, if any, gives the reason
+  // for being closed; the upcoming ones let the AI answer "are you open
+  // on Thanksgiving?" without guessing.
+  const todayKey = localDateKeyNow(business.timezone);
+  const closedToday = (ctx.closures || []).find((c) => c.closed_on === todayKey) || null;
+  const upcomingClosures = (ctx.closures || []).filter((c) => c.closed_on > todayKey).slice(0, 10);
+  const closuresText = upcomingClosures.length
+    ? upcomingClosures.map((c) => `- ${speakDateKey(c.closed_on)}: closed all day${c.note ? ` (${c.note})` : ""}`).join("\n")
+    : "(none scheduled)";
 
   return `You are the automated phone order-taking assistant for ${business.name}, a restaurant. You do not have a personal name — you're an answering service, not a person. If a caller asks for your name, say something like "I'm just the automated assistant here at ${business.name} — no name, just here to help with your order." Never invent or adopt a name for yourself.
 
@@ -107,6 +118,8 @@ ${channelNote}
 Current date and time: Today is ${todayInBusinessTz}, in the business's timezone (${business.timezone}).
 
 Right now, this business is ${isOpenRightNow ? "OPEN" : "CLOSED"}.${
+    closedToday ? ` It is closed all day today${closedToday.note ? ` for ${closedToday.note}` : ""}, even though the weekly hours below would normally have it open.` : ""
+  }${
     reopensAtText ? ` It reopens ${reopensAtText}.` : ""
   } If the business is CLOSED, tell the customer plainly that you're currently closed and can't take an order right now — never take a pickup order for a restaurant that isn't open. Say something like "We're actually closed right now — we're open again ${reopensAtText || "later"}." Use the exact reopening time given above — never calculate or guess it yourself from the weekly hours list below. Do not offer to place the order anyway, and do not try adding items or confirming an order while closed — the system will reject it regardless, so there's no point walking the customer through building one first. You can still answer questions, take a message, or escalate while closed.
 
@@ -126,6 +139,9 @@ Some items have a time-based price — the schedule in parentheses is shown for 
 
 Business hours:
 ${hoursText}
+
+Upcoming holiday closures (closed all day on these dates, whatever the weekly hours say — if a caller asks about one of these days, say you're closed that day):
+${closuresText}
 
 Active promotions and discounts (the ONLY discounts that currently exist — never invent others):
 ${promotionsText}

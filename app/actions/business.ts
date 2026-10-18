@@ -156,6 +156,67 @@ export async function saveTextingIdentityAction(input: { legalBusinessName: stri
   return { success: true };
 }
 
+/**
+ * Holiday closures (migration 031). A closure can cover one day or a short
+ * run of days ("closed Dec 24 to Dec 26"), stored as one row per date so
+ * the open/closed check stays a simple lookup. Saving a date that is
+ * already closed just updates its note.
+ */
+export async function addClosureAction(input: { startDate: string; endDate?: string; note?: string }): Promise<ActionResult & { added?: { id: string; closed_on: string; note: string | null }[] }> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+
+  const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T12:00:00Z`).getTime());
+  const start = input.startDate;
+  const end = input.endDate || input.startDate;
+  if (!isDate(start) || !isDate(end)) return { success: false, error: "Pick a date." };
+  if (end < start) return { success: false, error: "The last day can't be before the first day." };
+
+  const admin = createAdminClient();
+  const { data: biz } = await admin.from("businesses").select("timezone").eq("id", businessId).single();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: biz?.timezone || "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  if (start < today) return { success: false, error: "That date has already passed." };
+
+  const days: string[] = [];
+  for (let d = start; d <= end; ) {
+    days.push(d);
+    if (days.length > 31) return { success: false, error: "A closure can be at most 31 days long." };
+    const next = new Date(`${d}T12:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    d = next.toISOString().slice(0, 10);
+  }
+
+  const note = (input.note || "").trim().slice(0, 80) || null;
+  const { data, error } = await admin
+    .from("business_closures")
+    .upsert(days.map((closed_on) => ({ business_id: businessId, closed_on, note })), { onConflict: "business_id,closed_on" })
+    .select("id, closed_on, note");
+  if (error) return dbErrorResult(error, "addClosureAction", "Could not save that closure.");
+
+  revalidatePath("/dashboard/settings");
+  return { success: true, added: data || [] };
+}
+
+export async function removeClosureAction(closureIds: string[]): Promise<ActionResult> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+  if (closureIds.length === 0) return { success: true };
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("business_closures").delete().eq("business_id", businessId).in("id", closureIds);
+  if (error) return dbErrorResult(error, "removeClosureAction", "Could not remove that closure.");
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}
+
 // The tablet-redesign PIN (see lib/security/moneyPin.ts) that staff
 // enter on the paired tablet before a refund or discount. Set or
 // changed from here, same as the tax rate above — no "current PIN" is
