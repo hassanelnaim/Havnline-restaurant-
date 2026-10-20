@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X, Percent } from "lucide-react";
+import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X, Percent, FileText, FileSpreadsheet, Upload } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 import type { AddonTemplate } from "@/lib/data/menu";
 import { EASY_TO_MISS_HIGHLIGHT, EASY_TO_MISS_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
@@ -13,7 +13,7 @@ import {
   createAddonTemplateAction, renameAddonTemplateAction, addAddonTemplateOptionAction, deleteAddonOptionAction, deleteAddonTemplateAction,
   attachAddonTemplateAction, detachAddonTemplateAction,
   updateMenuItemTimePricingAction, setItemSizesAction, copyItemSizesAction,
-  extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, importMenuItemsAction,
+  extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, extractMenuFromPdfAction, importMenuItemsAction,
 } from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { PromotionsPanel } from "@/components/dashboard/promotions-panel";
 import { SizesEditor, type SizeRow } from "@/components/dashboard/sizes-editor";
 import { readSizes, priceRangeText, isSizeGroup, validateSizes } from "@/lib/menu/sizes";
+import { parseMenuCsv } from "@/lib/menu/csvImport";
 
 const UNCATEGORIZED = "__uncategorized__";
 const ALL = "__all__";
@@ -1038,24 +1039,126 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
     });
   }
 
-  async function fromPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ── Photos and files: several at once, read one after another ──
+  type PickedKind = "image" | "pdf" | "csv" | "text";
+  type Picked = { id: string; file: File; kind: PickedKind; preview?: string };
+  const MAX_FILES = 12;
+  const [picked, setPicked] = useState<Picked[]>([]);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [importNotes, setImportNotes] = useState<string[]>([]);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  function kindOf(file: File): PickedKind | null {
+    const n = file.name.toLowerCase();
+    if (file.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif)$/.test(n)) return "image";
+    if (file.type === "application/pdf" || n.endsWith(".pdf")) return "pdf";
+    if (n.endsWith(".csv") || file.type === "text/csv") return "csv";
+    if (n.endsWith(".txt") || file.type === "text/plain") return "text";
+    return null;
+  }
+
+  function addFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (list.length === 0) return;
+    setImportError(null);
+    const rejected: string[] = [];
+    const next: Picked[] = [];
+    for (const file of list) {
+      const kind = kindOf(file);
+      if (!kind) { rejected.push(file.name); continue; }
+      next.push({ id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`, file, kind, preview: kind === "image" ? URL.createObjectURL(file) : undefined });
+    }
+    setPicked((prev) => {
+      const merged = [...prev, ...next];
+      if (merged.length > MAX_FILES) setImportError(`Up to ${MAX_FILES} files at a time. Read these first, then add more.`);
+      return merged.slice(0, MAX_FILES);
+    });
+    if (rejected.length) setImportError(`Can't read ${rejected.join(", ")}. Use photos, PDFs, or CSV/text files (save Excel sheets as CSV).`);
+  }
+
+  function removePicked(id: string) {
+    setPicked((prev) => {
+      const gone = prev.find((p) => p.id === id);
+      if (gone?.preview) URL.revokeObjectURL(gone.preview);
+      return prev.filter((p) => p.id !== id);
+    });
+  }
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+      reader.onerror = () => reject(new Error("Could not open that file."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /** Same name and price twice (overlapping photos, two pages of one PDF) counts once. */
+  function mergeItems(all: ExtractedMenuItem[]): ExtractedMenuItem[] {
+    const seen = new Set<string>();
+    return all.filter((item) => {
+      const key = `${item.name.trim().toLowerCase()}|${(parseFloat(item.priceDollars) || 0).toFixed(2)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  async function readPicked() {
+    if (picked.length === 0) return;
     setImporting(true);
     setImportError(null);
     setStaged(null);
     setCommitted(false);
-    try {
-      const { base64, mediaType } = await resizeImageFile(file);
-      const result = await extractMenuFromImageAction(base64, mediaType);
-      setImporting(false);
-      if (!result.success) { setImportError(result.error || "Could not read that photo."); return; }
-      setStaged(result.items || []);
-    } catch {
-      setImporting(false);
-      setImportError("Could not read that photo. Try a clearer picture.");
+    setImportNotes([]);
+    const found: ExtractedMenuItem[] = [];
+    const notes: string[] = [];
+    const failed: string[] = [];
+
+    for (let i = 0; i < picked.length; i++) {
+      const { file, kind } = picked[i];
+      setProgress(`Reading ${file.name} (${i + 1} of ${picked.length})…`);
+      try {
+        if (kind === "image") {
+          const { base64, mediaType } = await resizeImageFile(file);
+          const result = await extractMenuFromImageAction(base64, mediaType);
+          if (!result.success) throw new Error(result.error);
+          if ((result.items || []).length === 0) notes.push(`No menu items found in ${file.name}.`);
+          found.push(...(result.items || []));
+        } else if (kind === "pdf") {
+          const result = await extractMenuFromPdfAction(await fileToBase64(file));
+          if (!result.success) throw new Error(result.error);
+          if ((result.items || []).length === 0) notes.push(`No menu items found in ${file.name}.`);
+          found.push(...(result.items || []));
+        } else {
+          const text = await file.text();
+          const csv = kind === "csv" ? parseMenuCsv(text) : null;
+          if (csv) {
+            found.push(...csv.items);
+            const extra = [csv.skippedOptionRows ? `skipped ${csv.skippedOptionRows} option-list rows like "{Combo}"` : "", csv.duplicateRows ? `combined ${csv.duplicateRows} repeated items` : ""].filter(Boolean).join(" and ");
+            notes.push(`${file.name}: ${csv.items.length} items${extra ? `, ${extra}` : ""}.`);
+          } else {
+            const result = await extractMenuFromTextAction(text.slice(0, 60_000));
+            if (!result.success) throw new Error(result.error);
+            found.push(...(result.items || []));
+          }
+        }
+      } catch (err) {
+        failed.push(`${file.name}${err instanceof Error && err.message ? ` (${err.message})` : ""}`);
+      }
     }
-    e.target.value = "";
+
+    const merged = mergeItems(found);
+    const zeroPriced = merged.filter((it) => !(parseFloat(it.priceDollars) > 0)).length;
+    if (zeroPriced) notes.push(`${zeroPriced} item${zeroPriced === 1 ? " has" : "s have"} no price yet. They're highlighted below.`);
+    setImporting(false);
+    setProgress(null);
+    setImportNotes(notes);
+    if (failed.length) setImportError(`Couldn't read: ${failed.join("; ")}.`);
+    setStaged(merged);
+    picked.forEach((p) => p.preview && URL.revokeObjectURL(p.preview));
+    setPicked([]);
   }
 
   function updateStagedItem(index: number, patch: Partial<ExtractedMenuItem>) {
@@ -1090,7 +1193,7 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
         <div role="tablist" aria-label="Import method" className="mt-3 grid gap-3 sm:grid-cols-3">
           {([
             { key: "website", icon: Globe, title: "From your website", line: "Paste your menu page's address" },
-            { key: "photo", icon: Camera, title: "From a photo", line: "A printed menu, price list or screenshot" },
+            { key: "photo", icon: Camera, title: "Photos or files", line: "Several photos, a PDF, or a POS export (CSV)" },
             { key: "paste", icon: ClipboardPaste, title: "Paste text", line: "Works for Toast, ChowNow and any site" },
           ] as const).map((m) => {
             const selected = method === m.key;
@@ -1134,16 +1237,53 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
           )}
 
           {method === "photo" && (
-            <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-50/50 px-4 py-8 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-dark"><Camera className="h-6 w-6" /></span>
-              <div>
-                <div className="text-[14px] font-semibold text-ink">Take or upload a photo of your menu</div>
-                <p className="mt-0.5 text-[12px] text-text-muted">A printed menu, price list, or a PDF page saved as an image. Flat, well-lit and straight-on works best.</p>
+            <div className="space-y-3">
+              <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-50/50 px-4 py-7 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-dark"><Upload className="h-6 w-6" /></span>
+                <div>
+                  <div className="text-[14px] font-semibold text-ink">Add photos of every menu page, or upload files</div>
+                  <p className="mt-0.5 text-[12px] text-text-muted">Photos, a PDF menu, or a CSV export from your POS. Add as many as you need (up to {MAX_FILES} at a time), then read them all at once.</p>
+                </div>
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={addFiles} className="hidden" />
+                <input ref={fileInputRef} type="file" multiple accept="image/*,.heic,.heif,application/pdf,.pdf,.csv,text/csv,.txt,text/plain" onChange={addFiles} className="hidden" />
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button variant="outline" onClick={() => cameraInputRef.current?.click()} disabled={importing}><Camera className="h-4 w-4" /> Take a photo</Button>
+                  <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing}><Upload className="h-4 w-4" /> Choose photos or files</Button>
+                </div>
+                <p className="text-[11.5px] text-text-faint">Flat, well-lit and straight-on photos read best. Excel sheet? Save it as CSV first.</p>
               </div>
-              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={fromPhoto} className="hidden" />
-              <Button variant="brand" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-                {importing ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <><Camera className="h-4 w-4" /> Choose a photo</>}
-              </Button>
+
+              {picked.length > 0 && (
+                <div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {picked.map((p) => (
+                      <div key={p.id} className="relative overflow-hidden rounded-xl border border-border bg-paper">
+                        {p.preview ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.preview} alt={p.file.name} className="h-24 w-full object-cover" />
+                        ) : (
+                          <div className="flex h-24 items-center justify-center text-brand-dark">
+                            {p.kind === "csv" ? <FileSpreadsheet className="h-8 w-8" /> : <FileText className="h-8 w-8" />}
+                          </div>
+                        )}
+                        <div className="truncate px-2 py-1.5 text-[11.5px] text-text-muted" title={p.file.name}>{p.file.name}</div>
+                        <button
+                          type="button"
+                          onClick={() => removePicked(p.id)}
+                          disabled={importing}
+                          className="absolute right-1.5 top-1.5 rounded-full bg-ink/70 p-1 text-white hover:bg-ink"
+                          aria-label={`Remove ${p.file.name}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button variant="brand" className="mt-3" onClick={readPicked} disabled={importing}>
+                    {importing ? <><Loader2 className="h-4 w-4 animate-spin" /> Reading…</> : <>Read {picked.length} file{picked.length === 1 ? "" : "s"}</>}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1165,12 +1305,17 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
           )}
 
           {importing && (
-            <p className="mt-3 flex items-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin text-brand" /> Reading your menu — this can take up to a minute. You can stay on this page.</p>
+            <p className="mt-3 flex items-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin text-brand" /> {progress || "Reading your menu. This can take up to a minute."} Stay on this page.</p>
           )}
         </CardContent>
       </Card>
 
       {importError && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{importError}</div>}
+      {importNotes.length > 0 && staged && (
+        <ul className="space-y-1 rounded-lg border border-border bg-paper px-3.5 py-2.5 text-[12.5px] text-text-muted">
+          {importNotes.map((n) => <li key={n}>{n}</li>)}
+        </ul>
+      )}
       {committed && <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Menu items added.</div>}
 
       {staged && (
@@ -1184,10 +1329,11 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
               <p className="text-[13px] text-text-muted">Nothing readable was found. Try a clearer photo or a different page.</p>
             ) : (
               staged.map((item, i) => (
-                <div key={i} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[1fr,1fr,100px,auto]">
-                  <Input value={item.name} onChange={(e) => updateStagedItem(i, { name: e.target.value })} placeholder="Name" />
-                  <Input value={item.description} onChange={(e) => updateStagedItem(i, { description: e.target.value })} placeholder="Description" />
-                  <Input value={item.priceDollars} onChange={(e) => updateStagedItem(i, { priceDollars: e.target.value })} placeholder="Price" />
+                <div key={i} className={`grid gap-2 rounded-lg border p-3 sm:grid-cols-[1.2fr,1fr,1fr,100px,auto] ${parseFloat(item.priceDollars) > 0 ? "border-border" : "border-amber-300 bg-amber-50/60"}`}>
+                  <Input value={item.name} onChange={(e) => updateStagedItem(i, { name: e.target.value })} placeholder="Name" aria-label="Name" />
+                  <Input value={item.category} onChange={(e) => updateStagedItem(i, { category: e.target.value })} placeholder="Category" aria-label="Category" />
+                  <Input value={item.description} onChange={(e) => updateStagedItem(i, { description: e.target.value })} placeholder="Description" aria-label="Description" />
+                  <Input value={item.priceDollars} onChange={(e) => updateStagedItem(i, { priceDollars: e.target.value })} placeholder="Price" aria-label="Price" className={parseFloat(item.priceDollars) > 0 ? "" : "border-amber-400"} />
                   <button onClick={() => removeStagedItem(i)} className="justify-self-end rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               ))

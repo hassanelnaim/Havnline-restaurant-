@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    // Menu import sends PDFs (up to ~3 MB) to a server action. The default
+    // 1 MB limit would reject them; Vercel caps requests at 4.5 MB anyway.
+    serverActions: { bodySizeLimit: "4mb" },
+  },
   // Baseline security headers — applied to every response. No CSP here
   // on purpose: this app loads several third-party widgets (Stripe,
   // Tawk.to, ElevenLabs, Google Fonts) and a blind CSP is more likely

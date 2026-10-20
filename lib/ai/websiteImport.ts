@@ -521,7 +521,7 @@ export async function extractMenuItemsFromImage(
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 2048,
+    max_tokens: 4096,
     system: `You extract a restaurant MENU (items customers can order) from a photo of a menu for "${businessName}". Only include items genuinely visible in the image — never invent an item, price, or add-on that isn't clearly shown. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line — empty string if the image doesn't show one), "priceDollars": string (just the number, e.g. "12.99" — empty string "" if no price is visible), "category": string (the section heading it's under, e.g. "Burgers" — empty string if unclear), "modifierGroups": [{"name": string, "required": boolean, "options": [{"name": string, "priceDeltaDollars": string}]}]}. Only include modifierGroups genuinely shown (like size or topping choices) — an empty array is fine and expected for most items. If the image is blurry, unreadable, or doesn't actually show a menu, return an empty array rather than guessing.`,
     messages: [
       {
@@ -568,4 +568,46 @@ function normalizeExtractedMenuItem(item: any): ExtractedMenuItem {
           }))
       : [],
   };
+}
+
+/**
+ * Same as extractMenuItemsFromImage, for a PDF menu (every page is read).
+ * The PDF goes to the model as a document block; this SDK version predates
+ * its type, so the block is cast (the API itself accepts it).
+ */
+export async function extractMenuItemsFromPdf(businessName: string, pdfBase64: string): Promise<ExtractedMenuItem[]> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
+
+  const client = new Anthropic({ apiKey });
+  const documentBlock = { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } } as unknown as Anthropic.ImageBlockParam;
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 8192,
+    system: `You extract a restaurant MENU (items customers can order) from a PDF of a menu for "${businessName}". Read every page. Only include items genuinely shown — never invent an item, price, or add-on. Respond with ONLY a JSON array, no other text, no markdown fences. Each item: {"name": string, "description": string (short, one line — empty string if none is shown), "priceDollars": string (just the number, e.g. "12.99" — empty string "" if no price is shown), "category": string (the section heading it's under, e.g. "Burgers" — empty string if unclear), "modifierGroups": [{"name": string, "required": boolean, "options": [{"name": string, "priceDeltaDollars": string}]}]}. Only include modifierGroups genuinely shown (like size or topping choices) — an empty array is fine and expected for most items. If the document doesn't show a menu, return an empty array.`,
+    messages: [{ role: "user", content: [documentBlock, { type: "text", text: "Extract the menu items and prices from this PDF." }] }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") return [];
+  const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item) => item && typeof item.name === "string" && item.name.trim()).map((item) => normalizeExtractedMenuItem(item));
+  } catch {
+    // A very long menu can run past the output limit and cut the JSON off
+    // mid-item. Keep every complete item rather than losing them all.
+    const lastComplete = cleaned.lastIndexOf("},");
+    if (lastComplete > 0) {
+      try {
+        const parsed = JSON.parse(cleaned.slice(0, lastComplete + 1) + "]");
+        if (Array.isArray(parsed)) return parsed.filter((item) => item && typeof item.name === "string" && item.name.trim()).map((item) => normalizeExtractedMenuItem(item));
+      } catch {
+        /* fall through */
+      }
+    }
+    return [];
+  }
 }

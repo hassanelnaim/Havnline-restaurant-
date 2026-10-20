@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
-import { extractMenuItemsFromImage, extractMenuItemsFromText, fetchWebsiteText } from "@/lib/ai/websiteImport";
+import { extractMenuItemsFromImage, extractMenuItemsFromPdf, extractMenuItemsFromText, fetchWebsiteText } from "@/lib/ai/websiteImport";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { dbErrorResult } from "@/lib/errors";
 import { normaliseSchedule } from "@/lib/business/promotionInput";
@@ -542,6 +542,23 @@ function modifierGroupSignature(group: ExtractedMenuItem["modifierGroups"][numbe
 // item — so the owner doesn't have to manually rebuild the library
 // after every import. A group that only shows up once stays a one-off
 // tied directly to that item, exactly as before.
+// About 3 MB of PDF (4 MB once encoded for upload): the request limit set
+// in next.config.js, kept under Vercel's 4.5 MB request cap.
+const MAX_PDF_BASE64_CHARS = 4_000_000;
+
+export async function extractMenuFromPdfAction(pdfBase64: string): Promise<{ success: boolean; items?: ExtractedMenuItem[]; error?: string }> {
+  try {
+    if (pdfBase64.length > MAX_PDF_BASE64_CHARS) return { success: false, error: "That PDF is too big (over 3 MB). Try photos of the pages instead, or a smaller PDF." };
+    const businessId = await requireBusinessId();
+    const admin = createAdminClient();
+    const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
+    const items = await extractMenuItemsFromPdf(business?.name || "this restaurant", pdfBase64);
+    return { success: true, items };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Could not read that PDF." };
+  }
+}
+
 export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
