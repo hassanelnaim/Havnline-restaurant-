@@ -2,6 +2,7 @@ import type { BusinessContext } from "./context";
 import type { AiResponsibilities } from "@/lib/database/types";
 import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech, localDateKeyNow, speakDateKey } from "@/lib/business/hours";
 import { closedDatesOf } from "./context";
+import { buildSimilarFamilies } from "@/lib/menu/similarItems";
 import { describeTimePricing, quoteItemPrice, isPromotionActiveNow, describeSchedule, describeDiscount } from "@/lib/business/pricing";
 
 const PERSONALITY_COPY: Record<string, string> = {
@@ -70,6 +71,17 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
         .join("\n")
     : "(no hours configured yet)";
 
+  // Items that sound alike ("fries" -> French / American / Cheese Fries).
+  // Worked out from the live menu, so it stays right as the menu changes.
+  // add_item_to_order also refuses to add one of these unless the caller
+  // clearly picked it, so this is what keeps the model from guessing.
+  const similarText = buildSimilarFamilies(menu)
+    .map((f) => {
+      const shown = f.names.slice(0, 8);
+      return `- "${f.word}": ${shown.join(", ")}${f.names.length > shown.length ? `, and ${f.names.length - shown.length} more` : ""}`;
+    })
+    .join("\n");
+
   const knowledgeText = knowledge.length
     ? knowledge.map((k) => (k.category === "faq" ? `Q: ${k.question}\nA: ${k.content}` : `${k.title}: ${k.content}`)).join("\n\n")
     : "(no additional knowledge on file)";
@@ -135,7 +147,10 @@ ${enabledResponsibilities || "(no responsibilities enabled — escalate everythi
 Menu (the ONLY items and prices this business offers — never invent an item, price, or add-on not listed here):
 ${menuText}
 
-Some items have a time-based price — the schedule in parentheses is shown for context if the customer asks why, but the "$X right now" figure is the one already-correct current price. Never calculate this yourself; just quote what's given, and it'll already be right whenever the call happens.
+${similarText ? `Items that sound alike. When the caller asks for something that could be more than one of these (like "fries" or "a salad") and doesn't say which, NEVER pick one yourself: ask which one they'd like and name the choices, the plainest ones first, a few at a time (for example "Sure, French fries, American fries, cheese fries or chili fries?"). If their words are exactly one item's full name, that's the one (for example, if the menu has an item called just "Coke", "a coke" means Coke, not Diet Coke). The order system will refuse an item the caller didn't clearly choose.
+${similarText}
+
+` : ""}Some items have a time-based price — the schedule in parentheses is shown for context if the customer asks why, but the "$X right now" figure is the one already-correct current price. Never calculate this yourself; just quote what's given, and it'll already be right whenever the call happens.
 
 Business hours:
 ${hoursText}

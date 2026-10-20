@@ -7,6 +7,7 @@ import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
 import { closedDatesOf } from "@/lib/ai/context";
+import { checkItemChoice } from "@/lib/menu/similarItems";
 import { calculateTaxCents } from "@/lib/billing/stripeTax";
 import { describeTimePricing, quoteItemPrice } from "@/lib/business/pricing";
 import { shouldAttemptLiveTransfer, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "./liveTransfer";
@@ -24,6 +25,11 @@ export interface ToolContext {
   // phone number the model merely heard/inferred mid-conversation.
   // null for the test channel, which has no real caller.
   callerPhone: string | null;
+  // What the caller has actually said lately (this turn first) and the
+  // assistant's last reply, so add_item_to_order can check the caller
+  // really asked for the specific item the model chose (see
+  // lib/menu/similarItems.ts). Optional: without it the check is skipped.
+  recentWords?: { customer: string[]; lastAssistant: string | null };
 }
 
 export interface ToolResult {
@@ -258,6 +264,24 @@ async function add_item_to_order(
   const menuItem = findMenuItem(ctx.context.menu, input.item_name);
   if (!menuItem) {
     return { success: false, reason: `"${input.item_name}" isn't on the menu. Only offer items from get_menu.` };
+  }
+
+  // "Fries" could be French Fries, American Fries, Cheese Fries... The
+  // model used to just pick one. If the caller never named this exact item
+  // (and the assistant didn't just offer the choices), it isn't added: the
+  // model is told to ask which one, with the real options from the menu.
+  if (ctx.recentWords) {
+    const choice = checkItemChoice(ctx.context.menu, menuItem.name, ctx.recentWords.customer, ctx.recentWords.lastAssistant);
+    if (!choice.ok) {
+      const shown = choice.options.slice(0, 5);
+      const more = choice.options.length - shown.length;
+      return {
+        success: false,
+        needs_choice: true,
+        reason: `Not added: the caller said "${choice.heardWord}" but didn't say which one, and several menu items match. Ask which one they'd like and name the choices (for example: ${shown.join(", ")}${more > 0 ? `, plus ${more} more on the menu` : ""}). Add it only after they pick.`,
+        options: choice.options,
+      };
+    }
   }
 
   const quantity = Math.max(1, input.quantity || 1);
@@ -819,7 +843,7 @@ export const TOOL_DEFINITIONS = [
     input_schema: {
       type: "object" as const,
       properties: {
-        item_name: { type: "string", description: "Must match a real menu item name exactly." },
+        item_name: { type: "string", description: "Must match a real menu item name exactly, and be the item the caller actually chose. If their words fit several items (\"fries\", \"a coke\" when there are several), ask which one first." },
         quantity: { type: "number" },
         modifier_names: { type: "array", items: { type: "string" }, description: "Names of any add-ons/modifiers the customer chose, e.g. [\"Large\", \"Extra cheese\"]." },
         notes: { type: "string", description: "Free-text special request for this item, e.g. \"no onions\"." },

@@ -180,7 +180,16 @@ export async function handleTurn(
       }
     })();
 
-    const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone };
+    // The caller's own recent words (this turn first) and the assistant's
+    // last reply, for the "which fries did they mean?" check in
+    // add_item_to_order. Taken from the rows already loaded above, so this
+    // costs no extra database work.
+    const priorRows = priorMessages || [];
+    const recentCustomer = priorRows.filter((m) => m.role === "customer").slice(-2).map((m) => m.content).reverse();
+    const lastAi = [...priorRows].reverse().find((m) => m.role === "ai");
+    const recentWords = { customer: [userMessage, ...recentCustomer], lastAssistant: lastAi ? lastAi.content : null };
+
+    const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone, recentWords };
     let result: RunTurnResult;
     try {
       result = await runTurn(history, userMessage, toolCtx, { currentOrder });
