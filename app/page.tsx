@@ -16,7 +16,7 @@ import { MobileCta } from "@/components/landing/mobile-cta";
 export const dynamic = "force-dynamic";
 
 const FEATURES = [
-  { icon: Phone, title: "Answers every call, day or night", detail: "Picks up right away, 24/7 — during the dinner rush, on your day off, when three lines ring at once. No hold music, no voicemail." },
+  { icon: Phone, title: "Answers every call while you're open", detail: "Picks up right away during your hours, even in the dinner rush or when three lines ring at once. No hold music, no voicemail. After closing, callers simply hear when you open next." },
   { icon: ClipboardList, title: "Takes the full order", detail: "Asks about sizes, toppings and anything to leave off, keeps track of every item, then reads the whole order back with the total before placing it." },
   { icon: Globe, title: "Learns your menu in minutes", detail: "Import it from your website, a photo, or pasted text. Prices, add-ons and day-or-time specials come along." },
   { icon: MessageSquareText, title: "Texts the customer", detail: "The order details and payment link go out by text right after the call — nothing for your staff to send." },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveBusinessFromPhoneNumber, loadBusinessContext } from "@/lib/ai/context";
+import { resolveBusinessFromPhoneNumber, loadBusinessContext, closedDatesOf } from "@/lib/ai/context";
+import { isBusinessOpenNow, nextOpenTimeText, localDateKeyNow } from "@/lib/business/hours";
 import { startCall } from "@/lib/ai/receptionist";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
@@ -134,6 +135,24 @@ async function handleVoice(request: NextRequest, timer: Timer) {
 
   if (isBlocked || isCallFlaggedAsSpam(params.AddOns)) {
     return twiml(`<Response><Reject reason="rejected"/></Response>`);
+  }
+
+  // Closed (outside the weekly hours, or a holiday closure): no order can
+  // be placed and nobody is there to cook, so the AI doesn't pick up. The
+  // caller hears the business's next opening time instead and the call
+  // ends, with no AI or speech-recognition cost.
+  const closedDates = closedDatesOf(context);
+  if (!isBusinessOpenNow(context.business, context.hours, closedDates)) {
+    timer.set("path", "closed");
+    const todayKey = localDateKeyNow(context.business.timezone);
+    const holiday = (context.closures || []).find((c) => c.closed_on === todayKey);
+    const reopens = nextOpenTimeText(context.business, context.hours, closedDates);
+    const closedLine = `Hi, thanks for calling ${context.business.name}! We're closed right now${holiday?.note ? ` for ${holiday.note}` : ""}.${reopens ? ` We open again ${reopens}.` : ""} Please call back then. Goodbye!`;
+    const closedVoice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded };
+    return twiml(`<Response>
+  ${sayLine(closedVoice, closedLine, businessId)}
+  <Hangup/>
+</Response>`);
   }
 
   // A live transfer rings the escalation number (or the main line); if that

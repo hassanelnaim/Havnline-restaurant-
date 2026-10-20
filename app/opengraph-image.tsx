@@ -23,7 +23,7 @@ export default function OpengraphImage() {
           <div style={{ marginTop: 28, fontSize: 30, color: "#B8C0D0" }}>An AI that answers your restaurant&apos;s phone, takes the order, and sends it to your kitchen.</div>
         </div>
         <div style={{ display: "flex", gap: 16 }}>
-          {["Answers 24/7", "Off your real menu", "Straight to your kitchen"].map((t) => (
+          {["Answers every call", "Off your real menu", "Straight to your kitchen"].map((t) => (
             <div key={t} style={{ display: "flex", padding: "10px 22px", borderRadius: 999, background: "rgba(37,99,235,0.25)", color: "#DCE6FF", fontSize: 24 }}>{t}</div>
           ))}
         </div>
