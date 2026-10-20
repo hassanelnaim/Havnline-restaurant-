@@ -256,6 +256,15 @@ async function add_item_to_order(
     return { success: false, reason: "This business is currently closed and can't accept orders right now. Tell the customer you're closed rather than adding this item." };
   }
 
+  // Every priced phone order is paid by card, so with payments not set up
+  // the order could never be placed. Refuse now rather than after the
+  // caller has gone through the whole order (confirm_and_place_order has
+  // the same check, for free orders too).
+  const biz = ctx.context.business;
+  if (ctx.channel === "phone" && (!biz.stripe_connect_charges_enabled || !biz.stripe_connect_account_id)) {
+    return { success: false, reason: "Phone orders can't be taken right now: this restaurant hasn't finished setting up card payments. Tell the caller you can't take orders over the phone at the moment, and offer to answer questions or pass a message to the restaurant." };
+  }
+
   // Never invent a menu item or its price — only match against the real
   // menu loaded for this business. Matched leniently (see
   // normalizeForMatch/findMenuItem) because speech-to-text phrasing

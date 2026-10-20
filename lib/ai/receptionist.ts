@@ -70,6 +70,8 @@ export async function startTestSession(businessId: string): Promise<string> {
   return call.id;
 }
 
+export const PAYMENT_LINK_REMINDER = "I just texted you a link to pay. Your order goes to the kitchen as soon as it's paid.";
+
 export async function handleTurn(
   businessId: string,
   callId: string,
@@ -205,6 +207,17 @@ export async function handleTurn(
       timer.set("cache_read", result.stats.cacheReadTokens);
       timer.set("cache_write", result.stats.cacheWriteTokens);
       timer.set("input_tokens", result.stats.inputTokens);
+    }
+
+    // The caller must hear that the order only goes to the kitchen once
+    // they pay the texted link. The model is told to say it, but if a reply
+    // after a successful order leaves it out, it's added here so it can't
+    // be skipped.
+    const linkSent = result.toolCalls.some(
+      (t) => t.name === "confirm_and_place_order" && (t.result as { success?: boolean; payment_link_sent?: boolean } | null)?.success && (t.result as { payment_link_sent?: boolean }).payment_link_sent
+    );
+    if (linkSent && !/\blink\b/i.test(result.reply)) {
+      result = { ...result, reply: `${result.reply.trim()} ${PAYMENT_LINK_REMINDER}`.trim() };
     }
 
     await admin.from("call_messages").insert({

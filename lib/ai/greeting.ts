@@ -14,10 +14,16 @@
  * only the business's own public name — no caller name, number or order
  * detail ever appears in it.
  */
-export const GREETING_BODY = "There may be a few seconds' delay between answers, so please be patient. How can I help?";
+// Says plainly that the caller is talking to an AI (some states are
+// starting to require that disclosure, and callers shouldn't feel tricked),
+// and that they can ask for a person at any point, which the assistant
+// already handles. Kept short: every second here is a second the caller
+// waits before they can talk.
+const GREETING_START = "Hi, thanks for calling ";
+export const GREETING_BODY = "! You're talking to our AI order line. I can take your order or answer questions, and you can ask for a person anytime. What can I get started for you?";
 
 export function buildGreeting(businessName: string): string {
-  return `${businessName}. ${GREETING_BODY}`;
+  return `${GREETING_START}${businessName}${GREETING_BODY}`;
 }
 
 // The length bound is belt-and-braces: a business name is short, so
@@ -25,5 +31,5 @@ export function buildGreeting(businessName: string): string {
 const MAX_GREETING_LENGTH = 300;
 
 export function isGreetingLine(text: string): boolean {
-  return text.length <= MAX_GREETING_LENGTH && text.endsWith(`. ${GREETING_BODY}`);
+  return text.length <= MAX_GREETING_LENGTH && text.startsWith(GREETING_START) && text.endsWith(GREETING_BODY);
 }

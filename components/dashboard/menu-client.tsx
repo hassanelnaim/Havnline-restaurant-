@@ -12,7 +12,7 @@ import {
   addModifierGroupAction, deleteModifierGroupAction,
   createAddonTemplateAction, renameAddonTemplateAction, addAddonTemplateOptionAction, deleteAddonOptionAction, deleteAddonTemplateAction,
   attachAddonTemplateAction, detachAddonTemplateAction,
-  updateMenuItemTimePricingAction,
+  updateMenuItemTimePricingAction, setItemSizesAction, copyItemSizesAction,
   extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, importMenuItemsAction,
 } from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
@@ -25,6 +25,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PromotionsPanel } from "@/components/dashboard/promotions-panel";
+import { SizesEditor, type SizeRow } from "@/components/dashboard/sizes-editor";
+import { readSizes, priceRangeText, isSizeGroup, validateSizes } from "@/lib/menu/sizes";
 
 const UNCATEGORIZED = "__uncategorized__";
 const ALL = "__all__";
@@ -69,6 +71,8 @@ export function MenuClient({
   // "" = uncategorized, NEW_CATEGORY = type a new one, otherwise a category id.
   const [categoryChoice, setCategoryChoice] = useState("");
   const [newCategory, setNewCategory] = useState("");
+  const [hasSizes, setHasSizes] = useState(false);
+  const [sizeRows, setSizeRows] = useState<SizeRow[]>([{ name: "Small", price: "" }, { name: "Large", price: "" }]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
@@ -82,7 +86,16 @@ export function MenuClient({
   }
 
   function addItem() {
-    if (!name.trim() || !price.trim()) { setError("Name and price are required."); return; }
+    if (!name.trim()) { setError("Give the item a name."); return; }
+    let sizes: SizeRow[] = [];
+    let itemPrice = price;
+    if (hasSizes) {
+      const check = validateSizes(sizeRows);
+      if (!check.ok) { setError(check.error); return; }
+      if (check.sizes.length === 0) { setError("Add the sizes and their prices, or turn sizes off."); return; }
+      sizes = sizeRows;
+      itemPrice = (Math.min(...check.sizes.map((s) => s.priceCents)) / 100).toFixed(2);
+    } else if (!price.trim()) { setError("Enter a price."); return; }
     setSaving(true);
     setError(null);
     startTransition(async () => {
@@ -91,14 +104,16 @@ export function MenuClient({
       const result = await addMenuItemAction({
         name,
         description,
-        price,
+        price: itemPrice,
         categoryId: isNew || !categoryChoice ? null : categoryChoice,
         newCategoryName: isNew ? newCategory : undefined,
+        sizes: hasSizes ? sizes : undefined,
       });
       setSaving(false);
       if (!result.success) { setError(result.error || "Could not add item."); return; }
       setJustAdded(name.trim());
       setName(""); setDescription(""); setPrice("");
+      setHasSizes(false); setSizeRows([{ name: "Small", price: "" }, { name: "Large", price: "" }]);
       if (isNew) { setNewCategory(""); setCategoryChoice(""); }
       refresh();
     });
@@ -189,8 +204,15 @@ export function MenuClient({
                   </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="sm:col-span-2"><Label>Name</Label><Input className="mt-1.5" value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); }} placeholder="e.g. Cheeseburger" /></div>
-                  <div><Label>Price ($)</Label><Input type="number" step="0.01" min="0" className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" /></div>
+                  <div className={hasSizes ? "sm:col-span-3" : "sm:col-span-2"}><Label>Name</Label><Input className="mt-1.5" value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); }} placeholder="e.g. French Fries" /></div>
+                  {!hasSizes && <div><Label>Price ($)</Label><Input type="number" step="0.01" min="0" className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" /></div>}
+                </div>
+                <div className="rounded-lg border border-border bg-paper px-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[13px] font-medium text-text">
+                    <Switch checked={hasSizes} onCheckedChange={(v) => { setHasSizes(v); setError(null); if (v && price.trim() && !sizeRows.some((r) => r.price)) setSizeRows((rows) => rows.map((r, i) => (i === 0 ? { ...r, price } : r))); }} />
+                    Comes in sizes <span className="font-normal text-text-faint">(small, large…)</span>
+                  </label>
+                  {hasSizes && <div className="mt-3"><SizesEditor rows={sizeRows} onChange={setSizeRows} /></div>}
                 </div>
                 <div><Label>Description</Label><Input className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional — what comes on it" /></div>
                 <div>
@@ -279,6 +301,7 @@ export function MenuClient({
                                 key={item.id}
                                 item={item}
                                 addonTemplates={addonTemplates}
+                                allItems={items}
                                 onToggle={toggleActive}
                                 onRemove={removeItem}
                                 onRefresh={refresh}
@@ -313,15 +336,63 @@ export function MenuClient({
   );
 }
 
-function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
+function MenuItemRow({ item, addonTemplates, allItems, onToggle, onRemove, onRefresh }: {
   item: MenuItemWithModifiers;
   addonTemplates: AddonTemplate[];
+  allItems: MenuItemWithModifiers[];
   onToggle: (id: string, active: boolean) => void;
   onRemove: (id: string) => void;
   onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [, startTransition] = useTransition();
+
+  // Sizes (stored as the item's required "Size" choice; see lib/menu/sizes.ts)
+  const sizes = readSizes(item);
+  const otherGroups = item.modifier_groups.filter((g) => !isSizeGroup(g));
+  const toRows = () => (sizes ? sizes.map((s) => ({ name: s.name, price: (s.priceCents / 100).toFixed(2) })) : [{ name: "Small", price: (item.price_cents / 100).toFixed(2) }, { name: "Large", price: "" }]);
+  const [sizeMode, setSizeMode] = useState<"view" | "edit" | "copy">("view");
+  const [sizeDraft, setSizeDraft] = useState<SizeRow[]>(toRows);
+  const [sizeError, setSizeError] = useState<string | null>(null);
+  const [sizeBusy, setSizeBusy] = useState(false);
+  const [copyTargets, setCopyTargets] = useState<string[]>([]);
+  const [copySearch, setCopySearch] = useState("");
+  const [copiedCount, setCopiedCount] = useState<number | null>(null);
+
+  function saveSizes(rows: SizeRow[]) {
+    setSizeBusy(true);
+    setSizeError(null);
+    startTransition(async () => {
+      const result = await setItemSizesAction(item.id, rows);
+      setSizeBusy(false);
+      if (!result.success) { setSizeError(result.error || "Could not save the sizes."); return; }
+      setSizeMode("view");
+      onRefresh();
+    });
+  }
+
+  function copySizes() {
+    setSizeBusy(true);
+    setSizeError(null);
+    startTransition(async () => {
+      const result = await copyItemSizesAction(item.id, copyTargets);
+      setSizeBusy(false);
+      if (!result.success) { setSizeError(result.error || "Could not copy the sizes."); return; }
+      setCopiedCount(result.copied ?? copyTargets.length);
+      setCopyTargets([]);
+      setSizeMode("view");
+      onRefresh();
+    });
+  }
+
+  // Items to copy to: same category first, then the rest, filtered by search.
+  const copyCandidates = useMemo(() => {
+    const q = copySearch.trim().toLowerCase();
+    return allItems
+      .filter((i) => i.id !== item.id && (!q || i.name.toLowerCase().includes(q)))
+      .sort((a, b) => Number(b.category_id === item.category_id) - Number(a.category_id === item.category_id) || a.name.localeCompare(b.name))
+      .slice(0, 60);
+  }, [allItems, item.id, item.category_id, copySearch]);
 
   // Attach an existing shared add-on
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
@@ -433,8 +504,11 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
             <div>
               <div className="flex items-center gap-2 text-[13.5px] font-medium text-text">
                 {item.name}
-                {item.modifier_groups.length > 0 && (
-                  <span className="rounded-full bg-paper px-1.5 py-0.5 text-[10px] font-medium text-text-faint">{item.modifier_groups.length} add-on{item.modifier_groups.length === 1 ? "" : "s"}</span>
+                {sizes && (
+                  <span className="rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand-dark">{sizes.length} sizes</span>
+                )}
+                {otherGroups.length > 0 && (
+                  <span className="rounded-full bg-paper px-1.5 py-0.5 text-[10px] font-medium text-text-faint">{otherGroups.length} add-on{otherGroups.length === 1 ? "" : "s"}</span>
                 )}
                 {hasTimePricing && (
                   <span className="flex items-center gap-1 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand-dark" title={timePricingSchedule || undefined}>
@@ -446,7 +520,7 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
             </div>
           </button>
           <div className="flex items-center gap-3">
-            <div className="text-[13px] font-semibold tabular-nums text-ink">${(item.price_cents / 100).toFixed(2)}</div>
+            <div className="text-right text-[13px] font-semibold tabular-nums text-ink">{priceRangeText(item.price_cents, sizes)}</div>
             <Switch checked={item.is_active} onCheckedChange={(checked) => onToggle(item.id, checked)} />
             <button onClick={() => onRemove(item.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete item"><Trash2 className="h-3.5 w-3.5" /></button>
           </div>
@@ -454,7 +528,66 @@ function MenuItemRow({ item, addonTemplates, onToggle, onRemove, onRefresh }: {
 
         {expanded && (
           <div className="mt-4 space-y-3 border-t border-border-soft pt-4">
-            {item.modifier_groups.map((group) => (
+            {/* Sizes */}
+            <div className="rounded-lg border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[12.5px] font-semibold text-text">Sizes</div>
+                {sizeMode === "view" && sizes && (
+                  <div className="flex items-center gap-3 text-[12px] font-medium">
+                    <button className="text-brand-dark hover:text-brand" onClick={() => { setSizeDraft(toRows()); setSizeMode("edit"); setSizeError(null); setCopiedCount(null); }}>Edit</button>
+                    <button className="text-brand-dark hover:text-brand" onClick={() => { setSizeMode("copy"); setSizeError(null); setCopiedCount(null); }}>Copy to other items</button>
+                  </div>
+                )}
+              </div>
+              {sizeMode === "view" && (
+                sizes ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {sizes.map((sz) => (
+                      <span key={sz.name} className="rounded-full bg-paper px-2.5 py-1 text-[12px] text-text">{sz.name} <span className="font-medium tabular-nums">${(sz.priceCents / 100).toFixed(2)}</span></span>
+                    ))}
+                  </div>
+                ) : (
+                  <button className="mt-1 text-[12px] font-medium text-text-muted hover:text-text" onClick={() => { setSizeDraft(toRows()); setSizeMode("edit"); setSizeError(null); }}>
+                    + Add sizes (small, large…) with their own prices
+                  </button>
+                )
+              )}
+              {copiedCount !== null && sizeMode === "view" && <p className="mt-2 text-[12px] text-success">Copied to {copiedCount} item{copiedCount === 1 ? "" : "s"}.</p>}
+              {sizeMode === "edit" && (
+                <div className="mt-2">
+                  <SizesEditor rows={sizeDraft} onChange={setSizeDraft} />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button size="sm" variant="brand" onClick={() => saveSizes(sizeDraft)} disabled={sizeBusy}>{sizeBusy ? "Saving…" : "Save sizes"}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setSizeMode("view"); setSizeError(null); }} disabled={sizeBusy}>Cancel</Button>
+                    {sizes && <Button size="sm" variant="ghost" onClick={() => saveSizes([])} disabled={sizeBusy}>Remove sizes</Button>}
+                  </div>
+                </div>
+              )}
+              {sizeMode === "copy" && sizes && (
+                <div className="mt-2">
+                  <p className="text-[12px] text-text-muted">Give these items the same sizes and prices ({sizes.map((sz) => `${sz.name} $${(sz.priceCents / 100).toFixed(2)}`).join(", ")}). Any sizes they already have are replaced.</p>
+                  <Input className="mt-2" placeholder="Search items…" value={copySearch} onChange={(e) => setCopySearch(e.target.value)} />
+                  <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1.5">
+                    {copyCandidates.map((c) => (
+                      <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] hover:bg-paper">
+                        <input type="checkbox" className="h-3.5 w-3.5 accent-[#2563EB]" checked={copyTargets.includes(c.id)} onChange={(e) => setCopyTargets((t) => (e.target.checked ? [...t, c.id] : t.filter((x) => x !== c.id)))} />
+                        <span className="flex-1 truncate text-text">{c.name}</span>
+                        {readSizes(c) && <span className="text-[11px] text-text-faint">has sizes</span>}
+                      </label>
+                    ))}
+                    {copyCandidates.length === 0 && <p className="px-2 py-1.5 text-[12px] text-text-faint">No items match.</p>}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" variant="brand" onClick={copySizes} disabled={sizeBusy || copyTargets.length === 0}>{sizeBusy ? "Copying…" : `Copy to ${copyTargets.length || ""} item${copyTargets.length === 1 ? "" : "s"}`}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setSizeMode("view"); setCopyTargets([]); }} disabled={sizeBusy}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+              {sizeError && <p className="mt-2 text-[12px] text-danger">{sizeError}</p>}
+            </div>
+
+            <div className="pt-1 text-[12.5px] font-semibold text-text">Options <span className="font-normal text-text-faint">(toppings, bread, cheese…)</span></div>
+            {otherGroups.map((group) => (
               <div key={group.id} className="flex items-center justify-between rounded-lg bg-paper px-3 py-2">
                 <div className="text-[12.5px] text-text">
                   <span className="font-medium">{group.name}</span>

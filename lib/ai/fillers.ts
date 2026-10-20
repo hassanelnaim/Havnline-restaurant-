@@ -50,6 +50,8 @@ const ESCALATION: FillerCategory = {
   // transfer) a live outbound call setup.
   keywords: [
     "speak to", "talk to", "a real person", "a human", "a manager", "refund",
+    // The greeting tells callers they can ask for a person anytime.
+    "person", "representative", "operator",
     "complaint", "already placed", "change my order i already", "cancel my order",
   ],
   fillers: ["Okay, let me get that handled.", "Sure, one moment."],

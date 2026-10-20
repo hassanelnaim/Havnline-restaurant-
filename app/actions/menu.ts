@@ -8,6 +8,7 @@ import { extractMenuItemsFromImage, extractMenuItemsFromText, fetchWebsiteText }
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { dbErrorResult } from "@/lib/errors";
 import { normaliseSchedule } from "@/lib/business/promotionInput";
+import { SIZE_GROUP_NAME, isSizeGroup, validateSizes, type SizeOption } from "@/lib/menu/sizes";
 
 // NOTE: rendering a JS-heavy page (with a stealth-proxy retry if the
 // first attempt is blocked) can take 20-40+ seconds — well past
@@ -44,7 +45,7 @@ export interface MenuItemInput {
   categoryId: string | null;
 }
 
-export async function addMenuItemAction(input: MenuItemInput & { newCategoryName?: string }): Promise<ActionResult> {
+export async function addMenuItemAction(input: MenuItemInput & { newCategoryName?: string; sizes?: { name: string; price: string }[] }): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
@@ -65,17 +66,105 @@ export async function addMenuItemAction(input: MenuItemInput & { newCategoryName
     }
   }
 
-  const { error } = await admin.from("menu_items").insert({
+  const sizeCheck = validateSizes(input.sizes || []);
+  if (!sizeCheck.ok) return { success: false, error: sizeCheck.error };
+
+  const { data: created, error } = await admin.from("menu_items").insert({
     business_id: businessId,
     category_id: categoryId,
     name: input.name,
     description: input.description || null,
     price_cents: Math.round((parseFloat(input.price) || 0) * 100),
     source: "manual",
-  });
-  if (error) return dbErrorResult(error, "addMenuItemAction", "Could not add that item.");
+  }).select("id").single();
+  if (error || !created) return dbErrorResult(error, "addMenuItemAction", "Could not add that item.");
+
+  if (sizeCheck.sizes.length > 0) {
+    const sized = await writeSizes(admin, businessId, created.id, sizeCheck.sizes);
+    if (!sized.success) return sized;
+  }
   revalidatePath("/dashboard/menu");
   return { success: true };
+}
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+/**
+ * Replaces an item's sizes (see lib/menu/sizes.ts for how they're stored).
+ * An empty list removes them and leaves the item's price as it is.
+ */
+async function writeSizes(admin: AdminClient, businessId: string, itemId: string, sizes: SizeOption[]): Promise<ActionResult> {
+  const { data: groups, error: readError } = await admin
+    .from("modifier_groups")
+    .select("id, name, is_template")
+    .eq("business_id", businessId)
+    .eq("menu_item_id", itemId);
+  if (readError) return dbErrorResult(readError, "writeSizes:read", "Could not update the sizes.");
+  const old = (groups || []).filter(isSizeGroup).map((g) => g.id);
+  if (old.length > 0) {
+    const { error } = await admin.from("modifier_groups").delete().in("id", old).eq("business_id", businessId);
+    if (error) return dbErrorResult(error, "writeSizes:delete", "Could not update the sizes.");
+  }
+  if (sizes.length === 0) return { success: true };
+
+  const base = Math.min(...sizes.map((s) => s.priceCents));
+  const { error: priceError } = await admin.from("menu_items").update({ price_cents: base }).eq("id", itemId).eq("business_id", businessId);
+  if (priceError) return dbErrorResult(priceError, "writeSizes:price", "Could not update the price.");
+
+  const { data: group, error: groupError } = await admin
+    .from("modifier_groups")
+    .insert({ business_id: businessId, menu_item_id: itemId, name: SIZE_GROUP_NAME, is_required: true, min_select: 1, max_select: 1, sort_order: -1 })
+    .select("id")
+    .single();
+  if (groupError || !group) return dbErrorResult(groupError, "writeSizes:group", "Could not save the sizes.");
+
+  const { error: optError } = await admin.from("modifiers").insert(
+    sizes.map((s, i) => ({ business_id: businessId, modifier_group_id: group.id, name: s.name, price_delta_cents: s.priceCents - base, sort_order: i }))
+  );
+  if (optError) return dbErrorResult(optError, "writeSizes:options", "Could not save the sizes.");
+  return { success: true };
+}
+
+/** Sets (or, with an empty list, removes) an item's sizes and their prices. */
+export async function setItemSizesAction(itemId: string, input: { name: string; price: string }[]): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const check = validateSizes(input);
+  if (!check.ok) return { success: false, error: check.error };
+  const admin = createAdminClient();
+  const { data: item } = await admin.from("menu_items").select("id").eq("id", itemId).eq("business_id", businessId).maybeSingle();
+  if (!item) return { success: false, error: "Could not find that item." };
+  const result = await writeSizes(admin, businessId, itemId, check.sizes);
+  if (result.success) revalidatePath("/dashboard/menu");
+  return result;
+}
+
+/** Gives other items the same sizes and prices as this one. */
+export async function copyItemSizesAction(fromItemId: string, toItemIds: string[]): Promise<ActionResult & { copied?: number }> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const targets = Array.from(new Set(toItemIds.filter((id) => id !== fromItemId))).slice(0, 200);
+  if (targets.length === 0) return { success: false, error: "Pick at least one item." };
+  const admin = createAdminClient();
+
+  const { data: source } = await admin.from("menu_items").select("id, price_cents").eq("id", fromItemId).eq("business_id", businessId).maybeSingle();
+  if (!source) return { success: false, error: "Could not find that item." };
+  const { data: groups } = await admin.from("modifier_groups").select("id, name, is_template").eq("business_id", businessId).eq("menu_item_id", fromItemId);
+  const sizeGroup = (groups || []).find(isSizeGroup);
+  if (!sizeGroup) return { success: false, error: "This item has no sizes to copy." };
+  const { data: mods } = await admin.from("modifiers").select("name, price_delta_cents, sort_order").eq("modifier_group_id", sizeGroup.id).order("sort_order");
+  const sizes = (mods || []).map((m) => ({ name: m.name, priceCents: source.price_cents + m.price_delta_cents }));
+  if (sizes.length === 0) return { success: false, error: "This item has no sizes to copy." };
+
+  const { data: owned } = await admin.from("menu_items").select("id").eq("business_id", businessId).in("id", targets);
+  let copied = 0;
+  for (const t of owned || []) {
+    const r = await writeSizes(admin, businessId, t.id, sizes);
+    if (!r.success) return { ...r, copied };
+    copied++;
+  }
+  revalidatePath("/dashboard/menu");
+  return { success: true, copied };
 }
 
 export async function updateMenuItemAction(itemId: string, input: MenuItemInput): Promise<ActionResult> {
