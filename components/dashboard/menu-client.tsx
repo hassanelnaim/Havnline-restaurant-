@@ -28,6 +28,7 @@ import { PromotionsPanel } from "@/components/dashboard/promotions-panel";
 import { SizesEditor, type SizeRow } from "@/components/dashboard/sizes-editor";
 import { readSizes, priceRangeText, isSizeGroup, validateSizes } from "@/lib/menu/sizes";
 import { parseMenuCsv } from "@/lib/menu/csvImport";
+import { dedupeImportItems, menuNameKey } from "@/lib/menu/importDedupe";
 
 const UNCATEGORIZED = "__uncategorized__";
 const ALL = "__all__";
@@ -331,7 +332,7 @@ export function MenuClient({
       )}
 
       <TabsContent value="import">
-        <MenuImportPanel onImported={refresh} />
+        <MenuImportPanel onImported={refresh} existingNames={items.map((i) => i.name)} />
       </TabsContent>
     </Tabs>
   );
@@ -963,7 +964,7 @@ function AddonTemplateRow({ template, usedOn, onRemove, onRefresh }: {
   );
 }
 
-function MenuImportPanel({ onImported }: { onImported: () => void }) {
+function MenuImportPanel({ onImported, existingNames }: { onImported: () => void; existingNames: string[] }) {
   const [, startTransition] = useTransition();
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [pastedText, setPastedText] = useState("");
@@ -971,7 +972,19 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
   const [importError, setImportError] = useState<string | null>(null);
   const [staged, setStaged] = useState<ExtractedMenuItem[] | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [committed, setCommitted] = useState(false);
+  const [committed, setCommitted] = useState<string | null>(null);
+  // Duplicates are combined as soon as anything is read (overlapping photos,
+  // an item on two pages, the same item spelled two ways). Items already on
+  // the menu are shown but never added again.
+  const [priceConflicts, setPriceConflicts] = useState<Record<string, string[]>>({});
+  const [mergedCount, setMergedCount] = useState(0);
+  const existingKeys = useMemo(() => new Set(existingNames.map(menuNameKey)), [existingNames]);
+  function stage(items: ExtractedMenuItem[]) {
+    const d = dedupeImportItems(items);
+    setStaged(d.items);
+    setPriceConflicts(d.priceConflicts);
+    setMergedCount(d.merged);
+  }
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Which import method is open. One at a time, so the page shows one
   // thing to do instead of three long forms.
@@ -1017,12 +1030,12 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
     setImporting(true);
     setImportError(null);
     setStaged(null);
-    setCommitted(false);
+    setCommitted(null);
     startTransition(async () => {
       const result = await extractMenuFromWebsiteAction(websiteUrl);
       setImporting(false);
       if (!result.success) { setImportError(result.error || "Could not import from that website."); return; }
-      setStaged(result.items || []);
+      stage(result.items || []);
     });
   }
 
@@ -1030,12 +1043,12 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
     setImporting(true);
     setImportError(null);
     setStaged(null);
-    setCommitted(false);
+    setCommitted(null);
     startTransition(async () => {
       const result = await extractMenuFromTextAction(pastedText);
       setImporting(false);
       if (!result.success) { setImportError(result.error || "Could not read that text."); return; }
-      setStaged(result.items || []);
+      stage(result.items || []);
     });
   }
 
@@ -1094,23 +1107,12 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
     });
   }
 
-  /** Same name and price twice (overlapping photos, two pages of one PDF) counts once. */
-  function mergeItems(all: ExtractedMenuItem[]): ExtractedMenuItem[] {
-    const seen = new Set<string>();
-    return all.filter((item) => {
-      const key = `${item.name.trim().toLowerCase()}|${(parseFloat(item.priceDollars) || 0).toFixed(2)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
-
   async function readPicked() {
     if (picked.length === 0) return;
     setImporting(true);
     setImportError(null);
     setStaged(null);
-    setCommitted(false);
+    setCommitted(null);
     setImportNotes([]);
     const found: ExtractedMenuItem[] = [];
     const notes: string[] = [];
@@ -1136,7 +1138,7 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
           const csv = kind === "csv" ? parseMenuCsv(text) : null;
           if (csv) {
             found.push(...csv.items);
-            const extra = [csv.skippedOptionRows ? `skipped ${csv.skippedOptionRows} option-list rows like "{Combo}"` : "", csv.duplicateRows ? `combined ${csv.duplicateRows} repeated items` : ""].filter(Boolean).join(" and ");
+            const extra = [csv.skippedOptionRows ? `skipped ${csv.skippedOptionRows} option-list rows like "{Combo}"` : "", csv.duplicateRows ? `combined ${csv.duplicateRows} repeated item${csv.duplicateRows === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
             notes.push(`${file.name}: ${csv.items.length} items${extra ? `, ${extra}` : ""}.`);
           } else {
             const result = await extractMenuFromTextAction(text.slice(0, 60_000));
@@ -1149,14 +1151,14 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
       }
     }
 
-    const merged = mergeItems(found);
+    const merged = dedupeImportItems(found).items;
     const zeroPriced = merged.filter((it) => !(parseFloat(it.priceDollars) > 0)).length;
     if (zeroPriced) notes.push(`${zeroPriced} item${zeroPriced === 1 ? " has" : "s have"} no price yet. They're highlighted below.`);
     setImporting(false);
     setProgress(null);
     setImportNotes(notes);
     if (failed.length) setImportError(`Couldn't read: ${failed.join("; ")}.`);
-    setStaged(merged);
+    stage(found);
     picked.forEach((p) => p.preview && URL.revokeObjectURL(p.preview));
     setPicked([]);
   }
@@ -1169,14 +1171,20 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
     setStaged((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
   }
 
+  // What will actually be added: edits on the review screen can make two
+  // rows match again, and items already on the menu are left out.
+  const toAdd = useMemo(() => (staged ? dedupeImportItems(staged).items.filter((it) => !existingKeys.has(menuNameKey(it.name))) : []), [staged, existingKeys]);
+  const alreadyOnMenu = staged ? staged.filter((it) => existingKeys.has(menuNameKey(it.name))).length : 0;
+
   function commit() {
-    if (!staged || staged.length === 0) return;
+    if (toAdd.length === 0) return;
     setCommitting(true);
     startTransition(async () => {
-      const result = await importMenuItemsAction(staged);
+      const result = await importMenuItemsAction(toAdd);
       setCommitting(false);
       if (result.success) {
-        setCommitted(true);
+        const added = result.added ?? toAdd.length;
+        setCommitted(`Added ${added} item${added === 1 ? "" : "s"} to your menu${result.skipped ? `, and skipped ${result.skipped} that ${result.skipped === 1 ? "was" : "were"} already on it` : ""}.`);
         setStaged(null);
         onImported();
       } else {
@@ -1316,30 +1324,48 @@ function MenuImportPanel({ onImported }: { onImported: () => void }) {
           {importNotes.map((n) => <li key={n}>{n}</li>)}
         </ul>
       )}
-      {committed && <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Menu items added.</div>}
+      {committed && <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success"><CheckCircle2 className="h-3.5 w-3.5" /> {committed}</div>}
 
       {staged && (
         <Card>
           <CardHeader>
             <CardTitle>Review before adding — {staged.length} item{staged.length === 1 ? "" : "s"} found</CardTitle>
-            <CardDescription>Check every name and price against your real menu before confirming. Nothing here is live yet.</CardDescription>
+            <CardDescription>
+              Check every name and price against your real menu before confirming. Nothing here is live yet.
+              {mergedCount > 0 && ` ${mergedCount} repeat${mergedCount === 1 ? " was" : "s were"} combined, so each item appears once.`}
+              {alreadyOnMenu > 0 && ` ${alreadyOnMenu} ${alreadyOnMenu === 1 ? "is" : "are"} already on your menu and won't be added again.`}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {staged.length === 0 ? (
               <p className="text-[13px] text-text-muted">Nothing readable was found. Try a clearer photo or a different page.</p>
             ) : (
-              staged.map((item, i) => (
-                <div key={i} className={`grid gap-2 rounded-lg border p-3 sm:grid-cols-[1.2fr,1fr,1fr,100px,auto] ${parseFloat(item.priceDollars) > 0 ? "border-border" : "border-amber-300 bg-amber-50/60"}`}>
+              staged.map((item, i) => {
+                const key = menuNameKey(item.name);
+                const onMenu = existingKeys.has(key);
+                const conflict = priceConflicts[key];
+                return (
+                <div key={i} className={`rounded-lg border p-3 ${onMenu ? "border-border bg-paper opacity-60" : parseFloat(item.priceDollars) > 0 && !conflict ? "border-border" : "border-amber-300 bg-amber-50/60"}`}>
+                {(onMenu || conflict) && (
+                  <p className={`mb-2 text-[12px] font-medium ${onMenu ? "text-text-muted" : "text-amber-800"}`}>
+                    {onMenu ? "Already on your menu. It won't be added again." : `Found at different prices: ${conflict!.map((c) => `$${c}`).join(" and ")}. Check which is right, or add it with sizes after importing.`}
+                  </p>
+                )}
+                <div className="grid gap-2 sm:grid-cols-[1.2fr,1fr,1fr,100px,auto]">
                   <Input value={item.name} onChange={(e) => updateStagedItem(i, { name: e.target.value })} placeholder="Name" aria-label="Name" />
                   <Input value={item.category} onChange={(e) => updateStagedItem(i, { category: e.target.value })} placeholder="Category" aria-label="Category" />
                   <Input value={item.description} onChange={(e) => updateStagedItem(i, { description: e.target.value })} placeholder="Description" aria-label="Description" />
                   <Input value={item.priceDollars} onChange={(e) => updateStagedItem(i, { priceDollars: e.target.value })} placeholder="Price" aria-label="Price" className={parseFloat(item.priceDollars) > 0 ? "" : "border-amber-400"} />
-                  <button onClick={() => removeStagedItem(i)} className="justify-self-end rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger"><Trash2 className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => removeStagedItem(i)} className="justify-self-end rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Remove from import"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
-              ))
+                </div>
+                );
+              })
             )}
             {staged.length > 0 && (
-              <Button variant="brand" onClick={commit} disabled={committing}>{committing ? "Adding…" : `Add ${staged.length} item${staged.length === 1 ? "" : "s"} to menu`}</Button>
+              <Button variant="brand" onClick={commit} disabled={committing || toAdd.length === 0}>
+                {committing ? "Adding…" : toAdd.length === 0 ? "Everything here is already on your menu" : `Add ${toAdd.length} item${toAdd.length === 1 ? "" : "s"} to menu`}
+              </Button>
             )}
           </CardContent>
         </Card>

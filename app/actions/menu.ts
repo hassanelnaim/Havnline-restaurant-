@@ -9,6 +9,7 @@ import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
 import { dbErrorResult } from "@/lib/errors";
 import { normaliseSchedule } from "@/lib/business/promotionInput";
 import { SIZE_GROUP_NAME, isSizeGroup, validateSizes, type SizeOption } from "@/lib/menu/sizes";
+import { menuNameKey } from "@/lib/menu/importDedupe";
 
 // NOTE: rendering a JS-heavy page (with a stealth-proxy retry if the
 // first attempt is blocked) can take 20-40+ seconds — well past
@@ -559,11 +560,27 @@ export async function extractMenuFromPdfAction(pdfBase64: string): Promise<{ suc
   }
 }
 
-export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise<ActionResult> {
+export async function importMenuItemsAction(incoming: ExtractedMenuItem[]): Promise<ActionResult & { added?: number; skipped?: number }> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   const categoryIdByName = new Map<string, string>();
+
+  // Never create a second copy of an item: skip anything already on the
+  // menu, and any repeat within this import, matched by name the same way
+  // the review screen does (case, spacing, punctuation and plurals ignored).
+  const { data: existingItems, error: existingError } = await admin.from("menu_items").select("name").eq("business_id", businessId);
+  if (existingError) return dbErrorResult(existingError, "importMenuItemsAction:existing", "Could not import the menu.");
+  const takenKeys = new Set((existingItems || []).map((i) => menuNameKey(i.name)));
+  const items: ExtractedMenuItem[] = [];
+  let skipped = 0;
+  for (const item of incoming) {
+    const key = menuNameKey(item.name);
+    if (!key) continue;
+    if (takenKeys.has(key)) { skipped++; continue; }
+    takenKeys.add(key);
+    items.push(item);
+  }
 
   const signatureCounts = new Map<string, number>();
   for (const item of items) {
@@ -671,5 +688,5 @@ export async function importMenuItemsAction(items: ExtractedMenuItem[]): Promise
   }
 
   revalidatePath("/dashboard/menu");
-  return { success: true };
+  return { success: true, added: items.filter((i) => i.name.trim()).length, skipped };
 }
