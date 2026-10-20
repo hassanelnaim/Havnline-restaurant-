@@ -33,7 +33,11 @@ export async function addMenuCategoryAction(name: string): Promise<ActionResult>
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
-  const { error } = await admin.from("menu_categories").insert({ business_id: businessId, name });
+  const trimmed = name.trim().slice(0, 80);
+  if (!trimmed) return { success: false, error: "Give the category a name." };
+  const { data: cats } = await admin.from("menu_categories").select("name").eq("business_id", businessId);
+  if ((cats || []).some((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase())) return { success: false, error: `You already have a "${trimmed}" category.` };
+  const { error } = await admin.from("menu_categories").insert({ business_id: businessId, name: trimmed });
   if (error) return dbErrorResult(error, "addMenuCategoryAction", "Could not add that category.");
   revalidatePath("/dashboard/menu");
   return { success: true };
@@ -46,10 +50,32 @@ export interface MenuItemInput {
   categoryId: string | null;
 }
 
+type AnyAdmin = ReturnType<typeof createAdminClient>;
+
+/**
+ * The menu item this name would duplicate, if any (same name ignoring case,
+ * spacing, punctuation and plurals; see lib/menu/importDedupe.ts). The menu
+ * never holds the same item twice: the AI would have two "French Fries" to
+ * choose from, possibly at different prices.
+ */
+async function findSameNamedItem(admin: AnyAdmin, businessId: string, name: string, exceptItemId?: string): Promise<string | null> {
+  const key = menuNameKey(name);
+  if (!key) return null;
+  const { data } = await admin.from("menu_items").select("id, name").eq("business_id", businessId);
+  const match = (data || []).find((i) => i.id !== exceptItemId && menuNameKey(i.name) === key);
+  return match ? match.name : null;
+}
+
+const alreadyOnMenu = (existing: string) => `"${existing}" is already on your menu. Edit that item instead of adding it again.`;
+
 export async function addMenuItemAction(input: MenuItemInput & { newCategoryName?: string; sizes?: { name: string; price: string }[] }): Promise<ActionResult> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
+
+  if (!input.name.trim()) return { success: false, error: "Give the item a name." };
+  const sameNamed = await findSameNamedItem(admin, businessId, input.name);
+  if (sameNamed) return { success: false, error: alreadyOnMenu(sameNamed) };
 
   // A new category typed in the add-item form: reuse one with the same name
   // (ignoring case, so "breakfast" never becomes a second "Breakfast"), or
@@ -172,6 +198,9 @@ export async function updateMenuItemAction(itemId: string, input: MenuItemInput)
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
+
+  const sameNamed = await findSameNamedItem(admin, businessId, input.name, itemId);
+  if (sameNamed) return { success: false, error: `"${sameNamed}" is already on your menu, so this item can't have the same name.` };
 
   const { error } = await admin
     .from("menu_items")
@@ -446,6 +475,31 @@ export async function detachAddonTemplateAction(menuItemId: string, templateId: 
 // price served as fact would be a real billing error for a customer.
 // --------------------------------------------------------------------------
 
+/**
+ * Clears out copies of the same item already on a menu (from before
+ * duplicates were blocked): keeps one, deletes the rest. Past orders keep
+ * the item's name; only their link to a deleted copy is cleared.
+ */
+export async function removeDuplicateItemsAction(keepItemId: string, removeItemIds: string[]): Promise<ActionResult & { removed?: number }> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const ids = Array.from(new Set(removeItemIds.filter((id) => id !== keepItemId)));
+  if (ids.length === 0) return { success: true, removed: 0 };
+  const admin = createAdminClient();
+
+  const { data: rows } = await admin.from("menu_items").select("id, name").eq("business_id", businessId).in("id", [keepItemId, ...ids]);
+  const keep = (rows || []).find((r) => r.id === keepItemId);
+  if (!keep) return { success: false, error: "Could not find the item to keep." };
+  // Only ever delete true copies of the kept item, whatever the browser sent.
+  const copies = (rows || []).filter((r) => r.id !== keepItemId && menuNameKey(r.name) === menuNameKey(keep.name)).map((r) => r.id);
+  if (copies.length === 0) return { success: true, removed: 0 };
+
+  const { error } = await admin.from("menu_items").delete().eq("business_id", businessId).in("id", copies);
+  if (error) return dbErrorResult(error, "removeDuplicateItemsAction", "Could not remove the copies.");
+  revalidatePath("/dashboard/menu");
+  return { success: true, removed: copies.length };
+}
+
 export async function extractMenuFromWebsiteAction(url: string): Promise<{ success: boolean; items?: ExtractedMenuItem[]; error?: string }> {
   try {
     const businessId = await requireBusinessId();
@@ -598,10 +652,11 @@ export async function importMenuItemsAction(incoming: ExtractedMenuItem[]): Prom
     let categoryId: string | null = null;
     const categoryName = item.category.trim();
     if (categoryName) {
-      if (categoryIdByName.has(categoryName)) {
-        categoryId = categoryIdByName.get(categoryName)!;
+      // Matched ignoring case, so "sides" never becomes a second "Sides".
+      if (categoryIdByName.has(categoryName.toLowerCase())) {
+        categoryId = categoryIdByName.get(categoryName.toLowerCase())!;
       } else {
-        const { data: existing } = await admin.from("menu_categories").select("id").eq("business_id", businessId).eq("name", categoryName).maybeSingle();
+        const { data: existing } = await admin.from("menu_categories").select("id").eq("business_id", businessId).ilike("name", categoryName.replace(/[%_\\]/g, "\\$&")).limit(1).maybeSingle();
         if (existing) {
           categoryId = existing.id;
         } else {
@@ -609,7 +664,7 @@ export async function importMenuItemsAction(incoming: ExtractedMenuItem[]): Prom
           if (error) return dbErrorResult(error, "importMenuItemsAction:category", "Could not import the menu.");
           categoryId = created.id;
         }
-        categoryIdByName.set(categoryName, categoryId!);
+        categoryIdByName.set(categoryName.toLowerCase(), categoryId!);
       }
     }
 

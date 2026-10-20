@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X, Percent, FileText, FileSpreadsheet, Upload } from "lucide-react";
+import { Plus, Trash2, Unlink, Globe, Camera, ClipboardPaste, Loader2, UtensilsCrossed, ChevronDown, ChevronUp, CheckCircle2, Search, Tags, Pencil, Clock, X, Percent, FileText, FileSpreadsheet, Upload, Copy as CopyIcon, AlertTriangle } from "lucide-react";
 import type { DbMenuCategory, MenuItemWithModifiers } from "@/lib/database/types";
 import type { AddonTemplate } from "@/lib/data/menu";
 import { EASY_TO_MISS_HIGHLIGHT, EASY_TO_MISS_INPUT_HIGHLIGHT } from "@/lib/ui/highlight";
@@ -12,7 +12,7 @@ import {
   addModifierGroupAction, deleteModifierGroupAction,
   createAddonTemplateAction, renameAddonTemplateAction, addAddonTemplateOptionAction, deleteAddonOptionAction, deleteAddonTemplateAction,
   attachAddonTemplateAction, detachAddonTemplateAction,
-  updateMenuItemTimePricingAction, setItemSizesAction, copyItemSizesAction,
+  updateMenuItemTimePricingAction, setItemSizesAction, copyItemSizesAction, removeDuplicateItemsAction,
   extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, extractMenuFromPdfAction, importMenuItemsAction,
 } from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
@@ -87,8 +87,28 @@ export function MenuClient({
     router.refresh();
   }
 
+  // The menu never holds the same item twice (see lib/menu/importDedupe.ts).
+  const sameNamedItem = useMemo(() => {
+    const key = menuNameKey(name);
+    return key ? items.find((i) => menuNameKey(i.name) === key) || null : null;
+  }, [name, items]);
+
+  // Copies already on the menu from before duplicates were blocked.
+  const duplicateGroups = useMemo(() => {
+    const byKey = new Map<string, MenuItemWithModifiers[]>();
+    for (const i of items) {
+      const key = menuNameKey(i.name);
+      if (!key) continue;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(i);
+    }
+    return Array.from(byKey.values()).filter((g) => g.length > 1);
+  }, [items]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+
   function addItem() {
     if (!name.trim()) { setError("Give the item a name."); return; }
+    if (sameNamedItem) { setError(`"${sameNamedItem.name}" is already on your menu. Edit that item instead of adding it again.`); return; }
     let sizes: SizeRow[] = [];
     let itemPrice = price;
     if (hasSizes) {
@@ -185,6 +205,18 @@ export function MenuClient({
       </TabsList>
 
       <TabsContent value="items">
+        {duplicateGroups.length > 0 && (
+          <div className="mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+              <span className="flex items-center gap-2 text-[13px] font-medium text-amber-800">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {duplicateGroups.length} item{duplicateGroups.length === 1 ? " is" : "s are"} on your menu more than once. Your AI could quote the wrong one.
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setShowDuplicates((v) => !v)}>{showDuplicates ? "Hide" : "Fix duplicates"}</Button>
+            </div>
+            {showDuplicates && <DuplicatesPanel groups={duplicateGroups} categories={categories} onFixed={(removedIds) => { setItems((prev) => prev.filter((i) => !removedIds.includes(i.id))); refresh(); }} />}
+          </div>
+        )}
         <div className="grid items-start gap-6 lg:grid-cols-2">
           {/* Left: add an item. On a phone it sits behind a button, below the menu. */}
           <div className={`order-2 lg:order-1 lg:sticky lg:top-20 ${showAddOnPhone ? "" : "hidden lg:block"}`}>
@@ -206,7 +238,11 @@ export function MenuClient({
                   </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className={hasSizes ? "sm:col-span-3" : "sm:col-span-2"}><Label>Name</Label><Input className="mt-1.5" value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); }} placeholder="e.g. French Fries" /></div>
+                  <div className={hasSizes ? "sm:col-span-3" : "sm:col-span-2"}>
+                    <Label>Name</Label>
+                    <Input className={`mt-1.5 ${sameNamedItem ? "border-amber-400" : ""}`} value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); setError(null); }} placeholder="e.g. French Fries" />
+                    {sameNamedItem && <p className="mt-1 text-[12px] text-amber-700">&ldquo;{sameNamedItem.name}&rdquo; is already on your menu.</p>}
+                  </div>
                   {!hasSizes && <div><Label>Price ($)</Label><Input type="number" step="0.01" min="0" className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" /></div>}
                 </div>
                 <div className="rounded-lg border border-border bg-paper px-3 py-2.5">
@@ -232,7 +268,7 @@ export function MenuClient({
                     <Input className="mt-2" autoFocus value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name, e.g. Desserts" />
                   )}
                 </div>
-                <Button variant="brand" className="w-full" onClick={addItem} disabled={saving}>
+                <Button variant="brand" className="w-full" onClick={addItem} disabled={saving || !!sameNamedItem}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add item
                 </Button>
               </CardContent>
@@ -335,6 +371,100 @@ export function MenuClient({
         <MenuImportPanel onImported={refresh} existingNames={items.map((i) => i.name)} />
       </TabsContent>
     </Tabs>
+  );
+}
+
+/**
+ * One card per item that's on the menu more than once. The suggested copy
+ * to keep is the one most likely to be "the real one": switched on, with
+ * add-ons or sizes, with a price. The owner can pick another.
+ */
+function DuplicatesPanel({ groups, categories, onFixed }: {
+  groups: MenuItemWithModifiers[][];
+  categories: DbMenuCategory[];
+  onFixed: (removedIds: string[]) => void;
+}) {
+  const [, startTransition] = useTransition();
+  const suggest = (g: MenuItemWithModifiers[]) =>
+    [...g].sort((a, b) => Number(b.is_active) - Number(a.is_active) || b.modifier_groups.length - a.modifier_groups.length || Number(b.price_cents > 0) - Number(a.price_cents > 0) || b.price_cents - a.price_cents)[0].id;
+  const [keep, setKeep] = useState<Record<string, string>>(() => Object.fromEntries(groups.map((g) => [g[0].id, suggest(g)])));
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const catName = (id: string | null) => categories.find((c) => c.id === id)?.name || "No category";
+
+  async function fix(group: MenuItemWithModifiers[]) {
+    const keepId = keep[group[0].id] || suggest(group);
+    const removeIds = group.map((i) => i.id).filter((id) => id !== keepId);
+    const result = await removeDuplicateItemsAction(keepId, removeIds);
+    if (!result.success) throw new Error(result.error || "Could not remove the copies.");
+    return removeIds;
+  }
+
+  function fixOne(group: MenuItemWithModifiers[]) {
+    setBusy(group[0].id);
+    setError(null);
+    startTransition(async () => {
+      try { onFixed(await fix(group)); } catch (err) { setError(err instanceof Error ? err.message : "Could not remove the copies."); }
+      setBusy(null);
+    });
+  }
+
+  function fixAll() {
+    setBusy("all");
+    setError(null);
+    startTransition(async () => {
+      const removed: string[] = [];
+      try {
+        for (const g of groups) removed.push(...(await fix(g)));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not remove the copies.");
+      }
+      onFixed(removed);
+      setBusy(null);
+    });
+  }
+
+  return (
+    <Card className="mt-3">
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2"><CopyIcon className="h-4 w-4 text-brand-dark" /> Remove duplicate items</CardTitle>
+            <CardDescription className="mt-1">Pick the copy to keep. The others are deleted. Past orders keep their item names.</CardDescription>
+          </div>
+          <Button size="sm" variant="brand" onClick={fixAll} disabled={busy !== null}>{busy === "all" ? "Removing…" : "Keep the suggested ones and remove the rest"}</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div>}
+        {groups.map((g) => (
+          <div key={g[0].id} className="rounded-xl border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[13.5px] font-semibold text-ink">{g[0].name} <span className="font-normal text-text-faint">× {g.length}</span></div>
+              <Button size="sm" variant="outline" onClick={() => fixOne(g)} disabled={busy !== null}>{busy === g[0].id ? "Removing…" : `Keep one, remove ${g.length - 1}`}</Button>
+            </div>
+            <div className="mt-2 space-y-1">
+              {g.map((i) => {
+                const sizes = readSizes(i);
+                const addons = i.modifier_groups.filter((m) => !isSizeGroup(m)).length;
+                return (
+                  <label key={i.id} className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-1.5 text-[12.5px] hover:bg-paper">
+                    <input type="radio" name={`keep-${g[0].id}`} className="accent-[#2563EB]" checked={(keep[g[0].id] || suggest(g)) === i.id} onChange={() => setKeep((k) => ({ ...k, [g[0].id]: i.id }))} />
+                    <span className="font-medium text-ink">{i.name}</span>
+                    <span className="tabular-nums text-text">{priceRangeText(i.price_cents, sizes)}</span>
+                    <span className="text-text-muted">{catName(i.category_id)}</span>
+                    {sizes && <span className="rounded-full bg-brand-soft px-1.5 py-0.5 text-[10.5px] font-medium text-brand-dark">{sizes.length} sizes</span>}
+                    {addons > 0 && <span className="rounded-full bg-paper px-1.5 py-0.5 text-[10.5px] text-text-faint">{addons} add-on{addons === 1 ? "" : "s"}</span>}
+                    {!i.is_active && <span className="rounded-full bg-border-soft px-1.5 py-0.5 text-[10.5px] text-text-muted">Off</span>}
+                    {i.id === suggest(g) && <span className="text-[11px] text-success">Suggested</span>}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

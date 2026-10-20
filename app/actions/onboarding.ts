@@ -8,6 +8,7 @@ import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { OnboardingDraft } from "@/lib/onboarding/context";
 import { DEFAULT_PLATFORM_FEE_BPS } from "@/lib/billing/constants";
 import { dbErrorResult } from "@/lib/errors";
+import { menuNameKey } from "@/lib/menu/importDedupe";
 
 export interface CompleteOnboardingResult {
   success: boolean;
@@ -99,15 +100,21 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
   if (hoursError) return dbErrorResult(hoursError, "completeOnboardingAction:hours", "Could not save your hours.");
 
   const categoryIdByName = new Map<string, string>();
+  // The same item twice in the draft (typed twice, or imported twice) is
+  // saved once.
+  const seenItemKeys = new Set<string>();
 
   for (const item of draft.menuItems) {
     if (!item.name.trim()) continue;
+    const itemKey = menuNameKey(item.name);
+    if (seenItemKeys.has(itemKey)) continue;
+    seenItemKeys.add(itemKey);
 
     let categoryId: string | null = null;
     const categoryName = item.category.trim();
     if (categoryName) {
-      if (categoryIdByName.has(categoryName)) {
-        categoryId = categoryIdByName.get(categoryName)!;
+      if (categoryIdByName.has(categoryName.toLowerCase())) {
+        categoryId = categoryIdByName.get(categoryName.toLowerCase())!;
       } else {
         const { data: category, error: categoryError } = await admin
           .from("menu_categories")
@@ -116,7 +123,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
           .single();
         if (categoryError) return dbErrorResult(categoryError, "completeOnboardingAction:category", "Could not save your menu.");
         categoryId = category.id;
-        categoryIdByName.set(categoryName, categoryId!);
+        categoryIdByName.set(categoryName.toLowerCase(), categoryId!);
       }
     }
 
