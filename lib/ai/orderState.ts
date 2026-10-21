@@ -77,7 +77,9 @@ function money(dollars: number): string {
 
 function describeLine(line: OrderLine): string {
   const extras = [...line.modifiers, ...(line.notes ? [`note: ${line.notes}`] : [])];
-  return `- ${line.quantity} x ${line.name}${extras.length ? ` (${extras.join(", ")})` : ""} — ${money(line.line_total)}`;
+  // Written the way it's said ("2 Coney, no onions: $5.98"), not "2 x ... —",
+  // since the model tends to read this block back word for word.
+  return `- ${line.quantity} ${line.name}${extras.length ? `, ${extras.join(", ")}` : ""}: ${money(line.line_total)}`;
 }
 
 export type CurrentOrder =

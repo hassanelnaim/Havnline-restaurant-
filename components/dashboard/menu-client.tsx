@@ -106,6 +106,11 @@ export function MenuClient({
   }, [items]);
   const [showDuplicates, setShowDuplicates] = useState(false);
 
+  // Items with no price (often $0.00 rows from a POS export). The AI won't
+  // sell them over the phone until a price (or sizes) is set.
+  const unpricedCount = useMemo(() => items.filter((i) => i.is_active && i.price_cents === 0 && !readSizes(i) && !i.special_price_cents).length, [items]);
+  const [onlyUnpriced, setOnlyUnpriced] = useState(false);
+
   function addItem() {
     if (!name.trim()) { setError("Give the item a name."); return; }
     if (sameNamedItem) { setError(`"${sameNamedItem.name}" is already on your menu. Edit that item instead of adding it again.`); return; }
@@ -154,9 +159,10 @@ export function MenuClient({
   // Group items by category, like a real printed menu, filtered by search.
   const groupedItems = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const visible = q
+    const matching = q
       ? items.filter((i) => i.name.toLowerCase().includes(q) || (i.description || "").toLowerCase().includes(q))
       : items;
+    const visible = onlyUnpriced ? matching.filter((i) => i.price_cents === 0 && !readSizes(i) && !i.special_price_cents) : matching;
 
     const byCategory = new Map<string, MenuItemWithModifiers[]>();
     for (const item of visible) {
@@ -173,10 +179,10 @@ export function MenuClient({
     const uncategorized = byCategory.get(UNCATEGORIZED);
     if (uncategorized && uncategorized.length > 0) groups.push({ key: UNCATEGORIZED, name: "Uncategorized", items: uncategorized });
     return groups;
-  }, [items, categories, search]);
+  }, [items, categories, search, onlyUnpriced]);
 
   const totalVisible = groupedItems.reduce((sum, g) => sum + g.items.length, 0);
-  const searching = search.trim().length > 0;
+  const searching = search.trim().length > 0 || onlyUnpriced;
 
   // One tab per category that has items, with counts (unaffected by search).
   const categoryTabs = useMemo(() => {
@@ -205,6 +211,15 @@ export function MenuClient({
       </TabsList>
 
       <TabsContent value="items">
+        {unpricedCount > 0 && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+            <span className="flex items-center gap-2 text-[13px] font-medium text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {unpricedCount} item{unpricedCount === 1 ? " has" : "s have"} no price, so your AI won&apos;t sell {unpricedCount === 1 ? "it" : "them"} over the phone. Add a price or sizes.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => { setOnlyUnpriced((v) => !v); setSearch(""); }}>{onlyUnpriced ? "Show all items" : "Show them"}</Button>
+          </div>
+        )}
         {duplicateGroups.length > 0 && (
           <div className="mb-4">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
@@ -340,6 +355,7 @@ export function MenuClient({
                                 item={item}
                                 addonTemplates={addonTemplates}
                                 allItems={items}
+                                categories={categories}
                                 onToggle={toggleActive}
                                 onRemove={removeItem}
                                 onRefresh={refresh}
@@ -468,16 +484,44 @@ function DuplicatesPanel({ groups, categories, onFixed }: {
   );
 }
 
-function MenuItemRow({ item, addonTemplates, allItems, onToggle, onRemove, onRefresh }: {
+function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onRemove, onRefresh }: {
   item: MenuItemWithModifiers;
   addonTemplates: AddonTemplate[];
   allItems: MenuItemWithModifiers[];
+  categories: DbMenuCategory[];
   onToggle: (id: string, active: boolean) => void;
   onRemove: (id: string) => void;
   onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [, startTransition] = useTransition();
+
+  // Name, price, description and category of an existing item.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: item.name, price: (item.price_cents / 100).toFixed(2), description: item.description || "", categoryId: item.category_id || "" });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const sameNamedOther = useMemo(() => {
+    const key = menuNameKey(draft.name);
+    return key ? allItems.find((i) => i.id !== item.id && menuNameKey(i.name) === key) || null : null;
+  }, [draft.name, allItems, item.id]);
+
+  function saveEdit() {
+    if (!draft.name.trim()) { setEditError("Give the item a name."); return; }
+    if (sameNamedOther) { setEditError(`"${sameNamedOther.name}" is already on your menu.`); return; }
+    const priceNum = parseFloat(draft.price);
+    if (!sizesNow && (!Number.isFinite(priceNum) || priceNum < 0)) { setEditError("Enter a price, like 8.49."); return; }
+    setSavingEdit(true);
+    setEditError(null);
+    startTransition(async () => {
+      const result = await updateMenuItemAction(item.id, { name: draft.name.trim(), description: draft.description, price: sizesNow ? (item.price_cents / 100).toFixed(2) : draft.price, categoryId: draft.categoryId || null });
+      setSavingEdit(false);
+      if (!result.success) { setEditError(result.error || "Could not save."); return; }
+      setEditing(false);
+      onRefresh();
+    });
+  }
+  const sizesNow = readSizes(item);
 
   // Sizes (stored as the item's required "Size" choice; see lib/menu/sizes.ts)
   const sizes = readSizes(item);
@@ -652,7 +696,9 @@ function MenuItemRow({ item, addonTemplates, allItems, onToggle, onRemove, onRef
             </div>
           </button>
           <div className="flex items-center gap-3">
-            <div className="text-right text-[13px] font-semibold tabular-nums text-ink">{priceRangeText(item.price_cents, sizes)}</div>
+            {item.price_cents === 0 && !sizes && !item.special_price_cents
+              ? <div className="rounded-full bg-amber-50 px-2 py-0.5 text-[11.5px] font-medium text-amber-700">No price</div>
+              : <div className="text-right text-[13px] font-semibold tabular-nums text-ink">{priceRangeText(item.price_cents, sizes)}</div>}
             <Switch checked={item.is_active} onCheckedChange={(checked) => onToggle(item.id, checked)} />
             <button onClick={() => onRemove(item.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete item"><Trash2 className="h-3.5 w-3.5" /></button>
           </div>
@@ -660,6 +706,43 @@ function MenuItemRow({ item, addonTemplates, allItems, onToggle, onRemove, onRef
 
         {expanded && (
           <div className="mt-4 space-y-3 border-t border-border-soft pt-4">
+            {/* Details */}
+            {editing ? (
+              <div className="rounded-lg border border-border p-3">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px] text-text-faint">Name</Label>
+                    <Input className={`mt-1 ${sameNamedOther ? "border-amber-400" : ""}`} value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px] text-text-faint">{sizesNow ? "Price (set by sizes)" : "Price ($)"}</Label>
+                    <Input className="mt-1" inputMode="decimal" disabled={!!sizesNow} value={sizesNow ? priceRangeText(item.price_cents, sizesNow) : draft.price} onChange={(e) => setDraft((d) => ({ ...d, price: e.target.value.replace(/[^0-9.]/g, "") }))} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px] text-text-faint">Description</Label>
+                    <Input className="mt-1" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} placeholder="Optional" />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px] text-text-faint">Category</Label>
+                    <select className="mt-1 h-10 w-full rounded-lg border border-border bg-card px-2.5 text-[13px]" value={draft.categoryId} onChange={(e) => setDraft((d) => ({ ...d, categoryId: e.target.value }))}>
+                      <option value="">No category</option>
+                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {sameNamedOther && <p className="mt-2 text-[12px] text-amber-700">&ldquo;{sameNamedOther.name}&rdquo; is already on your menu.</p>}
+                {editError && <p className="mt-2 text-[12px] text-danger">{editError}</p>}
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" variant="brand" onClick={saveEdit} disabled={savingEdit || !!sameNamedOther}>{savingEdit ? "Saving…" : "Save"}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setEditError(null); setDraft({ name: item.name, price: (item.price_cents / 100).toFixed(2), description: item.description || "", categoryId: item.category_id || "" }); }}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <button className="inline-flex items-center gap-1.5 text-[12px] font-medium text-brand-dark hover:text-brand" onClick={() => setEditing(true)}>
+                <Pencil className="h-3.5 w-3.5" /> Edit name, price or category
+              </button>
+            )}
+
             {/* Sizes */}
             <div className="rounded-lg border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">

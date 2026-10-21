@@ -11,6 +11,7 @@ import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
 import { getSiteUrl } from "@/lib/env";
 import { isTransientAiError } from "@/lib/ai/errors";
+import { toSpeech } from "@/lib/ai/speakable";
 
 const SITE_URL = getSiteUrl();
 
@@ -103,7 +104,11 @@ export function escapeXml(s: string) {
  * <Play> of audio from /api/tts (this app's ElevenLabs), <Say> with the
  * same ElevenLabs voice hosted by Twilio, or <Say> with a Polly voice.
  */
-export function sayLine(voice: VoiceSelection, text: string, businessId?: string): string {
+export function sayLine(voice: VoiceSelection, rawText: string, businessId?: string): string {
+  // Spoken form: no "1 x", dashes, "$" or brackets read out literally (see
+  // lib/ai/speakable.ts). Plain sentences, including every fixed line and
+  // the greeting, come out unchanged, so their cached audio still matches.
+  const text = toSpeech(rawText);
   const path = chooseSpeechPath({
     voiceId: voice.voiceId,
     providerVoiceRef: voice.providerVoiceRef,
@@ -333,8 +338,12 @@ export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
  * differs only by the business's own name). Anything else is a dynamic
  * AI reply and is never cached.
  */
+// sayLine speaks the cleaned-up form of every line, so a fixed line is
+// recognised in that form too.
+const SPOKEN_STATIC_TTS_LINES: ReadonlySet<string> = new Set(Array.from(STATIC_TTS_LINES).map(toSpeech));
+
 export function isCacheableTtsLine(text: string): boolean {
-  return STATIC_TTS_LINES.has(text) || isGreetingLine(text);
+  return STATIC_TTS_LINES.has(text) || SPOKEN_STATIC_TTS_LINES.has(text) || isGreetingLine(text);
 }
 
 export { resolveTwilioVoice, getContextualFiller };
