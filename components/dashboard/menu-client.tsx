@@ -80,8 +80,6 @@ export function MenuClient({
   const [justAdded, setJustAdded] = useState<string | null>(null);
   // Which category tab the list on the right shows.
   const [activeCategory, setActiveCategory] = useState<string>(ALL);
-  // On a phone the add form is tucked behind a button so the menu comes first.
-  const [showAddOnPhone, setShowAddOnPhone] = useState(false);
 
   function refresh() {
     router.refresh();
@@ -211,6 +209,68 @@ export function MenuClient({
       </TabsList>
 
       <TabsContent value="items">
+        {/* Add an item: always first, full width, compact. */}
+        <Card className="mb-4">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Plus className="h-4 w-4" /></span>
+              <h2 className="font-display text-[15px] font-semibold text-ink">Add a menu item</h2>
+              <span className="hidden text-[12px] text-text-faint sm:inline">Your AI only offers items and prices listed here.</span>
+            </div>
+            {error && <div className="mt-3 rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
+            {justAdded && !error && (
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success">
+                <CheckCircle2 className="h-4 w-4" /> Added &ldquo;{justAdded}&rdquo; to your menu.
+              </div>
+            )}
+            <div className="mt-3 grid gap-3 md:grid-cols-[2fr,1fr,1.4fr,auto] md:items-start">
+              <div>
+                <Label className="text-[12px] text-text-muted">Name</Label>
+                <Input className={`mt-1 ${sameNamedItem ? "border-amber-400" : ""}`} value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); setError(null); }} onKeyDown={(e) => { if (e.key === "Enter" && !saving) addItem(); }} placeholder="e.g. French Fries" />
+                {sameNamedItem && <p className="mt-1 text-[12px] text-amber-700">&ldquo;{sameNamedItem.name}&rdquo; is already on your menu.</p>}
+              </div>
+              <div>
+                <Label className="text-[12px] text-text-muted">Price ($)</Label>
+                {hasSizes
+                  ? <div className="mt-1 flex h-10 items-center rounded-lg border border-dashed border-border px-3 text-[12.5px] text-text-faint">Set by sizes below</div>
+                  : <Input type="number" step="0.01" min="0" className="mt-1" value={price} onChange={(e) => setPrice(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !saving) addItem(); }} placeholder="0.00" />}
+              </div>
+              <div>
+                <Label className="text-[12px] text-text-muted">Category</Label>
+                <select
+                  className="mt-1 h-10 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text"
+                  value={categoryChoice}
+                  onChange={(e) => setCategoryChoice(e.target.value)}
+                >
+                  <option value="">No category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value={NEW_CATEGORY}>+ New category…</option>
+                </select>
+                {categoryChoice === NEW_CATEGORY && (
+                  <Input className="mt-2" autoFocus value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name, e.g. Desserts" />
+                )}
+              </div>
+              <div className="hidden md:block md:pt-[28px]">
+                <Button variant="brand" className="h-10" onClick={addItem} disabled={saving || !!sameNamedItem}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add item
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-text">
+                <Switch checked={hasSizes} onCheckedChange={(v) => { setHasSizes(v); setError(null); if (v && price.trim() && !sizeRows.some((r) => r.price)) setSizeRows((rows) => rows.map((r, i) => (i === 0 ? { ...r, price } : r))); }} />
+                Comes in sizes <span className="font-normal text-text-faint">(small, large…)</span>
+              </label>
+              <Input className="h-9 min-w-[220px] flex-1" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional): what comes on it" aria-label="Description" />
+            </div>
+            {hasSizes && <div className="mt-3 max-w-xl rounded-lg border border-border bg-paper p-3"><SizesEditor rows={sizeRows} onChange={setSizeRows} /></div>}
+            {/* On a phone the button comes last, after every field. */}
+            <Button variant="brand" className="mt-3 w-full md:hidden" onClick={addItem} disabled={saving || !!sameNamedItem}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add item
+            </Button>
+          </CardContent>
+        </Card>
+
         {unpricedCount > 0 && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
             <span className="flex items-center gap-2 text-[13px] font-medium text-amber-800">
@@ -232,66 +292,9 @@ export function MenuClient({
             {showDuplicates && <DuplicatesPanel groups={duplicateGroups} categories={categories} onFixed={(removedIds) => { setItems((prev) => prev.filter((i) => !removedIds.includes(i.id))); refresh(); }} />}
           </div>
         )}
-        <div className="grid items-start gap-6 lg:grid-cols-2">
-          {/* Left: add an item. On a phone it sits behind a button, below the menu. */}
-          <div className={`order-2 lg:order-1 lg:sticky lg:top-20 ${showAddOnPhone ? "" : "hidden lg:block"}`}>
-            <Card>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-soft text-brand-dark"><Plus className="h-4 w-4" /></span> Add a menu item</CardTitle>
-                    <CardDescription className="mt-1">Your AI only offers items and prices listed here — never invented.</CardDescription>
-                  </div>
-                  <button onClick={() => setShowAddOnPhone(false)} className="rounded-md p-1 text-text-faint hover:bg-paper lg:hidden" aria-label="Close"><X className="h-4 w-4" /></button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {error && <div className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">{error}</div>}
-                {justAdded && !error && (
-                  <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success">
-                    <CheckCircle2 className="h-4 w-4" /> Added &ldquo;{justAdded}&rdquo; to your menu.
-                  </div>
-                )}
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className={hasSizes ? "sm:col-span-3" : "sm:col-span-2"}>
-                    <Label>Name</Label>
-                    <Input className={`mt-1.5 ${sameNamedItem ? "border-amber-400" : ""}`} value={name} onChange={(e) => { setName(e.target.value); setJustAdded(null); setError(null); }} placeholder="e.g. French Fries" />
-                    {sameNamedItem && <p className="mt-1 text-[12px] text-amber-700">&ldquo;{sameNamedItem.name}&rdquo; is already on your menu.</p>}
-                  </div>
-                  {!hasSizes && <div><Label>Price ($)</Label><Input type="number" step="0.01" min="0" className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" /></div>}
-                </div>
-                <div className="rounded-lg border border-border bg-paper px-3 py-2.5">
-                  <label className="flex cursor-pointer items-center gap-2.5 text-[13px] font-medium text-text">
-                    <Switch checked={hasSizes} onCheckedChange={(v) => { setHasSizes(v); setError(null); if (v && price.trim() && !sizeRows.some((r) => r.price)) setSizeRows((rows) => rows.map((r, i) => (i === 0 ? { ...r, price } : r))); }} />
-                    Comes in sizes <span className="font-normal text-text-faint">(small, large…)</span>
-                  </label>
-                  {hasSizes && <div className="mt-3"><SizesEditor rows={sizeRows} onChange={setSizeRows} /></div>}
-                </div>
-                <div><Label>Description</Label><Input className="mt-1.5" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional — what comes on it" /></div>
-                <div>
-                  <Label>Category</Label>
-                  <select
-                    className="mt-1.5 h-10 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text"
-                    value={categoryChoice}
-                    onChange={(e) => setCategoryChoice(e.target.value)}
-                  >
-                    <option value="">No category</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    <option value={NEW_CATEGORY}>+ New category…</option>
-                  </select>
-                  {categoryChoice === NEW_CATEGORY && (
-                    <Input className="mt-2" autoFocus value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name, e.g. Desserts" />
-                  )}
-                </div>
-                <Button variant="brand" className="w-full" onClick={addItem} disabled={saving || !!sameNamedItem}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add item
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right: the menu, one category at a time. */}
-          <div className="order-1 min-w-0 lg:order-2">
+        <div>
+          {/* The menu, one category at a time. */}
+          <div className="min-w-0">
             <Card>
               <CardContent className="p-4 sm:p-5">
                 <div className="flex items-center gap-2">
@@ -308,7 +311,6 @@ export function MenuClient({
                       <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-faint hover:text-ink" aria-label="Clear search"><X className="h-3.5 w-3.5" /></button>
                     )}
                   </div>
-                  <Button variant="brand" size="sm" className="lg:hidden" onClick={() => setShowAddOnPhone(true)}><Plus className="h-3.5 w-3.5" /> Add item</Button>
                 </div>
 
                 {items.length > 0 && (
