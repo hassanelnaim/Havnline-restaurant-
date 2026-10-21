@@ -153,8 +153,8 @@ export default async function LandingPage() {
           <div className="mx-auto max-w-6xl px-6">
             <div className="mx-auto max-w-xl text-center">
               <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Hear it for yourself</p>
-              <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">What an actual order sounds like — and where it lands</h2>
-              <p className="mx-auto mt-2 max-w-lg text-[13px] text-text-muted">A real exchange off a real menu, no scripts — then straight to your kitchen printer, exactly like a walk-in or online order.</p>
+              <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">A real call, start to finish</h2>
+              <p className="mx-auto mt-2 max-w-lg text-[13px] text-text-muted">Recorded on the caller&apos;s phone, ordering off a real coney island menu. No script. Press play and follow along, then see the ticket it sends to the kitchen.</p>
             </div>
 
             <div className="mt-8">

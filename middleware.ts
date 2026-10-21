@@ -11,5 +11,5 @@ export const config = {
   // services, never by a logged-in browser, so refreshing a login session
   // for them does nothing — it only adds a hop in front of every phone-call
   // webhook, where each millisecond is a caller waiting in silence.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/webhooks/|api/tts|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/webhooks/|api/tts|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp3|wav)$).*)"],
 };

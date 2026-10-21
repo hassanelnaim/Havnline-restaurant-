@@ -1,64 +1,73 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, Printer, ClipboardList, Volume2 } from "lucide-react";
+import { Pause, Play, Printer, PhoneCall, Volume2, RotateCcw } from "lucide-react";
 
 /**
- * The sample order: chat bubbles appear one at a time when the section
- * scrolls into view, then the kitchen ticket "prints".
+ * A real test call to HavnLine (recorded from the caller's phone), with
+ * captions that follow the audio: the line being spoken is highlighted and
+ * kept in view. Without playing, the whole conversation reads as a
+ * transcript. The kitchen ticket shows what the order became.
  *
- * When a recording is present at DEMO_AUDIO_SRC, a play button appears and
- * the bubbles follow the audio instead (each line shows at its `at` second).
- * Until the file exists the button stays hidden, so nothing looks broken.
- * When the real recording is added, set each line's `at` to when it starts
- * in the audio (and make the words match what's said).
+ * Each line's `at` is when it starts in the recording, in seconds (taken
+ * from a transcript of the audio and the pauses between speakers).
  */
 export const DEMO_AUDIO_SRC = "/demo-call.mp3";
 
-const LINES = [
-  { from: "caller", at: 3, text: "Hey, can I get a large pepperoni pizza and an order of garlic knots?" },
-  { from: "ai", at: 7, text: "You got it — one large pepperoni, one garlic knots. Anything to drink, or any other sides?" },
-  { from: "caller", at: 13, text: "Yeah, add a 2-liter Coke." },
-  { from: "ai", at: 16, text: "Perfect. So that's a large pepperoni, garlic knots, and a 2-liter Coke — comes to $28.75 for pickup. Sound right?" },
-] as const;
-const TICKET_AT = 24;
-const AUTO_STEP_MS = 1100;
+const LINES: { from: "ai" | "caller"; at: number; text: string }[] = [
+  { from: "ai", at: 0, text: "Hi, thanks for calling Durresi Coney Island! You're talking to our AI order line. I can take your order or answer questions, and you can ask for a person anytime. What can I get started for you?" },
+  { from: "caller", at: 10.8, text: "I'd like to order a cheeseburger." },
+  { from: "ai", at: 14.7, text: "Great. For the cheeseburger, anything you'd like on it, or any way you'd like it prepared?" },
+  { from: "caller", at: 19.9, text: "What comes on the cheeseburger?" },
+  { from: "ai", at: 22.3, text: "The cheeseburger comes with lettuce, tomato, mayo, onions and pickles. Want it that way, or should I leave anything off?" },
+  { from: "caller", at: 29.9, text: "No tomatoes." },
+  { from: "ai", at: 32.4, text: "Got it, no tomatoes on that one. Anything else I can get for you?" },
+  { from: "caller", at: 36.0, text: "No, thanks." },
+  { from: "ai", at: 38.0, text: "Perfect. So that's one cheeseburger with no tomatoes, which comes to $14.99 before tax. Does that sound right?" },
+  { from: "caller", at: 45.7, text: "Yes." },
+  { from: "ai", at: 47.2, text: "Great! Can I get your name and the best number to text your payment link to? Your order goes to the kitchen as soon as it's paid." },
+];
+/** When the ticket "prints" during playback: once the order is confirmed. */
+const TICKET_AT = 46.4;
+
+const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 export function DemoCall() {
-  const sectionRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [shown, setShown] = useState(0); // how many lines are visible
-  const [ticket, setTicket] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [hasAudio, setHasAudio] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [started, setStarted] = useState(false);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(54);
 
-  // Show the play button only if the recording really exists.
+  // Show the player only if the recording is really there.
   useEffect(() => {
-    fetch(DEMO_AUDIO_SRC, { method: "HEAD" }).then((r) => setHasAudio(r.ok && (r.headers.get("content-type") || "").startsWith("audio"))).catch(() => {});
+    fetch(DEMO_AUDIO_SRC, { method: "HEAD" })
+      .then((r) => setHasAudio(r.ok && (r.headers.get("content-type") || "").startsWith("audio")))
+      .catch(() => {});
   }, []);
 
-  // Without audio: reveal the conversation once, when it scrolls into view.
+  // The line being spoken right now (-1 before the call starts).
+  const current = started ? LINES.reduce((idx, l, i) => (l.at <= time + 0.05 ? i : idx), -1) : -1;
+
+  // Keep the spoken line in view inside the transcript box (not the page).
   useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setShown(LINES.length); setTicket(true); return; }
-    let timers: ReturnType<typeof setTimeout>[] = [];
-    const io = new IntersectionObserver((entries) => {
-      if (!entries[0].isIntersecting) return;
-      io.disconnect();
-      LINES.forEach((_, i) => timers.push(setTimeout(() => setShown((s) => Math.max(s, i + 1)), 300 + i * AUTO_STEP_MS)));
-      timers.push(setTimeout(() => setTicket(true), 300 + LINES.length * AUTO_STEP_MS + 300));
-    }, { threshold: 0.35 });
-    io.observe(el);
-    return () => { io.disconnect(); timers.forEach(clearTimeout); timers = []; };
-  }, []);
+    if (!started || current < 0) return;
+    const box = listRef.current;
+    const el = lineRefs.current[current];
+    if (!box || !el) return;
+    const target = el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2;
+    box.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  }, [current, started]);
 
   function toggle() {
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) {
-      if (a.ended || a.currentTime === 0) { setShown(0); setTicket(false); a.currentTime = 0; }
+      if (a.ended) a.currentTime = 0;
+      setStarted(true);
       a.play().then(() => setPlaying(true)).catch(() => {});
     } else {
       a.pause();
@@ -66,54 +75,89 @@ export function DemoCall() {
     }
   }
 
-  function onTime() {
+  function restart() {
     const a = audioRef.current;
     if (!a) return;
-    const t = a.currentTime;
-    setShown(LINES.filter((l) => l.at <= t).length);
-    setTicket(t >= TICKET_AT);
-    setProgress(a.duration ? t / a.duration : 0);
+    a.currentTime = 0;
+    setTime(0);
+    setStarted(true);
+    a.play().then(() => setPlaying(true)).catch(() => {});
   }
 
+  function seek(e: React.MouseEvent<HTMLDivElement>) {
+    const a = audioRef.current;
+    if (!a || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    a.currentTime = Math.max(0, Math.min(duration, ((e.clientX - rect.left) / rect.width) * duration));
+    setTime(a.currentTime);
+    setStarted(true);
+  }
+
+  // Before playing, the ticket is shown as the finished result; while the
+  // call plays it "prints" once the order is confirmed.
+  const ticketShown = !started || time >= TICKET_AT || (!playing && time >= duration - 0.5);
+
   return (
-    <div ref={sectionRef}>
+    <div>
       {hasAudio && (
-        <div className="mx-auto mb-6 flex max-w-md items-center gap-3 rounded-full border border-brand/30 bg-brand-50 p-1.5 pr-5 shadow-card">
-          <button onClick={toggle} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm hover:bg-brand-dark" aria-label={playing ? "Pause the sample call" : "Play the sample call"}>
+        <div className="mx-auto mb-6 flex max-w-xl items-center gap-3 rounded-2xl border border-brand/30 bg-brand-50 p-2 pr-4 shadow-card">
+          <button
+            onClick={toggle}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand text-white shadow-sm transition-colors hover:bg-brand-dark"
+            aria-label={playing ? "Pause the call" : "Play the call"}
+          >
             {playing ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
           </button>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-ink"><Volume2 className="h-3.5 w-3.5 text-brand" /> {playing ? "Playing a real test order" : "Hear a real test order"}</div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-brand-soft"><div className="h-full rounded-full bg-brand transition-[width] duration-200" style={{ width: `${progress * 100}%` }} /></div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+                <Volume2 className="h-4 w-4 text-brand" /> {started ? "A real call to HavnLine" : "Listen to a real call"}
+              </span>
+              <span className="text-[11.5px] tabular-nums text-text-faint">{fmt(time)} / {fmt(duration)}</span>
+            </div>
+            <div className="mt-2 h-2 cursor-pointer overflow-hidden rounded-full bg-brand-soft" onClick={seek} role="slider" aria-label="Call position" aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(time)}>
+              <div className="h-full rounded-full bg-brand transition-[width] duration-200" style={{ width: `${duration ? (time / duration) * 100 : 0}%` }} />
+            </div>
           </div>
-          <audio ref={audioRef} src={DEMO_AUDIO_SRC} preload="none" onTimeUpdate={onTime} onEnded={() => { setPlaying(false); setShown(LINES.length); setTicket(true); }} />
+          {started && (
+            <button onClick={restart} className="rounded-full p-2 text-text-faint hover:bg-white hover:text-ink" aria-label="Play from the start">
+              <RotateCcw className="h-4 w-4" />
+            </button>
+          )}
+          <audio
+            ref={audioRef}
+            src={DEMO_AUDIO_SRC}
+            preload="metadata"
+            onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 54)}
+            onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+            onEnded={() => setPlaying(false)}
+          />
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
+      <div className="grid gap-6 lg:grid-cols-[1.4fr_auto_1fr] lg:items-center">
         <div className="rounded-2xl border border-border bg-paper p-5 shadow-card">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">
-            <ClipboardList className="h-3.5 w-3.5" /> The call
+            <PhoneCall className="h-3.5 w-3.5" /> The call, word for word
           </div>
-          <div className="mt-3 min-h-[240px] space-y-2">
-            {LINES.map((line, i) => (
-              <div
-                key={i}
-                className={`flex transition-all duration-500 ${line.from === "ai" ? "justify-end" : "justify-start"} ${i < shown ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
-              >
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed ${line.from === "ai" ? "rounded-br-md bg-brand text-white" : "rounded-bl-md border border-border bg-card text-text"}`}>
-                  <span className={`mb-0.5 block text-[10px] font-semibold uppercase tracking-wide ${line.from === "ai" ? "text-white/70" : "text-text-faint"}`}>{line.from === "ai" ? "HavnLine" : "Caller"}</span>
-                  {line.text}
+          <div ref={listRef} className="relative mt-3 max-h-[380px] space-y-2.5 overflow-y-auto pr-1">
+            {LINES.map((line, i) => {
+              const ai = line.from === "ai";
+              const isNow = i === current;
+              const upcoming = started && i > current;
+              return (
+                <div key={i} ref={(el) => { lineRefs.current[i] = el; }} className={`flex ${ai ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed transition-all duration-300 ${
+                      ai ? "rounded-br-md bg-brand text-white" : "rounded-bl-md border border-border bg-card text-text"
+                    } ${upcoming ? "opacity-35" : "opacity-100"} ${isNow ? (ai ? "ring-2 ring-brand/40 ring-offset-2" : "ring-2 ring-brand/30 ring-offset-2") : ""}`}
+                  >
+                    <span className={`mb-0.5 block text-[10px] font-semibold uppercase tracking-wide ${ai ? "text-white/70" : "text-text-faint"}`}>{ai ? "HavnLine" : "Caller"}</span>
+                    {line.text}
+                  </div>
                 </div>
-              </div>
-            ))}
-            {shown < LINES.length && shown > 0 && (
-              <div className={`flex ${LINES[shown].from === "ai" ? "justify-end" : "justify-start"}`} aria-hidden>
-                <div className="flex gap-1 rounded-2xl bg-card px-3 py-2.5">
-                  {[0, 1, 2].map((d) => <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-faint" style={{ animationDelay: `${d * 120}ms` }} />)}
-                </div>
-              </div>
-            )}
+              );
+            })}
           </div>
         </div>
 
@@ -123,19 +167,19 @@ export function DemoCall() {
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">
             <Printer className="h-3.5 w-3.5" /> Kitchen ticket
           </div>
-          <div className="mt-3 overflow-hidden">
-            <div className={`rounded-xl border border-dashed border-border bg-card p-4 font-mono text-[12.5px] leading-relaxed text-text transition-all duration-700 ease-out ${ticket ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"}`}>
+          <div className="mt-3 min-h-[150px] overflow-hidden">
+            <div className={`rounded-xl border border-dashed border-border bg-card p-4 font-mono text-[12.5px] leading-relaxed text-text transition-all duration-700 ease-out ${ticketShown ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"}`}>
               <div className="flex justify-between text-text-faint"><span>ORDER #1042</span><span>PICKUP</span></div>
               <div className="mt-2 border-t border-border-soft pt-2">
-                1x Large Pepperoni Pizza<br />
-                1x Garlic Knots<br />
-                1x 2-Liter Coke
+                1x Cheeseburger<br />
+                <span className="pl-3 text-text-muted">- No tomatoes</span>
               </div>
-              <div className="mt-2 flex justify-between border-t border-border-soft pt-2 font-semibold"><span>Total</span><span>$28.75</span></div>
+              <div className="mt-2 flex justify-between border-t border-border-soft pt-2 font-semibold"><span>Subtotal</span><span>$14.99</span></div>
+              <div className="mt-1 text-[11px] text-text-faint">PAID BY CARD · TEXT LINK</div>
             </div>
-            {!ticket && <div className="flex h-[150px] items-center justify-center text-[12px] text-text-faint">Waiting for the order…</div>}
+            {!ticketShown && <div className="-mt-[120px] flex h-[120px] items-center justify-center text-[12px] text-text-faint">Waiting for the order…</div>}
           </div>
-          <p className="mt-3 text-[11.5px] text-text-faint">Same format your kitchen already reads. The customer gets the details by text.</p>
+          <p className="mt-3 text-[11.5px] text-text-faint">The caller pays by the texted link, and the ticket prints in your kitchen the moment it&apos;s paid.</p>
         </div>
       </div>
     </div>
