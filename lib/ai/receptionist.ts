@@ -4,7 +4,7 @@ import { runTurn, type ConversationMessage, type RunTurnResult } from "./claude"
 import type { ToolContext } from "./tools";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { loadCurrentOrder } from "./orderState";
-import { isDemoCaller } from "@/lib/ai/demoCallers";
+import { isDemoCall } from "@/lib/ai/demoCallers";
 
 export interface HandleTurnResult {
   reply: string;
@@ -192,7 +192,7 @@ export async function handleTurn(
     const lastAi = [...priorRows].reverse().find((m) => m.role === "ai");
     const recentWords = { customer: [userMessage, ...recentCustomer], lastAssistant: lastAi ? lastAi.content : null };
 
-    const demoCaller = channel === "phone" && isDemoCaller(callerPhone);
+    const demoCaller = channel === "phone" && isDemoCall(callerPhone, context.business);
     const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone, recentWords, demoCaller };
     let result: RunTurnResult;
     try {
