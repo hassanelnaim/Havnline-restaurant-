@@ -83,8 +83,25 @@ const SPEECH_HINTS = [
  *   is normal and continues to the real answer) and after an order is placed.
  * The listening times themselves (timeout, speechTimeout) are unchanged.
  */
+/**
+ * Speech recognition settings. By default: Twilio's phone_call model with
+ * "auto" end-of-speech detection, unchanged.
+ *
+ * For testing a faster recogniser, set SPEECH_MODEL in Vercel (for example
+ * "deepgram_nova-3"; Twilio also offers "deepgram_nova-2" and
+ * "googlev2_telephony"). Twilio requires a fixed number of seconds of
+ * silence instead of "auto" with these models: SPEECH_END_SECONDS, default
+ * 1. Remove SPEECH_MODEL to go back to the default.
+ */
+function speechRecognitionAttributes(): string {
+  const model = (process.env.SPEECH_MODEL || "").trim();
+  if (!model || !/^[a-z0-9_.-]+$/i.test(model)) return `speechTimeout="auto" speechModel="phone_call" enhanced="true"`;
+  const seconds = Math.min(5, Math.max(1, parseInt(process.env.SPEECH_END_SECONDS || "1", 10) || 1));
+  return `speechTimeout="${seconds}" speechModel="${model}"`;
+}
+
 export function speechGatherOpen(action: string, timeoutSeconds: number, opts: { retryOnSilence?: boolean } = {}): string {
-  return `<Gather input="speech" action="${escapeXml(action)}" method="POST" speechTimeout="auto" speechModel="phone_call" enhanced="true" hints="${escapeXml(SPEECH_HINTS)}" timeout="${timeoutSeconds}"${opts.retryOnSilence ? ' actionOnEmptyResult="true"' : ""}>`;
+  return `<Gather input="speech" action="${escapeXml(action)}" method="POST" ${speechRecognitionAttributes()} hints="${escapeXml(SPEECH_HINTS)}" timeout="${timeoutSeconds}"${opts.retryOnSilence ? ' actionOnEmptyResult="true"' : ""}>`;
 }
 
 /** Reads `seq` from a request URL; null when absent or not a whole number. */

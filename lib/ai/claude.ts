@@ -4,6 +4,7 @@ import { TOOL_DEFINITIONS, TOOL_HANDLERS, type ToolContext } from "./tools";
 import type { BusinessContext } from "./context";
 import { logAnthropicUsage } from "@/lib/usage/tracking";
 import { TransientAiError, isTransientAiError } from "./errors";
+import { canUseFirstPassReply } from "./earlyReply";
 import { formatOrderStateBlock, ORDER_PLACED_BLOCK, type CurrentOrder, type OrderSnapshot } from "./orderState";
 
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
@@ -55,6 +56,8 @@ export interface ConversationMessage {
 export interface TurnStats {
   /** How many times the model was called this turn (tool use = more than one). */
   modelCalls: number;
+  /** True when an item change was answered without a second model pass (see earlyReply.ts). */
+  firstPassReply?: boolean;
   /** Total time spent waiting on the model, across all calls. */
   modelMs: number;
   /** Total time spent running tools (database, Stripe, texts). */
@@ -232,6 +235,16 @@ export async function runTurn(
     }
 
     stats.toolMs += Date.now() - toolsStartedAt;
+
+    // The model already wrote what to say alongside the tool call, and the
+    // change went through exactly as asked: speak that now instead of a
+    // second model pass (about a second of silence saved). Strict checks in
+    // canUseFirstPassReply; anything doubtful takes the normal second pass.
+    const thisStepCalls = toolCalls.slice(toolCalls.length - toolUseBlocks.length);
+    if (iteration === 0 && finalReply && canUseFirstPassReply(finalReply, thisStepCalls, toolCtx.context.menu.map((m) => m.name))) {
+      stats.firstPassReply = true;
+      break;
+    }
 
     // If a tool changed the order, its result carries the updated order.
     // Refresh the CURRENT ORDER block to match, so the next pass never sees

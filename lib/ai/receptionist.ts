@@ -206,6 +206,7 @@ export async function handleTurn(
       timer.set("model_ms", result.stats.modelMs);
       timer.set("tool_ms", result.stats.toolMs);
       timer.set("tools", result.toolCalls.map((t) => t.name).join("+") || "none");
+      if (result.stats.firstPassReply) timer.set("first_pass", true);
       timer.set("cache_read", result.stats.cacheReadTokens);
       timer.set("cache_write", result.stats.cacheWriteTokens);
       timer.set("input_tokens", result.stats.inputTokens);
