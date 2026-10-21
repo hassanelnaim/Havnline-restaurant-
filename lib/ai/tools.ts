@@ -30,6 +30,9 @@ export interface ToolContext {
   // really asked for the specific item the model chose (see
   // lib/menu/similarItems.ts). Optional: without it the check is skipped.
   recentWords?: { customer: string[]; lastAssistant: string | null };
+  // A demo call from one of the owner's own numbers (lib/ai/demoCallers.ts):
+  // payment is simulated, exactly like the test chat.
+  demoCaller?: boolean;
 }
 
 export interface ToolResult {
@@ -261,7 +264,7 @@ async function add_item_to_order(
   // caller has gone through the whole order (confirm_and_place_order has
   // the same check, for free orders too).
   const biz = ctx.context.business;
-  if (ctx.channel === "phone" && (!biz.stripe_connect_charges_enabled || !biz.stripe_connect_account_id)) {
+  if (ctx.channel === "phone" && !ctx.demoCaller && (!biz.stripe_connect_charges_enabled || !biz.stripe_connect_account_id)) {
     return { success: false, reason: "Phone orders can't be taken right now: this restaurant hasn't finished setting up card payments. Tell the caller you can't take orders over the phone at the moment, and offer to answer questions or pass a message to the restaurant." };
   }
 
@@ -578,7 +581,7 @@ async function confirm_and_place_order(
   // anyway), and the "test" channel, the dashboard's own preview chat
   // (app/api/ai/chat/route.ts) — the owner talking to their own AI,
   // never an actual customer or a real order.
-  if (ctx.channel === "phone" && !isFreeOrder && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
+  if (ctx.channel === "phone" && !ctx.demoCaller && !isFreeOrder && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
     return {
       success: false,
       reason:
@@ -674,7 +677,7 @@ async function confirm_and_place_order(
   // or having to actually call in. Reply keeps saying a payment link
   // was texted so the preview sounds like a real call, even though
   // nothing was actually sent.
-  if (ctx.channel === "test") {
+  if (ctx.channel === "test" || ctx.demoCaller) {
     await saveTax;
     await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
     if (business.printer_app_paired_at) {
