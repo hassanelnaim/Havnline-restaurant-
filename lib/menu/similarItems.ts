@@ -58,14 +58,81 @@ function textTokenSet(texts: string[]): Set<string> {
 
 const sameName = (a: string, b: string) => itemTokens(a).join(" ") === itemTokens(b).join(" ");
 
+type MenuEntry = { name: string; category_name?: string | null };
+
+/**
+ * A combo or meal: called one ("Fish Combo", a "Combos" category), or a
+ * bundle that includes a drink ("(2) Coneys, Fries & Pop", "Fries & Drink").
+ * Combos are offered on their own ("Want to make that a combo?"), never as
+ * one of the "which one did you mean?" choices for an item.
+ */
+export function isComboLike(item: { name: string; category_name?: string | null }): boolean {
+  const comboWord = /\b(combo|combos|meal|meals)\b/i;
+  if (comboWord.test(item.name) || comboWord.test(item.category_name || "")) return true;
+  return /(&|,|\band\b|\bw\/)/i.test(item.name) && /\b(pop|drink|drinks|soda|beverage)\b/i.test(item.name);
+}
+
 export interface SimilarFamily {
   /** The shared word, as people say it ("fries", "coney"). */
   word: string;
+  /** For a category's own group (buildCategoryFamilies): which category. */
+  category?: string | null;
   /** Distinct item names in the group, plainest (fewest words) first. */
   names: string[];
 }
 
 const familyCache = new WeakMap<readonly { name: string }[], SimilarFamily[]>();
+const categoryFamilyCache = new WeakMap<readonly MenuEntry[], SimilarFamily[]>();
+
+/** The main word of every item's name, across the whole menu (stemmed -> as spoken). */
+function mainWords(menu: readonly { name: string }[]): Map<string, string> {
+  const keys = new Map<string, string>();
+  for (const item of menu) {
+    const raw = words(item.name).filter((w) => !/\d/.test(w) && w.length > 1 && !FILLER.has(w) && !NOT_A_MAIN_WORD.has(w));
+    const last = raw[raw.length - 1];
+    if (last && !keys.has(stem(last))) keys.set(stem(last), last);
+  }
+  return keys;
+}
+
+function collect(menu: readonly { name: string }[], key: string): string[] {
+  const names: string[] = [];
+  for (const item of menu) {
+    if (!itemTokens(item.name).includes(key)) continue;
+    if (names.some((n) => sameName(n, item.name))) continue;
+    names.push(item.name.trim());
+  }
+  names.sort((a, b) => itemTokens(a).length - itemTokens(b).length || a.localeCompare(b));
+  return names;
+}
+
+/**
+ * The same groups, but each kept inside one menu category: the choices a
+ * caller is offered. "Fries?" offers the fries in Sides, not a combo that
+ * has fries in it or a breakfast potato; a combo is offered separately.
+ */
+export function buildCategoryFamilies(menu: readonly MenuEntry[]): SimilarFamily[] {
+  const cached = categoryFamilyCache.get(menu);
+  if (cached) return cached;
+  const keys = mainWords(menu);
+  const byCategory = new Map<string, MenuEntry[]>();
+  for (const item of menu) {
+    if (isComboLike(item)) continue;
+    const cat = item.category_name ?? "";
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat)!.push(item);
+  }
+  const families: SimilarFamily[] = [];
+  byCategory.forEach((items, cat) => {
+    keys.forEach((spoken, key) => {
+      const names = collect(items, key);
+      if (names.length >= 2) families.push({ word: spoken, category: cat || null, names });
+    });
+  });
+  families.sort((a, b) => a.word.localeCompare(b.word) || (a.category || "").localeCompare(b.category || ""));
+  categoryFamilyCache.set(menu, families);
+  return families;
+}
 
 /**
  * Groups of items that share a main word. The main word of an item is the
@@ -76,26 +143,11 @@ const familyCache = new WeakMap<readonly { name: string }[], SimilarFamily[]>();
 export function buildSimilarFamilies(menu: readonly { name: string }[]): SimilarFamily[] {
   const cached = familyCache.get(menu);
   if (cached) return cached;
-
-  const keys = new Map<string, string>(); // stemmed key -> how it's spoken
-  for (const item of menu) {
-    const raw = words(item.name).filter((w) => !/\d/.test(w) && w.length > 1 && !FILLER.has(w) && !NOT_A_MAIN_WORD.has(w));
-    const last = raw[raw.length - 1];
-    if (last && !keys.has(stem(last))) keys.set(stem(last), last);
-  }
-
   const families: SimilarFamily[] = [];
-  for (const [key, spoken] of Array.from(keys)) {
-    const names: string[] = [];
-    for (const item of menu) {
-      if (!itemTokens(item.name).includes(key)) continue;
-      if (names.some((n) => sameName(n, item.name))) continue; // same item listed twice in the menu
-      names.push(item.name.trim());
-    }
-    if (names.length < 2) continue;
-    names.sort((a, b) => itemTokens(a).length - itemTokens(b).length || a.localeCompare(b));
-    families.push({ word: spoken, names });
-  }
+  mainWords(menu).forEach((spoken, key) => {
+    const names = collect(menu, key);
+    if (names.length >= 2) families.push({ word: spoken, names });
+  });
   families.sort((a, b) => a.word.localeCompare(b.word));
   familyCache.set(menu, families);
   return families;
@@ -118,7 +170,7 @@ export type ItemChoiceCheck =
  *     others (it offered the choices) and the caller then answered.
  */
 export function checkItemChoice(
-  menu: readonly { name: string }[],
+  menu: readonly MenuEntry[],
   chosen: string,
   customerTexts: readonly string[],
   lastAssistant: string | null
@@ -171,5 +223,15 @@ export function checkItemChoice(
     families.find((f) => said.has(stem(f.word))) ||
     families.find((f) => stem(f.word) === headKey) ||
     families[0];
-  return { ok: false, heardWord: family.word, options: family.names };
+  // Offer choices from one category only: the chosen item's own category
+  // when it has look-alikes there, otherwise the category with the most of
+  // them (so "fries" offers the fries in Sides, not breakfast potatoes or
+  // a combo).
+  const word = stem(family.word);
+  const chosenCategory = menu.find((m) => sameName(m.name, chosen))?.category_name ?? null;
+  const inCategories = buildCategoryFamilies(menu).filter((f) => stem(f.word) === word);
+  const best =
+    inCategories.find((f) => (f.category ?? null) === chosenCategory && f.names.length >= 2) ||
+    [...inCategories].sort((a, b) => b.names.length - a.names.length)[0];
+  return { ok: false, heardWord: family.word, options: best ? best.names : family.names };
 }

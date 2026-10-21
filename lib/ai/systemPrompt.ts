@@ -2,7 +2,7 @@ import type { BusinessContext } from "./context";
 import type { AiResponsibilities } from "@/lib/database/types";
 import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech, localDateKeyNow, speakDateKey } from "@/lib/business/hours";
 import { closedDatesOf } from "./context";
-import { buildSimilarFamilies } from "@/lib/menu/similarItems";
+import { buildCategoryFamilies, isComboLike } from "@/lib/menu/similarItems";
 import { isSizeGroup } from "@/lib/menu/sizes";
 import { describeTimePricing, quoteItemPrice, isPromotionActiveNow, describeSchedule, describeDiscount } from "@/lib/business/pricing";
 
@@ -34,9 +34,7 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
     .map((key) => `- ${RESPONSIBILITY_COPY[key]}`)
     .join("\n");
 
-  const menuText = menu.length
-    ? menu
-        .map((item) => {
+  const describeItem = (item: (typeof menu)[number]) => {
           const schedule = describeTimePricing(item);
           const quote = quoteItemPrice(item, activePromotions, business.timezone);
           const currentPrice = quote.priceBeforePromotionCents / 100;
@@ -65,8 +63,20 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
             ? `${basePriceText} — $${(quote.unitPriceCents / 100).toFixed(2)} with the "${quote.promotion.title}" promotion (${quote.promotion.description}), which is active right now`
             : basePriceText;
           return `- ${item.name}: ${priceText}${item.description ? ` — ${item.description}` : ""}${modifierText}`;
-        })
-        .join("\n")
+  };
+  // Listed by menu category, in the menu's own order, so the model knows
+  // which items belong together (the "groups" a waitress thinks in).
+  const menuByCategory = new Map<string, { sort: number; items: (typeof menu)[number][] }>();
+  for (const item of menu) {
+    const cat = item.category_name || "Other items";
+    if (!menuByCategory.has(cat)) menuByCategory.set(cat, { sort: item.category_sort ?? Number.MAX_SAFE_INTEGER, items: [] });
+    menuByCategory.get(cat)!.items.push(item);
+  }
+  const menuText = menu.length
+    ? Array.from(menuByCategory.entries())
+        .sort((a, b) => a[1].sort - b[1].sort || a[0].localeCompare(b[0]))
+        .map(([cat, group]) => `${cat}:\n${group.items.map(describeItem).join("\n")}`)
+        .join("\n\n")
     : "(no menu configured yet — escalate any order request)";
 
   // Formatted here, once, into plain spoken AM/PM — never hand the
@@ -88,10 +98,21 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
   // Worked out from the live menu, so it stays right as the menu changes.
   // add_item_to_order also refuses to add one of these unless the caller
   // clearly picked it, so this is what keeps the model from guessing.
-  const similarText = buildSimilarFamilies(menu)
+  // What can be made a combo: items with a combo/meal add-on, and the
+  // combo items themselves (a "Combos"/"Meals" category, or "combo"/"meal"
+  // in the name). Listed so the model knows combos exist and offers them.
+  const isComboWord = (t: string | null | undefined) => /\b(combo|combos|meal|meals)\b/i.test(t || "");
+  const withComboAddon = menu.filter((i) => i.modifier_groups.some((g) => isComboWord(g.name) || g.modifiers.some((m) => isComboWord(m.name)))).map((i) => i.name);
+  const comboItems = menu.filter((i) => isComboLike(i)).map((i) => i.name);
+  const combosText =
+    withComboAddon.length || comboItems.length
+      ? `Combos on this menu:${withComboAddon.length ? `\n- These items have a combo/meal add-on (offer it when they're ordered): ${withComboAddon.slice(0, 40).join(", ")}` : ""}${comboItems.length ? `\n- Combo items (offer the one that matches what the caller ordered): ${comboItems.slice(0, 40).join(", ")}` : ""}\n\n`
+      : "";
+
+  const similarText = buildCategoryFamilies(menu)
     .map((f) => {
       const shown = f.names.slice(0, 8);
-      return `- "${f.word}": ${shown.join(", ")}${f.names.length > shown.length ? `, and ${f.names.length - shown.length} more` : ""}`;
+      return `- "${f.word}"${f.category ? ` in ${f.category}` : ""}: ${shown.join(", ")}${f.names.length > shown.length ? `, and ${f.names.length - shown.length} more` : ""}`;
     })
     .join("\n");
 
@@ -168,7 +189,7 @@ ${enabledResponsibilities || "(no responsibilities enabled — escalate everythi
 Menu (the ONLY items and prices this business offers — never invent an item, price, or add-on not listed here):
 ${menuText}
 
-${similarText ? `Items that sound alike. When the caller asks for something that could be more than one of these (like "fries" or "a salad") and doesn't say which, NEVER pick one yourself: ask which one they'd like and name the choices, the plainest ones first, a few at a time (for example "Sure, French fries, American fries, cheese fries or chili fries?"). If their words are exactly one item's full name, that's the one (for example, if the menu has an item called just "Coke", "a coke" means Coke, not Diet Coke). The order system will refuse an item the caller didn't clearly choose.
+${similarText ? `Items that sound alike. When the caller asks for something that could be more than one of these (like "fries" or "a salad") and doesn't say which, NEVER pick one yourself: ask which one they'd like and name the choices, the plainest ones first, a few at a time (for example "Sure, French fries, cheese fries or chili fries?"). Only offer choices from the same menu category as what they asked for (the groups below are listed per category): asking about fries means the fries in the sides, never a combo or a breakfast potato that happens to include fries. A combo is offered separately, as described under "Think like a great waitress". If their words are exactly one item's full name, that's the one (for example, if the menu has an item called just "Coke", "a coke" means Coke, not Diet Coke). The order system will refuse an item the caller didn't clearly choose.
 ${similarText}
 
 ` : ""}Some items have a time-based price — the schedule in parentheses is shown for context if the customer asks why, but the "$X right now" figure is the one already-correct current price. Never calculate this yourself; just quote what's given, and it'll already be right whenever the call happens.
@@ -188,6 +209,13 @@ When a customer asks about a discount or a better price: check the list above fi
 
 Additional business knowledge and FAQs:
 ${knowledgeText}
+
+${combosText}Think like a great waitress taking a phone order:
+- Friendly, quick and natural. One question at a time, and short.
+- Stay on what the caller is ordering: questions and suggestions are about that item and its own category (its size, its toppings, its own add-ons), not unrelated parts of the menu.
+- Combos: when the caller orders something that can be made a combo or a meal (it has a combo/meal add-on, or a combo item on the menu includes it, for example a burger and a "Burger, Fries & Drink" combo), ask once, right after that item: "Would you like to make that a combo?" and say what it comes with and the price. If they say no, don't ask again for that item.
+- If they haven't ordered a drink by the time they say they're done, ask once: "Anything to drink with that?" Don't push past one no.
+- Never pressure, never repeat an offer the caller already turned down, and never upsell more than once per item.
 
 How to take an order — follow this order, like a real counter person would:
 1. Ask what they'd like, one item at a time is fine — this is a conversation, not a form. Never recite the whole menu unprompted — if they ask "what do you have," give a short handful of highlights or categories, not every item and price; if they ask about one specific item, answer just that.

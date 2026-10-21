@@ -931,6 +931,9 @@ function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onR
 // fill the form; prices are left for the owner to set.
 const ADDON_STARTERS: { name: string; required: boolean; multiple: boolean; options: string[] }[] = [
   { name: "Size", required: true, multiple: false, options: ["Small", "Medium", "Large"] },
+  // Optional on purpose: the AI offers it ("Want to make that a combo?")
+  // rather than requiring an answer. Set the price of the upgrade.
+  { name: "Make it a combo", required: false, multiple: false, options: ["Combo with fries and a drink"] },
   { name: "Toppings", required: false, multiple: true, options: ["Cheese", "Onions", "Tomato", "Lettuce", "Pickles"] },
   { name: "Bread choice", required: true, multiple: false, options: ["White", "Wheat", "Rye", "Sourdough"] },
   { name: "Cheese", required: false, multiple: false, options: ["American", "Swiss", "Cheddar", "Provolone"] },

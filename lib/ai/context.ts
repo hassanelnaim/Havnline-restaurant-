@@ -95,7 +95,7 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
   // "today" in the business's own timezone; the exact local filter is below.
   const closuresFrom = new Date(Date.now() - 36 * 3600_000).toISOString().slice(0, 10);
 
-  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voice, knowledgeRes, promotionsRes, closuresRes] = await Promise.all([
+  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voice, knowledgeRes, promotionsRes, closuresRes, categoriesRes] = await Promise.all([
     admin.from("businesses").select("*").eq("id", businessId).single(),
     admin.from("business_hours").select("*").eq("business_id", businessId),
     admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
@@ -107,6 +107,7 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
     admin.from("knowledge_items").select("*").eq("business_id", businessId),
     admin.from("promotions").select("*").eq("business_id", businessId).eq("is_active", true),
     admin.from("business_closures").select("*").eq("business_id", businessId).gte("closed_on", closuresFrom).order("closed_on").limit(60),
+    admin.from("menu_categories").select("id, name, sort_order").eq("business_id", businessId),
   ]);
 
   if (businessRes.error || !businessRes.data) return null;
@@ -127,6 +128,7 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
   const oneOffGroups = groups.filter((g) => !g.is_template);
 
   const rawItems = itemsRes.data || [];
+  const categoryById = new Map(((categoriesRes.data || []) as { id: string; name: string; sort_order: number | null }[]).map((c) => [c.id, { name: c.name, sort_order: c.sort_order ?? 0 }]));
 
   // Every item's modifier_groups is the merge of its own one-off groups
   // (menu_item_id set directly, unchanged from before) plus any shared
@@ -137,8 +139,13 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
     const ownGroups = oneOffGroups.filter((g) => g.menu_item_id === item.id);
     const attachedTemplateIds = attachments.filter((a) => a.menu_item_id === item.id).map((a) => a.modifier_group_id);
     const attachedTemplates = templateGroups.filter((g) => attachedTemplateIds.includes(g.id));
+    const category = item.category_id ? categoryById.get(item.category_id) : undefined;
     return {
       ...item,
+      // The AI lists the menu by category, and only offers look-alike
+      // choices from the same category (lib/menu/similarItems.ts).
+      category_name: category?.name ?? null,
+      category_sort: category?.sort_order ?? Number.MAX_SAFE_INTEGER,
       modifier_groups: [...ownGroups, ...attachedTemplates].map((g) => ({ ...g, modifiers: allModifiers.filter((m) => m.modifier_group_id === g.id) })),
     };
   });

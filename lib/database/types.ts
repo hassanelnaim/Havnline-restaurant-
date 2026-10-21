@@ -184,6 +184,10 @@ export interface DbModifier {
 // the AI's get_menu tool and the menu-management UI both work with.
 export interface MenuItemWithModifiers extends DbMenuItem {
   modifier_groups: (DbModifierGroup & { modifiers: DbModifier[] })[];
+  /** The item's menu category name, filled in for the AI (lib/ai/context.ts). Absent elsewhere. */
+  category_name?: string | null;
+  /** That category's position on the menu, for listing the menu in order. */
+  category_sort?: number;
 }
 
 /** A whole day the business is closed (holiday etc.). closed_on is "YYYY-MM-DD" in the business's timezone. Migration 031. */
