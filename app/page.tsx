@@ -231,11 +231,11 @@ export default async function LandingPage() {
           <div className="mx-auto max-w-5xl px-6">
             <div className="mx-auto max-w-2xl text-center">
               <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Do the math</p>
-              <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">How much time does the phone take from your team?</h2>
-              <p className="mx-auto mt-2 max-w-lg text-[13px] text-text-muted">Move the sliders to match your restaurant.</p>
+              <h2 className="mt-2.5 font-display text-[26px] font-semibold text-ink">Your phone, by the numbers</h2>
+              <p className="mx-auto mt-2 max-w-lg text-[13px] text-text-muted">How much time and attention the phone takes from your team. Move the sliders to match your restaurant.</p>
             </div>
             <div className="mt-8">
-              <SavingsCalculator monthlyPriceDisplay={MONTHLY_PRICE_DISPLAY} feePercentDisplay={DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} />
+              <SavingsCalculator />
             </div>
           </div>
         </section>
