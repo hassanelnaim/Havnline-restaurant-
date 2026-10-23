@@ -117,6 +117,18 @@ export async function claimPairingCode(code: string): Promise<ClaimPairingCodeRe
     return { success: false, error: "That code has expired — generate a new one from the dashboard." };
   }
 
+  // Claim the code first, in one conditional update: two tablets entering
+  // the same code at the same moment used to both "succeed", and the first
+  // one then stopped working without explanation.
+  const { data: claimedCode } = await admin
+    .from("printer_pairing_codes")
+    .update({ claimed_at: new Date().toISOString() })
+    .eq("id", pairing.id)
+    .is("claimed_at", null)
+    .select("id")
+    .maybeSingle();
+  if (!claimedCode) return { success: false, error: "That code is invalid or has already been used." };
+
   const deviceToken = randomToken();
 
   const { error: upsertError } = await admin
@@ -127,7 +139,6 @@ export async function claimPairingCode(code: string): Promise<ClaimPairingCodeRe
     );
   if (upsertError) return dbErrorResult(upsertError, "pairPrinterDevice", "Could not pair this device.");
 
-  await admin.from("printer_pairing_codes").update({ claimed_at: new Date().toISOString() }).eq("id", pairing.id);
   await admin.from("businesses").update({ printer_app_paired_at: new Date().toISOString() }).eq("id", pairing.business_id);
 
   const { data: business } = await admin.from("businesses").select("name").eq("id", pairing.business_id).single();

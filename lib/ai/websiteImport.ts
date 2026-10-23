@@ -265,6 +265,27 @@ async function assertPublicHttpUrl(rawUrl: string): Promise<void> {
   }
 }
 
+const MAX_PAGE_BYTES = 3 * 1024 * 1024;
+
+/** Reads a response body as text, stopping (and cancelling the download) past maxBytes. */
+async function readTextCapped(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error("That page is too large to import. Try \"Paste text\" instead.");
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+}
+
 async function fetchViaPlainRequest(url: string): Promise<string> {
   // Manual redirect handling (not fetch's default "follow") so a page
   // that 30x's to an internal address can't slip past the check above
@@ -274,8 +295,11 @@ async function fetchViaPlainRequest(url: string): Promise<string> {
   for (let redirects = 0; redirects <= 5; redirects++) {
     await assertPublicHttpUrl(currentUrl);
 
+    // One 15-second limit for the whole request, body included, and at most
+    // 3 MB read: a page that never finishes sending, or a huge file, used to
+    // tie up the function for minutes.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     let response: Response;
     try {
@@ -288,11 +312,13 @@ async function fetchViaPlainRequest(url: string): Promise<string> {
           "Accept-Language": "en-US,en;q=0.9",
         },
       });
-    } finally {
+    } catch (err) {
       clearTimeout(timeout);
+      throw err;
     }
 
     if (response.status >= 300 && response.status < 400) {
+      clearTimeout(timeout);
       const location = response.headers.get("location");
       if (!location) throw new Error("That website redirected without a destination.");
       currentUrl = new URL(location, currentUrl).toString();
@@ -300,10 +326,18 @@ async function fetchViaPlainRequest(url: string): Promise<string> {
     }
 
     if (!response.ok) {
+      clearTimeout(timeout);
       throw new Error(`Could not load that website (HTTP ${response.status}).`);
     }
 
-    return response.text();
+    try {
+      return await readTextCapped(response, MAX_PAGE_BYTES);
+    } catch (err) {
+      if (controller.signal.aborted) throw new Error("That website took too long to load.");
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   throw new Error("That website redirected too many times.");

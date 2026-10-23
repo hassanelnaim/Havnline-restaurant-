@@ -60,15 +60,34 @@ export async function POST(request: NextRequest) {
     // apology rather than failing again.
     const resolved = to ? await resolveBusinessFromPhoneNumber(to).catch(() => null) : null;
 
+    const signature = request.headers.get("x-twilio-signature");
     if (resolved) {
-      const signature = request.headers.get("x-twilio-signature");
       if (!validateTwilioSignature(signature, getRequestUrl(request), params, resolved.subAccountAuthToken)) {
         return new Response("Invalid signature", { status: 403 });
       }
+    } else if (!validateTwilioSignature(signature, getRequestUrl(request), params, null)) {
+      // The number couldn't be looked up, so the restaurant's own signing
+      // key isn't available, and the main account's key doesn't match. It
+      // may be a real call while the database is down, or anyone posting to
+      // this URL. The caller gets the apology either way; the alert goes
+      // out under its own key, at most once an hour, so this URL can't be
+      // used to flood the inbox.
+      await settleWithin(
+        sendPlatformAlert({
+          key: "voice-fallback-unverified",
+          throttleMinutes: 60,
+          subject: "HavnLine: unverified request to the call fallback",
+          heading: "The call fallback got a request it couldn't verify",
+          intro: "Either a real call reached the emergency path while the number couldn't be looked up (check that the database is up), or someone is posting to the fallback URL.",
+          rows: [{ label: "Number called", value: to || "unknown" }],
+        }),
+        1500
+      );
+      return twiml(SORRY_ONLY);
     }
 
     // Tell the platform owner, throttled so an outage is one email.
-    void settleWithin(
+    await settleWithin(
       sendPlatformAlert({
         key: "voice-fallback-triggered",
         subject: "HavnLine: a call fell back to the emergency path",

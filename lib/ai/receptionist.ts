@@ -31,22 +31,29 @@ export interface HandleTurnOptions {
   seq?: number | null;
 }
 
-export async function startCall(businessId: string, callerNumber: string, dialedNumber: string): Promise<string> {
+export async function startCall(businessId: string, callerNumber: string, dialedNumber: string, twilioCallSid?: string | null): Promise<string> {
   const admin = createAdminClient();
-  const { data: call, error } = await admin
+  const row: Record<string, unknown> = {
+    business_id: businessId,
+    customer_name: "Phone Caller",
+    phone: callerNumber,
+    started_at: new Date().toISOString(),
+    duration_seconds: 0,
+    outcome: "no_action",
+    status: "in_progress",
+    handled_by: "ai",
+  };
+  // Twilio's own id for the call, so the call-ended report can find exactly
+  // this call (migration 037). Retried without it if that column doesn't
+  // exist yet: a missing column must never stop a call being answered.
+  let { data: call, error } = await admin
     .from("calls")
-    .insert({
-      business_id: businessId,
-      customer_name: "Phone Caller",
-      phone: callerNumber,
-      started_at: new Date().toISOString(),
-      duration_seconds: 0,
-      outcome: "no_action",
-      status: "in_progress",
-      handled_by: "ai",
-    })
+    .insert(twilioCallSid ? { ...row, twilio_call_sid: twilioCallSid } : row)
     .select()
     .single();
+  if (error && twilioCallSid && /twilio_call_sid/.test(error.message)) {
+    ({ data: call, error } = await admin.from("calls").insert(row).select().single());
+  }
 
   if (error || !call) throw new Error(error?.message || "Could not start call.");
   return call.id;
@@ -269,6 +276,12 @@ export async function handleTurn(
  * simultaneous calls from the same number to the same business are the
  * only case this could mix up.)
  */
+export async function findCallIdBySid(businessId: string, callSid: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("calls").select("id").eq("business_id", businessId).eq("twilio_call_sid", callSid).maybeSingle();
+  return error ? null : data?.id ?? null;
+}
+
 export async function findInProgressCallId(businessId: string, callerNumber: string): Promise<string | null> {
   const admin = createAdminClient();
   const { data } = await admin

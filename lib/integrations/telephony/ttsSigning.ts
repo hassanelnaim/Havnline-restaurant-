@@ -10,14 +10,20 @@ import { createHmac, createHash, timingSafeEqual } from "crypto";
 // the URL is built (sayLine, in twimlHelpers.ts), and the route
 // rejects anything that doesn't match or has expired.
 
-const TTS_URL_LIFETIME_MS = 10 * 60 * 1000; // generous for a slow call plus Twilio's own retry
+// Twilio fetches the audio the moment it reads the reply, so 3 minutes
+// covers a slow turn and Twilio's own retry. It used to be 10: a copied URL
+// could be replayed for that long, and each uncached fetch costs credits.
+const TTS_URL_LIFETIME_MS = 3 * 60 * 1000;
 
 function getSigningKey(): Buffer {
   // Derived from a secret that's already server-only and already
   // required in production — never a new env var to configure —
   // hashed once with a fixed, purpose-specific prefix so this is never
   // the same bytes as the source secret itself.
-  const source = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.TWILIO_AUTH_TOKEN;
+  // SIGNING_SECRET (optional, any long random string) keeps these signatures
+  // independent of the database key: rotating the Supabase service key after
+  // a leak no longer breaks voice audio and tablet unlocks mid-use.
+  const source = process.env.SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.TWILIO_AUTH_TOKEN;
   if (!source) throw new Error("Cannot sign TTS requests: no SUPABASE_SERVICE_ROLE_KEY or TWILIO_AUTH_TOKEN is configured.");
   return createHash("sha256").update(`havnline-tts-signing-key:${source}`).digest();
 }

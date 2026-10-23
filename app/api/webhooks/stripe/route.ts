@@ -64,7 +64,11 @@ export async function POST(request: NextRequest) {
 
     case "customer.subscription.created":
     case "customer.subscription.updated": {
-      const subscription = event.data.object as Stripe.Subscription;
+      // Stripe doesn't promise events arrive in order: a late "updated:
+      // active" arriving after "deleted" used to bring a cancelled business
+      // back to active. The subscription is fetched fresh, so what's saved
+      // is its state now, not whatever this event happened to carry.
+      const subscription = await currentSubscription(stripe, event.data.object as Stripe.Subscription);
       const businessId = subscription.metadata?.business_id;
       if (!businessId) {
         // This is the other classic cause of "payment succeeded but
@@ -91,9 +95,18 @@ export async function POST(request: NextRequest) {
       const rawPeriodEnd = firstItem?.current_period_end ?? subscription.current_period_end;
       const currentPeriodEnd = typeof rawPeriodEnd === "number" ? new Date(rawPeriodEnd * 1000).toISOString() : null;
 
+      // Only the business's current subscription may change its status. An
+      // older one (an earlier trial, a replaced plan) is ignored unless it is
+      // live, in which case it becomes the current one.
+      if (!(await isCurrentSubscription(admin, businessId, subscription))) {
+        console.log(`${event.type} (${event.id}): subscription ${subscription.id} isn't business ${businessId}'s current one; ignored.`);
+        break;
+      }
+
       const { data: updated, error } = await admin
         .from("businesses")
         .update({
+          stripe_subscription_id: subscription.id,
           subscription_status: subscription.status,
           // Real, not decorative: this is what lets the UI say
           // "Canceling — access ends [date]" instead of looking
@@ -121,7 +134,8 @@ export async function POST(request: NextRequest) {
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       const businessId = subscription.metadata?.business_id;
-      if (businessId) {
+      // Deleting an old, replaced subscription must not cancel the business.
+      if (businessId && (await isCurrentSubscription(admin, businessId, subscription))) {
         await admin.from("businesses").update({ subscription_status: "canceled", cancel_at_period_end: false }).eq("id", businessId);
         runAfterResponse("subscription-canceled email", sendSubscriptionCanceledEmail(businessId));
       }
@@ -132,9 +146,12 @@ export async function POST(request: NextRequest) {
       const invoice = event.data.object as Stripe.Invoice;
       const subscriptionId = invoice.subscription as string | null;
       if (subscriptionId) {
+        // The subscription's real status, not a forced "past_due": Stripe
+        // keeps retrying the card, and the status already says where it is.
+        const fresh = await stripe.subscriptions.retrieve(subscriptionId, { timeout: 5000 }).catch(() => null);
         const { data: updated } = await admin
           .from("businesses")
-          .update({ subscription_status: "past_due" })
+          .update({ subscription_status: fresh?.status ?? "past_due" })
           .eq("stripe_subscription_id", subscriptionId)
           .select("id");
         const businessId = updated?.[0]?.id;
@@ -155,4 +172,20 @@ export async function POST(request: NextRequest) {
   }
 
   return new NextResponse("OK");
+}
+async function currentSubscription(stripe: Stripe, fromEvent: Stripe.Subscription): Promise<Stripe.Subscription> {
+  try {
+    return await stripe.subscriptions.retrieve(fromEvent.id, { timeout: 5000 });
+  } catch (err) {
+    console.error(`[stripe] could not fetch subscription ${fromEvent.id}; using the event's copy:`, err);
+    return fromEvent;
+  }
+}
+
+const LIVE_STATUSES = ["active", "trialing", "past_due"];
+
+async function isCurrentSubscription(admin: ReturnType<typeof createAdminClient>, businessId: string, subscription: Stripe.Subscription): Promise<boolean> {
+  const { data: business } = await admin.from("businesses").select("stripe_subscription_id").eq("id", businessId).maybeSingle();
+  const currentId = business?.stripe_subscription_id;
+  return !currentId || currentId === subscription.id || LIVE_STATUSES.includes(subscription.status);
 }

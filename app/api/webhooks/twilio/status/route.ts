@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { endCall, findInProgressCallId } from "@/lib/ai/receptionist";
+import { endCall, findInProgressCallId, findCallIdBySid } from "@/lib/ai/receptionist";
 import { resolveBusinessFromPhoneNumber } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
@@ -42,8 +42,12 @@ export async function POST(request: NextRequest) {
 
   // The number-level callback URL has no callId (see
   // findInProgressCallId), so find the call by who was calling.
-  if (!callId && resolved && params.From && TERMINAL_STATUSES.includes(callStatus)) {
-    callId = await findInProgressCallId(resolved.businessId, params.From);
+  // Matched by Twilio's call id first (exact, migration 037); by the
+  // caller's number only for calls started before that, which could pick
+  // the wrong call when one number had two calls open.
+  if (!callId && resolved && TERMINAL_STATUSES.includes(callStatus)) {
+    if (params.CallSid) callId = await findCallIdBySid(resolved.businessId, params.CallSid);
+    if (!callId && params.From) callId = await findInProgressCallId(resolved.businessId, params.From);
   }
 
   if (callId && TERMINAL_STATUSES.includes(callStatus)) {

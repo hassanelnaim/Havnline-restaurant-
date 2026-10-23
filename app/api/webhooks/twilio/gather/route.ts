@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { storeSpeech, speechParam } from "@/lib/ai/speechHandoff";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
@@ -135,7 +136,8 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
 
   timer.set("path", "filler");
   const seqParam = seq === null ? "" : `&seq=${seq}`;
-  const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&speech=${encodeURIComponent(speechResult)}${seqParam}`;
+  const handoffId = await storeSpeech(callId, speechResult);
+  const processUrl = `${SITE_URL}/api/webhooks/twilio/process?callId=${callId}&${speechParam("speech", speechResult, handoffId)}${seqParam}`;
 
   // The filler used to be a bare <Say> with no <Gather> around it —
   // Twilio isn't listening for speech at all while a bare <Say> plays,
@@ -150,7 +152,7 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   // to the same /process redirect as before. timeout is kept short
   // (1s) since this adds pure wait time to the common case where the
   // customer really is done talking.
-  const continueAction = `${SITE_URL}/api/webhooks/twilio/gather-continue?callId=${callId}&original=${encodeURIComponent(speechResult)}${seqParam}`;
+  const continueAction = `${SITE_URL}/api/webhooks/twilio/gather-continue?callId=${callId}&${speechParam("original", speechResult, handoffId)}${seqParam}`;
 
   return twiml(`<Response>
   ${speechGatherOpen(continueAction, 1)}

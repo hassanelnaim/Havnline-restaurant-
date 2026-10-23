@@ -245,6 +245,18 @@ async function handlePOST(request: NextRequest, { params }: { params: { id: stri
       );
     }
 
+    // Free items are money too: logged with the refunds and discounts
+    // (migration 037 allows "comp"), with what they would have cost.
+    const { error: logError } = await admin.from("tablet_money_actions").insert({
+      business_id: device.businessId,
+      device_id: device.deviceId,
+      order_id: order.id,
+      action: "comp",
+      amount_cents: realAmountCents,
+      reason: `Comped ${resolved.quantity} x ${resolved.itemName}`,
+    });
+    if (logError) console.error(`[tablet] could not log a comp on order ${order.id} (run migration 037?):`, logError.message);
+
     return NextResponse.json({ success: true, mode: "comp", item: resolved.itemName, quantity: resolved.quantity });
   }
 

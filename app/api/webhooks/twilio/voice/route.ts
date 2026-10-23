@@ -215,7 +215,7 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   // way while they run.
   warmCallRoutes();
 
-  const callId = await startCall(businessId, callerNumber, dialedNumber);
+  const callId = await startCall(businessId, callerNumber, dialedNumber, params.CallSid || null);
   timer.mark("start_call");
   timer.set("call", shortId(callId));
 

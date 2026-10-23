@@ -22,7 +22,10 @@ import { createHmac, createHash, timingSafeEqual } from "crypto";
 const MONEY_ACTION_TOKEN_LIFETIME_MS = 5 * 60 * 1000;
 
 function getSigningKey(): Buffer {
-  const source = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.TWILIO_AUTH_TOKEN;
+  // SIGNING_SECRET (optional, any long random string) keeps these signatures
+  // independent of the database key: rotating the Supabase service key after
+  // a leak no longer breaks voice audio and tablet unlocks mid-use.
+  const source = process.env.SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.TWILIO_AUTH_TOKEN;
   if (!source) throw new Error("Cannot sign money-action tokens: no SUPABASE_SERVICE_ROLE_KEY or TWILIO_AUTH_TOKEN is configured.");
   return createHash("sha256").update(`havnline-money-action-signing-key:${source}`).digest();
 }

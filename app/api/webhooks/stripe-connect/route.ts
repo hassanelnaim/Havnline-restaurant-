@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { handleOrderPaid, handleAddendumPaid } from "@/lib/billing/connectPayments";
+import { handleOrderPaid, handleAddendumPaid, handleChargeRefunded, handleDispute } from "@/lib/billing/connectPayments";
 import { sendPaymentsLiveEmail, sendPaymentsDisconnectedEmail } from "@/lib/notifications/account-email";
 
 export const maxDuration = 60;
@@ -58,6 +58,15 @@ export async function POST(request: NextRequest) {
         else await handleOrderPaid(event.id, event.account, session);
         break;
       }
+
+      case "charge.refunded":
+        await handleChargeRefunded(event.account, event.data.object as Stripe.Charge);
+        break;
+
+      case "charge.dispute.created":
+      case "charge.dispute.closed":
+        await handleDispute(event.account, event.data.object as Stripe.Dispute, event.type === "charge.dispute.created");
+        break;
 
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;

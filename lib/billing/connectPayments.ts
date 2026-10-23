@@ -4,7 +4,7 @@ import { queuePrintJob, queueAddendumPrintJob } from "@/lib/integrations/printer
 import { insertOrderItems, recomputeRealOrderTotals } from "@/lib/billing/orderItemAddition";
 import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
 import { smsClient } from "@/lib/integrations/sms";
-import { sendOrderAttentionEmail } from "@/lib/notifications/account-email";
+import { sendOrderAttentionEmail, sendOrderRefundedEmail } from "@/lib/notifications/account-email";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import type { OrderWithItems } from "@/lib/database/types";
 
@@ -256,5 +256,81 @@ export async function handleAddendumPaid(eventId: string, eventAccount: string |
       addendumId
     );
     if (!queued.success) throw new Error(`could not queue add-on ${addendumId} ticket: ${queued.error}`);
+  }
+}
+
+async function findOrderForPayment(eventAccount: string | null | undefined, paymentIntent: string | Stripe.PaymentIntent | null) {
+  const intentId = typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id ?? null;
+  if (!intentId) return null;
+  const admin = createAdminClient();
+  const { data: order, error } = await admin.from("orders").select("*").eq("stripe_payment_intent_id", intentId).maybeSingle();
+  if (error) throw new Error(`could not find the order for payment ${intentId}: ${error.message}`);
+  if (!order) return null; // a tablet add-on charge, or not a HavnLine order
+  const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", order.business_id).maybeSingle();
+  if (!business?.stripe_connect_account_id || business.stripe_connect_account_id !== eventAccount) {
+    console.error(`[stripe-connect] ignored a charge event for order ${order.id}: it came from ${eventAccount || "(none)"}, not the restaurant's account.`);
+    return null;
+  }
+  return order;
+}
+
+/**
+ * A refund made in the Stripe dashboard (not through HavnLine) used to
+ * never show up: the order still read "paid". Refunds made through
+ * HavnLine are already recorded, so for them this changes nothing.
+ */
+export async function handleChargeRefunded(eventAccount: string | null | undefined, charge: Stripe.Charge): Promise<void> {
+  const order = await findOrderForPayment(eventAccount, charge.payment_intent);
+  if (!order) return;
+  const refunded = charge.amount_refunded || 0;
+  if (refunded <= (order.amount_refunded_cents || 0)) return;
+
+  const admin = createAdminClient();
+  const fullyRefunded = refunded >= (order.total_cents || charge.amount);
+  const { data: updated } = await admin
+    .from("orders")
+    .update({
+      payment_status: fullyRefunded ? "refunded" : "partially_refunded",
+      amount_refunded_cents: refunded,
+      refund_reason: order.refund_reason || "Refunded in Stripe",
+      refunded_at: new Date().toISOString(),
+    })
+    .eq("id", order.id)
+    .eq("amount_refunded_cents", order.amount_refunded_cents || 0)
+    .select("id")
+    .maybeSingle();
+  if (updated) {
+    await sendOrderRefundedEmail({
+      businessId: order.business_id,
+      orderId: order.id,
+      customerName: order.customer_name,
+      customerPhone: order.phone,
+      refundedCents: refunded - (order.amount_refunded_cents || 0),
+      fullyRefunded,
+      reason: "Refunded in the Stripe dashboard",
+    });
+  }
+}
+
+/**
+ * A customer disputed (charged back) a payment. Stripe emails the
+ * restaurant's Stripe login, which the owner may not watch; the order now
+ * records it and the owner is told where to respond.
+ */
+export async function handleDispute(eventAccount: string | null | undefined, dispute: Stripe.Dispute, opened: boolean): Promise<void> {
+  const order = await findOrderForPayment(eventAccount, dispute.payment_intent);
+  if (!order) return;
+  const admin = createAdminClient();
+  await admin.from("orders").update({ dispute_status: dispute.status }).eq("id", order.id);
+  if (opened) {
+    await sendOrderAttentionEmail({
+      businessId: order.business_id,
+      subject: "a customer disputed a payment",
+      heading: "A payment was disputed",
+      intro: `The customer's bank opened a dispute (${dispute.reason.replace(/_/g, " ")}) for this order. Respond in your Stripe dashboard under Payments, Disputes before the deadline Stripe shows, or the money goes back to the customer.`,
+      customerName: order.customer_name,
+      customerPhone: order.phone,
+      totalCents: dispute.amount,
+    });
   }
 }

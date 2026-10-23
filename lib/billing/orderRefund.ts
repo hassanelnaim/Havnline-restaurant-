@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { refundOrderPayment } from "@/lib/billing/stripeConnect";
 import { smsClient } from "@/lib/integrations/sms";
@@ -71,19 +72,44 @@ export async function processOrderRefund(
   // if another request already moved amount_refunded_cents in the
   // meantime, this intentionally matches no row rather than stomping
   // a newer value with a total computed from stale data.
-  const { data: updatedOrder, error } = await admin
-    .from("orders")
-    .update({
-      payment_status: fullyRefunded ? "refunded" : "partially_refunded",
-      amount_refunded_cents: newAmountRefunded,
-      refund_reason: reason || order.refund_reason,
-      refunded_by: actor.refundedByUserId,
-      refunded_at: new Date().toISOString(),
-    })
-    .eq("id", orderId)
-    .eq("amount_refunded_cents", order.amount_refunded_cents)
-    .select("id")
-    .maybeSingle();
+  const recordRefund = () =>
+    admin
+      .from("orders")
+      .update({
+        payment_status: fullyRefunded ? "refunded" : "partially_refunded",
+        amount_refunded_cents: newAmountRefunded,
+        refund_reason: reason || order.refund_reason,
+        refunded_by: actor.refundedByUserId,
+        refunded_at: new Date().toISOString(),
+      })
+      .eq("id", orderId)
+      .eq("amount_refunded_cents", order.amount_refunded_cents)
+      .select("id")
+      .maybeSingle();
+  // The money already went back through Stripe at this point, so saving it
+  // gets one retry before giving up (and an alert, because the order would
+  // otherwise still show as paid).
+  let { data: updatedOrder, error } = await recordRefund();
+  if (error) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    ({ data: updatedOrder, error } = await recordRefund());
+  }
+  if (error) {
+    await settleWithin(
+      sendPlatformAlert({
+        key: "refund-not-recorded",
+        subject: "HavnLine: a refund went through but wasn't saved",
+        heading: "A refund needs to be recorded by hand",
+        intro: "Stripe refunded the customer, but saving that on the order failed twice, so the order still shows as paid. Retrying the refund is safe for 24 hours (Stripe won't refund twice).",
+        rows: [
+          { label: "Order", value: orderId },
+          { label: "Amount", value: `${result.refundedCents ?? "?"} cents` },
+          { label: "Error", value: error.message.slice(0, 300) },
+        ],
+      }),
+      1500
+    );
+  }
   if (error) return dbErrorResult(error, "processOrderRefund", "Could not record the refund.");
   if (!updatedOrder) {
     // Stripe's own idempotency already prevented a double charge (see

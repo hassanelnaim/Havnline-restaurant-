@@ -376,6 +376,19 @@ async function add_item_to_order(
   const quote = quoteItemPrice(menuItem, ctx.context.activePromotions, ctx.context.business.timezone);
   const unitPriceCents = quote.unitPriceCents;
 
+  // An item with no price set (an imported item nobody priced yet) used to
+  // be kept off orders only by the prompt; a $0 order is placed and printed
+  // with nothing to pay, so it went to the kitchen as free food. Its
+  // regular price (before any promotion) plus the chosen options must be
+  // more than $0 on a real call. The test chat can still use $0 items.
+  const regularLineCents = (quote.priceBeforePromotionCents ?? unitPriceCents) + matchedModifiers.reduce((sum, m) => sum + (m.price_delta_cents || 0), 0);
+  if (ctx.channel === "phone" && !ctx.demoCaller && regularLineCents <= 0) {
+    return {
+      success: false,
+      reason: `"${menuItem.name}" doesn't have a price set yet, so it can't be ordered by phone. Tell the caller it isn't available by phone right now and offer something else.`,
+    };
+  }
+
   const { data: orderItem, error } = await admin
     .from("order_items")
     .insert({
@@ -579,7 +592,7 @@ async function confirm_and_place_order(
   const [{ data: orderItems }, preClaimSubtotal, { data: existingCustomer }] = await Promise.all([
     admin.from("order_items").select("id").eq("order_id", order.id),
     recomputeOrderSubtotal(order.id),
-    admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", textTo).maybeSingle(),
+    admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", textTo).order("created_at", { ascending: true }).limit(1).maybeSingle(),
   ]);
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
@@ -613,8 +626,27 @@ async function confirm_and_place_order(
 
   let customerId = existingCustomer?.id;
   if (!customerId) {
-    const { data: newCustomer } = await admin.from("customers").insert({ business_id: ctx.businessId, name: input.customer_name, phone: textTo }).select().single();
+    const { data: newCustomer } = await admin.from("customers").insert({ business_id: ctx.businessId, name: input.customer_name, phone: textTo }).select("id").single();
     customerId = newCustomer?.id;
+    // Two overlapping confirms for a new caller both created a customer.
+    // Both requests now settle on the earliest record, and each removes the
+    // duplicate it made, so the caller ends up with one customer record and
+    // one order history.
+    if (customerId) {
+      const { data: earliest } = await admin
+        .from("customers")
+        .select("id")
+        .eq("business_id", ctx.businessId)
+        .eq("phone", textTo)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (earliest && earliest.id !== customerId) {
+        await soft("remove duplicate customer", admin.from("customers").delete().eq("id", customerId));
+        customerId = earliest.id;
+      }
+    }
   }
 
   // Conditioned on status still being "building" — an atomic claim, not

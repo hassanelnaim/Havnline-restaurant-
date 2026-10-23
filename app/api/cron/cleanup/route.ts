@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
   const steps: [string, PromiseLike<{ error: { message: string } | null; count?: number | null }>][] = [
     ["rate-limit hits older than 2 days", admin.from("rate_limit_hits").delete({ count: "exact" }).lt("created_at", daysAgo(2))],
     ["turn claims older than 2 days", admin.from("call_turn_claims").delete({ count: "exact" }).lt("created_at", daysAgo(2))],
+    ["caller speech hand-offs older than 1 day", admin.from("call_speech_handoffs").delete({ count: "exact" }).lt("created_at", daysAgo(1))],
     ["printed tickets older than 30 days", admin.from("printer_print_jobs").delete({ count: "exact" }).eq("status", "printed").lt("created_at", daysAgo(30))],
     ["calls stuck in progress for 2+ hours", admin.from("calls").update({ status: "completed" }, { count: "exact" }).eq("status", "in_progress").lt("started_at", hoursAgo(2))],
   ];

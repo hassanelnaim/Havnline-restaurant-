@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readSpeech } from "@/lib/ai/speechHandoff";
 import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
@@ -26,8 +27,11 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
-  const speechResult = request.nextUrl.searchParams.get("speech");
-  if (!callId || !speechResult) return new NextResponse("Missing callId or speech", { status: 400 });
+  if (!callId) return new NextResponse("Missing callId", { status: 400 });
+  // The caller's words: stored by /gather and passed as an id (h=), or in
+  // the URL itself only if storing them failed (see speechHandoff.ts).
+  const speechResult = (await readSpeech(callId, request.nextUrl.searchParams.get("h"))) ?? request.nextUrl.searchParams.get("speech");
+  if (!speechResult) return new NextResponse("Missing speech", { status: 400 });
 
   const timer = createTimer("process", { call: shortId(callId) });
   try {
