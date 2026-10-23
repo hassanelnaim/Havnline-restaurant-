@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { checkRateLimit, getClientIp } from "@/lib/security/rateLimit";
+import { checkRateLimit, getClientIp, isRateLimited, recordRateLimitHit } from "@/lib/security/rateLimit";
 
 export async function signUpAction(formData: FormData) {
   const email = formData.get("email") as string;
@@ -71,10 +71,18 @@ export async function signInAction(formData: FormData) {
   // alone lets an attacker with a botnet spray many accounts from one
   // machine without ever tripping it. Both together cover each gap.
   const ip = getClientIp();
-  const normalizedEmail = email?.trim().toLowerCase();
-  const ipOk = await checkRateLimit(`login_ip:${ip}`, 10, 15);
-  const emailOk = normalizedEmail ? await checkRateLimit(`login_email:${normalizedEmail}`, 5, 15) : true;
-  if (!ipOk || !emailOk) {
+  const normalizedEmail = email?.trim().toLowerCase() || "";
+
+  // Every attempt from one network counts; for one email, only FAILED
+  // attempts count. Counting successes (and every attempt per email) let
+  // anyone lock a real owner out by typing wrong passwords for their email.
+  // Failures are limited per email+network (5) and per email overall (30),
+  // so a stranger guessing can't block the owner's own network for long.
+  const ipOk = await checkRateLimit(`login_ip:${ip}`, 20, 15);
+  const [tooManyHere, tooManyOverall] = normalizedEmail
+    ? await Promise.all([isRateLimited(`login_fail:${normalizedEmail}:${ip}`, 5, 15), isRateLimited(`login_fail:${normalizedEmail}`, 30, 15)])
+    : [false, false];
+  if (!ipOk || tooManyHere || tooManyOverall) {
     redirect(`/login?error=${encodeURIComponent("Too many sign-in attempts. Please wait a few minutes and try again.")}`);
   }
 
@@ -82,6 +90,9 @@ export async function signInAction(formData: FormData) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
+    if (normalizedEmail) {
+      await Promise.all([recordRateLimitHit(`login_fail:${normalizedEmail}:${ip}`), recordRateLimitHit(`login_fail:${normalizedEmail}`)]);
+    }
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 

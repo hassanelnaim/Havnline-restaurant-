@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { verifyMoneyPin } from "@/lib/security/moneyPin";
 import { signMoneyActionToken } from "@/lib/security/moneyActionToken";
-import { checkRateLimit } from "@/lib/security/rateLimit";
+import { checkRateLimit, isRateLimited, recordRateLimitHit } from "@/lib/security/rateLimit";
+
+const DAILY_PIN_FAILURES = 20;
 import { sendMoneyPinLockoutEmail } from "@/lib/notifications/pin-lockout-email";
 
 export const dynamic = "force-dynamic";
@@ -39,10 +41,18 @@ async function handlePOST(request: NextRequest) {
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 
-  const [deviceOk, businessOk] = await Promise.all([
-    checkRateLimit(`money_pin_device:${device.deviceId}`, 8, 15),
-    checkRateLimit(`money_pin_business:${device.businessId}`, 15, 15),
-  ]);
+  // Two limits. Short-term: every attempt counts (8 per 15 minutes per
+  // tablet, 15 per business). Daily: 20 WRONG PINs in 24 hours locks PIN
+  // actions for the business until the day has passed, so whoever holds a
+  // tablet can't work through all 10,000 PINs a few at a time (that used to
+  // take about a week).
+  const lockedForTheDay = await isRateLimited(`money_pin_fail_day:${device.businessId}`, DAILY_PIN_FAILURES, 24 * 60);
+  const [deviceOk, businessOk] = lockedForTheDay
+    ? [false, false]
+    : await Promise.all([
+        checkRateLimit(`money_pin_device:${device.deviceId}`, 8, 15),
+        checkRateLimit(`money_pin_business:${device.businessId}`, 15, 15),
+      ]);
   if (!deviceOk || !businessOk) {
     // Deduped separately so a sustained attempt sends roughly one
     // email per 15-minute window instead of one per rejected request.
@@ -55,7 +65,10 @@ async function handlePOST(request: NextRequest) {
   const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
 
   const result = await verifyMoneyPin(device.businessId, pin);
-  if (!result.valid) return NextResponse.json({ success: false, error: result.reason || "Incorrect PIN." }, { status: 401 });
+  if (!result.valid) {
+    if (result.wrongPin) await recordRateLimitHit(`money_pin_fail_day:${device.businessId}`);
+    return NextResponse.json({ success: false, error: result.reason || "Incorrect PIN." }, { status: 401 });
+  }
 
   const { token, expiresAt } = signMoneyActionToken({ businessId: device.businessId, deviceId: device.deviceId });
   return NextResponse.json({ success: true, token, expiresAt });

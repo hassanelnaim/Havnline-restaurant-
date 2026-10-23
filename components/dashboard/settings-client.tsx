@@ -231,15 +231,17 @@ export function SettingsClient({
   const [savedName, setSavedName] = useState(profile.fullName);
   const [email, setEmail] = useState(profile.email);
   const [newPassword, setNewPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [accountMsg, setAccountMsg] = useState<{ field: "name" | "email" | "password"; ok: boolean; text: string } | null>(null);
 
   function saveAccount(field: "name" | "email" | "password") {
     setAccountMsg(null);
     startTransition(async () => {
-      const result = field === "name" ? await updateProfileNameAction(fullName) : field === "email" ? await updateEmailAction(email) : await updatePasswordAction(newPassword);
+      const result = field === "name" ? await updateProfileNameAction(fullName) : field === "email" ? await updateEmailAction(email, currentPassword) : await updatePasswordAction(newPassword, currentPassword);
       if (!result.success) { setAccountMsg({ field, ok: false, text: result.error || "Could not save." }); return; }
       if (field === "name") setSavedName(fullName);
       if (field === "password") setNewPassword("");
+      if (field !== "name") setCurrentPassword("");
       setAccountMsg({ field, ok: true, text: field === "email" ? "Check your new email for a confirmation link." : field === "password" ? "Password updated" : "Saved" });
     });
   }
@@ -519,7 +521,7 @@ export function SettingsClient({
               <Label htmlFor="email">Email</Label>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <Input id="email" type="email" className="max-w-sm" value={email} onChange={(e) => setEmail(e.target.value)} />
-                <Button variant="outline" size="sm" onClick={() => saveAccount("email")} disabled={isPending || email === profile.email}>Change email</Button>
+                <Button variant="outline" size="sm" onClick={() => saveAccount("email")} disabled={isPending || email === profile.email || !currentPassword}>Change email</Button>
               </div>
               {accountMsg?.field === "email" && <p className={cn("mt-1.5 text-[12px]", accountMsg.ok ? "text-success" : "text-danger")}>{accountMsg.text}</p>}
             </div>
@@ -527,10 +529,16 @@ export function SettingsClient({
               <Label htmlFor="new-password">New password</Label>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <Input id="new-password" type="password" className="max-w-sm" placeholder="At least 8 characters" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                <Button variant="outline" size="sm" onClick={() => saveAccount("password")} disabled={isPending || newPassword.length === 0}>Update password</Button>
+                <Button variant="outline" size="sm" onClick={() => saveAccount("password")} disabled={isPending || newPassword.length === 0 || !currentPassword}>Update password</Button>
                 {accountMsg?.field === "password" && (accountMsg.ok ? <Saved show text={accountMsg.text} /> : <span className="text-[12px] text-danger">{accountMsg.text}</span>)}
               </div>
             </div>
+            {(email !== profile.email || newPassword.length > 0) && (
+              <div>
+                <Label htmlFor="current-password">Current password</Label>
+                <Input id="current-password" type="password" className="mt-1.5 max-w-sm" autoComplete="current-password" placeholder="Needed to change your email or password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+              </div>
+            )}
           </div>
         </Section>
 

@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -9,6 +10,7 @@ import { AutoRefresh } from "@/components/admin/auto-refresh";
 export const dynamic = "force-dynamic";
 
 export default async function AdminBusinessesPage() {
+  await requirePlatformAdmin();
   const demoMode = !isSupabaseConfigured();
 
   const businesses = demoMode

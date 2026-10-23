@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import { getTotalSpentThisMonth } from "@/app/actions/cost-summary";
 import Link from "next/link";
 import { Building2, DollarSign, TrendingUp, ArrowUpRight } from "lucide-react";
@@ -14,6 +15,7 @@ import { AutoRefresh } from "@/components/admin/auto-refresh";
 export const dynamic = "force-dynamic";
 
 export default async function PlatformAdminPage() {
+  await requirePlatformAdmin();
   const demoMode = !isSupabaseConfigured();
 
   const [businesses, totalSpentThisMonth, revenue, issues, allReviews] = await Promise.all([

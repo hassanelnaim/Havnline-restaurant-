@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 
 /**
@@ -26,4 +27,14 @@ export async function isPlatformAdmin(): Promise<boolean> {
   if (!adminEmail) return false;
 
   return user.email.toLowerCase() === adminEmail.toLowerCase();
+}
+
+/**
+ * Every admin page calls this itself. The admin layout checks too, but a
+ * layout isn't re-run on every navigation (Next.js renders only the
+ * segments that changed), so it can't be the only thing standing between
+ * a visitor and every restaurant's data.
+ */
+export async function requirePlatformAdmin(): Promise<void> {
+  if (!(await isPlatformAdmin())) notFound();
 }

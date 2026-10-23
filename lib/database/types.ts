@@ -282,7 +282,8 @@ export interface DbPrinterPairingCode {
 export interface DbPrinterDevice {
   id: UUID;
   business_id: UUID;
-  device_token: string;
+  device_token: string | null;
+  device_token_hash: string | null;
   printer_ip: string | null;
   paired_at: ISODateTime;
   last_seen_at: ISODateTime | null;

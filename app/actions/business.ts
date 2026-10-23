@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { openSecret, sealSecret } from "@/lib/security/secretBox";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
@@ -374,8 +375,9 @@ async function getOrCreateSubAccount(businessId: string, businessName: string): 
   const { data: existing } = await admin.from("integrations").select("metadata").eq("business_id", businessId).eq("provider", "twilio").maybeSingle();
 
   const meta = existing?.metadata as Record<string, unknown> | null;
-  if (meta?.subaccount_sid && meta?.subaccount_auth_token) {
-    return { accountSid: meta.subaccount_sid as string, authToken: meta.subaccount_auth_token as string };
+  const storedToken = openSecret(meta?.subaccount_auth_token as string | undefined);
+  if (meta?.subaccount_sid && storedToken) {
+    return { accountSid: meta.subaccount_sid as string, authToken: storedToken };
   }
 
   const result = await createSubAccount(businessName);
@@ -425,7 +427,7 @@ export async function provisionPhoneNumberAction(areaCode?: string): Promise<Pro
       provider: "twilio",
       status: "connected",
       connected_at: new Date().toISOString(),
-      metadata: { phone_number: result.phoneNumber, subaccount_sid: subAccount.accountSid, subaccount_auth_token: subAccount.authToken },
+      metadata: { phone_number: result.phoneNumber, subaccount_sid: subAccount.accountSid, subaccount_auth_token: sealSecret(subAccount.authToken) },
     },
     { onConflict: "business_id,provider" }
   );
@@ -461,7 +463,7 @@ export async function changePhoneNumberAction(areaCode?: string): Promise<Provis
   const meta = existing?.metadata as Record<string, unknown> | null;
   const currentNumber = meta?.phone_number as string | undefined;
   const subAccountSid = meta?.subaccount_sid as string | undefined;
-  const subAccountAuthToken = meta?.subaccount_auth_token as string | undefined;
+  const subAccountAuthToken = openSecret(meta?.subaccount_auth_token as string | undefined);
 
   if (currentNumber) {
     const releaseCreds = subAccountSid && subAccountAuthToken ? { accountSid: subAccountSid, authToken: subAccountAuthToken } : null;
@@ -485,7 +487,7 @@ export async function changePhoneNumberAction(areaCode?: string): Promise<Provis
       provider: "twilio",
       status: "connected",
       connected_at: new Date().toISOString(),
-      metadata: { phone_number: result.phoneNumber, subaccount_sid: subAccount.accountSid, subaccount_auth_token: subAccount.authToken },
+      metadata: { phone_number: result.phoneNumber, subaccount_sid: subAccount.accountSid, subaccount_auth_token: sealSecret(subAccount.authToken) },
     },
     { onConflict: "business_id,provider" }
   );

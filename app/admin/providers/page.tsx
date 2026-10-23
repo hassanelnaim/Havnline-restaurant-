@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import { CheckCircle2, XCircle, CircleSlash } from "lucide-react";
 import { checkAllProvidersHealth } from "@/app/actions/provider-health";
 import { RecheckButton } from "@/components/admin/recheck-button";
@@ -11,6 +12,7 @@ const STATUS_CONFIG = {
 };
 
 export default async function ProviderHealthPage() {
+  await requirePlatformAdmin();
   const results = await checkAllProvidersHealth();
 
   return (

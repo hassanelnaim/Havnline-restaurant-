@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { openSecret } from "@/lib/security/secretBox";
 import { sendSms as twilioSendSms, isTwilioConfigured } from "@/lib/integrations/telephony/twilioProvider";
 
 export interface SmsClientLike {
@@ -24,7 +25,7 @@ class TwilioBackedSmsClient implements SmsClientLike {
     const meta = data?.metadata as Record<string, unknown> | null;
     const fromNumber = meta?.phone_number as string | undefined;
     const subAccountSid = meta?.subaccount_sid as string | undefined;
-    const subAccountAuthToken = meta?.subaccount_auth_token as string | undefined;
+    const subAccountAuthToken = openSecret(meta?.subaccount_auth_token as string | undefined);
 
     if (!fromNumber) {
       return { sent: false, reason: "No HavnLine phone number provisioned for this business yet." };

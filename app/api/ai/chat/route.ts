@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { startTestSession, handleTurn } from "@/lib/ai/receptionist";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // Generous for genuine back-and-forth testing (a real conversation
 // rarely runs past a few dozen turns), but bounded — this is real,
@@ -24,13 +25,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You're sending messages too quickly — please slow down." }, { status: 429 });
   }
 
-  const { message, callId: existingCallId } = await request.json();
-  if (!message) return NextResponse.json({ error: "Missing message." }, { status: 400 });
-  if (typeof message !== "string" || message.length > MAX_MESSAGE_LENGTH) {
+  const body = await request.json().catch(() => null);
+  const message = body?.message;
+  const existingCallId = typeof body?.callId === "string" ? body.callId : null;
+  if (!message || typeof message !== "string") return NextResponse.json({ error: "Missing message." }, { status: 400 });
+  if (message.length > MAX_MESSAGE_LENGTH) {
     return NextResponse.json({ error: "Message is too long." }, { status: 400 });
   }
 
+  // The call id comes from the browser, so it must be one of THIS
+  // restaurant's own test sessions. Otherwise any id would feed another
+  // restaurant's real call transcript to this AI, write into that call, and
+  // let the order tools change that call's live order.
   let callId = existingCallId;
+  if (callId) {
+    const admin = createAdminClient();
+    const { data: session } = await admin.from("calls").select("id").eq("id", callId).eq("business_id", businessId).eq("phone", "test").maybeSingle();
+    if (!session) callId = null;
+  }
   if (!callId) {
     callId = await startTestSession(businessId);
   }

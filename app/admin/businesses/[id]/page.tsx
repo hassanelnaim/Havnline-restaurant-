@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import { BusinessActions } from "@/components/admin/business-actions";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -17,6 +18,7 @@ import { TextingRegistration, type TextingRegistrationInfo } from "@/components/
 export const dynamic = "force-dynamic";
 
 export default async function PlatformBusinessDetailPage({ params }: { params: { id: string } }) {
+  await requirePlatformAdmin();
   const demoMode = !isSupabaseConfigured();
 
   const { business, callCount, orderCount, integrationRows } = demoMode

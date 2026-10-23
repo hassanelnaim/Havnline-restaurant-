@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { openSecret, sealSecret, isSealed, encryptionConfigured } from "@/lib/security/secretBox";
 import { safeTimezone } from "@/lib/business/timezone";
 import { addDaysToDateKey } from "@/lib/business/hours";
 import { getVoiceConfigForCall } from "@/lib/ai/voiceSelection";
@@ -235,9 +236,10 @@ export async function resolveBusinessFromPhoneNumber(dialedNumber: string): Prom
   if (!match) return null;
 
   const meta = match.metadata as Record<string, unknown> | null;
+  await sealLegacyTwilioToken(match.business_id as string, meta);
   return {
     businessId: match.business_id as string,
-    subAccountAuthToken: (meta?.subaccount_auth_token as string) || null,
+    subAccountAuthToken: openSecret(meta?.subaccount_auth_token as string | undefined),
   };
 }
 
@@ -251,5 +253,25 @@ export async function getBusinessTwilioAuthToken(businessId: string): Promise<st
     .maybeSingle();
 
   const meta = data?.metadata as Record<string, unknown> | null;
-  return (meta?.subaccount_auth_token as string) || null;
+  return openSecret(meta?.subaccount_auth_token as string | undefined);
+}
+
+/**
+ * Upgrades a Twilio auth token stored in plain text (before
+ * SECRETS_ENCRYPTION_KEY was set) to the encrypted form, the first time it's
+ * read. Once per business; never blocks the call if it fails.
+ */
+async function sealLegacyTwilioToken(businessId: string, meta: Record<string, unknown> | null): Promise<void> {
+  const token = meta?.subaccount_auth_token;
+  if (!meta || typeof token !== "string" || isSealed(token) || !encryptionConfigured()) return;
+  try {
+    const admin = createAdminClient();
+    await admin
+      .from("integrations")
+      .update({ metadata: { ...meta, subaccount_auth_token: sealSecret(token) } })
+      .eq("business_id", businessId)
+      .eq("provider", "twilio");
+  } catch (err) {
+    console.error(`[context] could not encrypt the stored Twilio token for ${businessId}:`, err);
+  }
 }

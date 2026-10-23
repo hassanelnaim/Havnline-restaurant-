@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { openSecret } from "@/lib/security/secretBox";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
@@ -118,7 +119,7 @@ export async function deleteBusinessAction(businessId: string, typedConfirmation
   const phoneNumber = twilioMeta?.phone_number as string | undefined;
   if (phoneNumber) {
     const subAccountSid = twilioMeta?.subaccount_sid as string | undefined;
-    const subAccountAuthToken = twilioMeta?.subaccount_auth_token as string | undefined;
+    const subAccountAuthToken = openSecret(twilioMeta?.subaccount_auth_token as string | undefined);
     const creds = subAccountSid && subAccountAuthToken ? { accountSid: subAccountSid, authToken: subAccountAuthToken } : null;
     const released = await releaseNumber(creds, phoneNumber);
     if (!released.success) {

@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbBusiness, OrderWithItems } from "@/lib/database/types";
 import { dbErrorResult } from "@/lib/errors";
@@ -55,6 +55,15 @@ function randomCode(length = 8): string {
 function randomToken(): string {
   return randomBytes(32).toString("hex");
 }
+
+/** Tablet tokens are stored only as this hash (migration 035). */
+function hashDeviceToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+// "Last seen" is for the dashboard's "tablet online" dot; writing it on
+// every 4-second poll was one useless database write per tablet every 4 s.
+const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 
 export interface PairingCodeResult {
   code: string;
@@ -113,7 +122,7 @@ export async function claimPairingCode(code: string): Promise<ClaimPairingCodeRe
   const { error: upsertError } = await admin
     .from("printer_devices")
     .upsert(
-      { business_id: pairing.business_id, device_token: deviceToken, paired_at: new Date().toISOString(), last_seen_at: null },
+      { business_id: pairing.business_id, device_token: null, device_token_hash: hashDeviceToken(deviceToken), paired_at: new Date().toISOString(), last_seen_at: null },
       { onConflict: "business_id" }
     );
   if (upsertError) return dbErrorResult(upsertError, "pairPrinterDevice", "Could not pair this device.");
@@ -140,9 +149,18 @@ export interface AuthenticatedDevice {
 export async function authenticateDevice(deviceToken: string | null | undefined): Promise<AuthenticatedDevice | null> {
   if (!deviceToken) return null;
   const admin = createAdminClient();
-  const { data } = await admin.from("printer_devices").select("id, business_id").eq("device_token", deviceToken).maybeSingle();
+  const { data } = await admin
+    .from("printer_devices")
+    .select("id, business_id, last_seen_at, device_token")
+    .eq("device_token_hash", hashDeviceToken(deviceToken))
+    .maybeSingle();
   if (!data) return null;
-  await admin.from("printer_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", data.id);
+
+  const lastSeen = data.last_seen_at ? Date.parse(data.last_seen_at) : 0;
+  if (Date.now() - lastSeen > LAST_SEEN_WRITE_INTERVAL_MS || data.device_token) {
+    // Also erases a plain-text token left from before migration 035.
+    await admin.from("printer_devices").update({ last_seen_at: new Date().toISOString(), device_token: null }).eq("id", data.id);
+  }
   return { businessId: data.business_id, deviceId: data.id };
 }
 

@@ -70,6 +70,8 @@ export async function hasMoneyPinSet(businessId: string): Promise<boolean> {
 export interface VerifyMoneyPinResult {
   valid: boolean;
   reason?: string;
+  /** A real guess that was wrong (not a missing PIN or a malformed entry). */
+  wrongPin?: boolean;
 }
 
 /** Called only from the rate-limited verify-pin API route — never from the dashboard. */
@@ -80,5 +82,5 @@ export async function verifyMoneyPin(businessId: string, pin: string): Promise<V
   const { data } = await admin.from("business_money_pins").select("pin_hash, pin_salt").eq("business_id", businessId).maybeSingle();
   if (!data) return { valid: false, reason: "No PIN has been set up for this business yet — set one from the dashboard under Settings." };
 
-  return pinMatches(pin, data.pin_hash, data.pin_salt) ? { valid: true } : { valid: false, reason: "Incorrect PIN." };
+  return pinMatches(pin, data.pin_hash, data.pin_salt) ? { valid: true } : { valid: false, reason: "Incorrect PIN.", wrongPin: true };
 }
