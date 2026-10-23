@@ -47,6 +47,28 @@ export type PlatformAlertResult = "sent" | "throttled" | "not_configured" | "fai
  * table is unreachable.
  */
 export async function sendPlatformAlert(alert: PlatformAlert): Promise<PlatformAlertResult> {
+  const outcome = await deliverPlatformAlert(alert);
+  await logAlert(alert, outcome);
+  return outcome;
+}
+
+/**
+ * Every alert is kept in platform_alerts (migration 038), including the
+ * ones the throttle held back, so the admin Health page can count how
+ * often each problem happens. Never throws.
+ */
+async function logAlert(alert: PlatformAlert, outcome: PlatformAlertResult): Promise<void> {
+  try {
+    const { error } = await createAdminClient()
+      .from("platform_alerts")
+      .insert({ key: alert.key.slice(0, 200), subject: alert.subject.slice(0, 300), outcome });
+    if (error) console.error("[alert] could not log the alert (run migration 038):", error.message);
+  } catch (err) {
+    console.error("[alert] could not log the alert:", err);
+  }
+}
+
+async function deliverPlatformAlert(alert: PlatformAlert): Promise<PlatformAlertResult> {
   try {
     const recipients = platformAdminRecipients();
     if (recipients.length === 0 || !resend) {

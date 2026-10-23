@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendWeeklyDigestEmails } from "@/lib/notifications/weekly-digest-email";
+import { runWeeklyDigestJob } from "@/lib/notifications/weekly-digest-email";
+import { runCronJob } from "@/lib/monitoring/cronRuns";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -7,7 +8,7 @@ export const maxDuration = 60;
 /**
  * GET /api/cron/weekly-digest
  *
- * Fired weekly by Vercel Cron (see vercel.json). Vercel automatically
+ * Fired daily by Vercel Cron (see vercel.json; each business gets one a week). Vercel automatically
  * sends `Authorization: Bearer ${CRON_SECRET}` on cron-triggered
  * requests when a CRON_SECRET env var is set on the project — checked
  * here so this endpoint can't be hit by anyone who finds the URL and
@@ -30,6 +31,6 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  const result = await sendWeeklyDigestEmails();
-  return NextResponse.json(result);
+  const outcome = await runCronJob("weekly-digest", "schedule", runWeeklyDigestJob);
+  return NextResponse.json(outcome.result);
 }

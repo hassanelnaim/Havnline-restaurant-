@@ -13,7 +13,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-interface DigestResult {
+export interface DigestResult {
   businessesChecked: number;
   emailsSent: number;
   /** Still due this week when the time budget ran out; the next daily run sends them. */
@@ -163,4 +163,10 @@ export async function sendWeeklyDigestEmails(): Promise<DigestResult> {
   }
 
   return result;
+}
+
+/** The digest as a recorded background job (cron route and the admin Health page's "Run now"). */
+export async function runWeeklyDigestJob(): Promise<{ ok: boolean; result: Record<string, unknown> }> {
+  const result = await sendWeeklyDigestEmails();
+  return { ok: result.errors.length === 0, result: { ...result } };
 }

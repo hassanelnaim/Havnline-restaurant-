@@ -1,6 +1,4 @@
 import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockAdminBusinesses } from "@/lib/mock/data";
@@ -29,11 +27,7 @@ export default async function AdminBusinessesPage() {
   return (
     <div>
       <AutoRefresh />
-      <Link href="/admin" className="flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-text">
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to Command Center
-      </Link>
-
-      <div className="mt-4">
+      <div>
         <h1 className="font-display text-[24px] font-semibold text-ink">All businesses</h1>
         <p className="mt-1 text-[13.5px] text-text-muted">{rows.length} on HavnLine.</p>
       </div>

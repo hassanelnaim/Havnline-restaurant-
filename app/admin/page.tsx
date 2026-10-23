@@ -1,102 +1,80 @@
 import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import { getTotalSpentThisMonth } from "@/app/actions/cost-summary";
-import Link from "next/link";
-import { Building2, DollarSign, TrendingUp, ArrowUpRight } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockAdminBusinesses } from "@/lib/mock/data";
 import { getAllReviewsForModeration } from "@/lib/data/reviews";
 import { getPlatformRevenueMetrics } from "@/lib/billing/platform-metrics";
 import { getBusinessIssues } from "@/lib/admin/issues";
-import { ReviewModeration } from "@/components/admin/review-moderation";
+import { getHealthReport, healthCounts, type HealthCounts } from "@/lib/admin/health";
+import { ADMIN_TIMEZONE, getCallActivity, type CallActivity } from "@/lib/admin/overview";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { IssuesPanel } from "@/components/admin/issues-panel";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
+import { BusinessesCard, CallsTodayCard, HealthStrip, MoneyCard, TwoWeeksCard } from "@/components/admin/command-center";
 
 export const dynamic = "force-dynamic";
+
+const EMPTY_ACTIVITY: CallActivity = { available: false, hourly: [], peak: 0, peakAt: null, liveNow: 0, daily: [] };
+
+function localParts(timeZone: string) {
+  const now = new Date();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hourCycle: "h23" }).format(now)) % 24;
+  return { today, hour };
+}
 
 export default async function PlatformAdminPage() {
   await requirePlatformAdmin();
   const demoMode = !isSupabaseConfigured();
 
-  const [businesses, totalSpentThisMonth, revenue, issues, allReviews] = await Promise.all([
+  const [businesses, totalSpentThisMonth, revenue, issues, allReviews, activity, counts] = await Promise.all([
     demoMode
       ? Promise.resolve(mockAdminBusinesses)
       : (async () => {
           const admin = createAdminClient();
-          const { data } = await admin.from("businesses").select("id, subscription_status, created_at");
-          return data || [];
+          const { data } = await fetchAllRows<{ id: string; subscription_status: string; created_at: string }>((from, to) =>
+            admin.from("businesses").select("id, subscription_status, created_at").order("id").range(from, to)
+          );
+          return data;
         })(),
     getTotalSpentThisMonth(),
     getPlatformRevenueMetrics(),
     demoMode ? Promise.resolve([]) : getBusinessIssues(),
     getAllReviewsForModeration(),
+    demoMode ? Promise.resolve(EMPTY_ACTIVITY) : getCallActivity().catch(() => EMPTY_ACTIVITY),
+    demoMode
+      ? Promise.resolve<HealthCounts | null>(null)
+      : getHealthReport()
+          .then(healthCounts)
+          .catch((err) => {
+            console.error("[admin] health summary failed:", err);
+            return null;
+          }),
   ]);
 
-  const pendingReviews = allReviews.filter((r) => r.status === "pending");
-  const active = businesses.filter((b) => b.subscription_status === "active").length;
-  const trialing = businesses.filter((b) => b.subscription_status === "trialing").length;
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const newThisWeek = businesses.filter((b) => new Date(b.created_at).getTime() >= sevenDaysAgo).length;
+  const pendingReviews = allReviews.filter((r) => r.status === "pending").length;
+  const { today, hour } = localParts(ADMIN_TIMEZONE);
+  const peakAtLabel = activity.peakAt
+    ? new Intl.DateTimeFormat("en-US", { timeZone: ADMIN_TIMEZONE, hour: "numeric", minute: "2-digit" }).format(new Date(activity.peakAt))
+    : null;
 
   return (
     <div>
       <AutoRefresh />
       <h1 className="font-display text-[24px] font-semibold text-ink">Command Center</h1>
-      <p className="mt-1 text-[13.5px] text-text-muted">Real visibility across every business on HavnLine — refreshes automatically.</p>
+      <p className="mt-1 text-[13.5px] text-text-muted">Everything across HavnLine at a glance. Refreshes every minute.</p>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Link href="/admin/businesses" className="group rounded-2xl border border-border bg-card p-5 shadow-card transition hover:border-brand/40">
-          <div className="flex items-center justify-between">
-            <span className="text-[12.5px] text-text-muted">Total businesses</span>
-            <Building2 className="h-4 w-4 text-brand" />
-          </div>
-          <div className="mt-2 font-display text-[28px] font-semibold text-ink">{businesses.length}</div>
-          <div className="mt-1 flex items-center gap-1 text-[11.5px] text-text-faint">
-            {active} active · {trialing} trialing · {newThisWeek} new this week
-            <ArrowUpRight className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />
-          </div>
-        </Link>
+      <HealthStrip counts={counts} pendingReviews={pendingReviews} />
 
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-          <div className="flex items-center justify-between"><span className="text-[12.5px] text-text-muted">MRR</span><TrendingUp className="h-4 w-4 text-success" /></div>
-          {revenue.configured ? (
-            <>
-              <div className="mt-2 font-display text-[28px] font-semibold text-ink">${(revenue.mrrCents / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-              <div className="mt-1 text-[11.5px] text-text-faint">Real, from Stripe · {revenue.activeSubscriptionCount} active subscription{revenue.activeSubscriptionCount === 1 ? "" : "s"}</div>
-            </>
-          ) : (
-            <div className="mt-2 text-[13px] text-text-faint">Stripe not configured</div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-          <div className="flex items-center justify-between"><span className="text-[12.5px] text-text-muted">Revenue this month</span><DollarSign className="h-4 w-4 text-success" /></div>
-          {revenue.configured ? (
-            <>
-              <div className="mt-2 font-display text-[28px] font-semibold text-ink">${(revenue.revenueThisMonthCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-              <div className="mt-1 text-[11.5px] text-text-faint">Actually collected by Stripe so far this month</div>
-            </>
-          ) : (
-            <div className="mt-2 text-[13px] text-text-faint">Stripe not configured</div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-          <div className="flex items-center justify-between"><span className="text-[12.5px] text-text-muted">Spent this month</span><DollarSign className="h-4 w-4 text-danger" /></div>
-          <div className="mt-2 font-display text-[28px] font-semibold text-ink">${totalSpentThisMonth.toFixed(2)}</div>
-          <div className="mt-1 text-[11.5px] text-text-faint">Real AI + Twilio usage across all businesses</div>
-        </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <CallsTodayCard activity={activity} peakAtLabel={peakAtLabel} currentHour={hour} timezone={ADMIN_TIMEZONE} />
+        <MoneyCard revenue={revenue} spentThisMonth={totalSpentThisMonth} />
+        <TwoWeeksCard activity={activity} today={today} />
+        <BusinessesCard businesses={businesses} now={Date.now()} />
       </div>
 
-      {revenue.error && (
-        <div className="mt-4 rounded-xl border border-danger/20 bg-danger-soft px-4 py-3 text-[13px] text-danger">
-          Couldn't reach Stripe for revenue numbers: {revenue.error}
-        </div>
-      )}
-
       <IssuesPanel issues={issues} />
-
-      <ReviewModeration pendingReviews={pendingReviews} />
     </div>
   );
 }
