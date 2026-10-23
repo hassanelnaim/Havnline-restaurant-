@@ -1,7 +1,7 @@
 import { guardRoute } from "@/lib/api/routeGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { authenticateDevice } from "@/lib/integrations/printer-app";
+import { authenticateDevice, PRINT_CLAIM_TIMEOUT_MS } from "@/lib/integrations/printer-app";
 import { dbErrorResult } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
@@ -11,13 +11,8 @@ function bearerToken(request: NextRequest): string | null {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : null;
 }
 
-// How long a job stays "claimed" before it's eligible to be handed out
-// again. Well above the tablet's own 4s poll interval and its 8s
-// printer hard-timeout combined, so a job that's genuinely still
-// being printed never gets duplicated — but short enough that a job
-// orphaned by a crashed tablet or dropped connection recovers on its
-// own within a few polls rather than needing a manual retry.
-const CLAIM_TIMEOUT_MS = 20_000;
+// See PRINT_CLAIM_TIMEOUT_MS in lib/integrations/printer-app.ts.
+const CLAIM_TIMEOUT_MS = PRINT_CLAIM_TIMEOUT_MS;
 
 /**
  * GET /api/printer-app/orders

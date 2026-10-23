@@ -190,3 +190,40 @@ export async function sendOrderRefundedEmail(input: {
   });
   await send(recipients, `${business.name}: ${formatCents(input.refundedCents)} refunded on an order`, html, "order-refunded");
 }
+
+/**
+ * "This order needs a person": something went wrong with a real order
+ * that HavnLine can't fix on its own (a payment arrived after the order
+ * was voided, the kitchen ticket kept failing to print, the payment link
+ * text didn't reach the customer). Always sent, like the other order and
+ * billing emails, because each one means food or money is at stake.
+ */
+export async function sendOrderAttentionEmail(input: {
+  businessId: string;
+  subject: string;
+  heading: string;
+  /** Plain text; escaped here. */
+  intro: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  totalCents?: number | null;
+}): Promise<void> {
+  const admin = createAdminClient();
+  const { data: business } = await admin.from("businesses").select("name").eq("id", input.businessId).single();
+  if (!business) return;
+
+  const recipients = await getRecipients(admin, input.businessId);
+  const html = renderEmailLayout({
+    preheader: input.intro.slice(0, 120),
+    heading: input.heading,
+    intro: escapeHtml(input.intro),
+    rows: [
+      { label: "Customer", value: escapeHtml(input.customerName || "Phone order") },
+      ...(input.customerPhone ? [{ label: "Phone", value: `<span style="font-family: 'IBM Plex Mono', Menlo, Consolas, monospace; font-size: 13px;">${escapeHtml(input.customerPhone)}</span>` }] : []),
+      ...(typeof input.totalCents === "number" ? [{ label: "Total", value: formatCents(input.totalCents) }] : []),
+    ],
+    cta: { label: "Open orders", url: `${APP_URL}/dashboard/orders` },
+    footerNote: `This is sent to every member of ${escapeHtml(business.name)} when an order needs someone to step in. These alerts can't be turned off.`,
+  });
+  await send(recipients, `${business.name}: ${input.subject}`, html, "order-attention");
+}

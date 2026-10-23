@@ -77,7 +77,7 @@ export async function voidOrderAction(orderId: string): Promise<ActionResult> {
 
   const { data: order } = await admin.from("orders").select("*").eq("id", orderId).eq("business_id", businessId).single();
   if (!order) return { success: false, error: "Order not found." };
-  if (order.payment_status === "paid") return { success: false, error: "This order has already been paid — use Refund instead." };
+  if (order.payment_status === "paid" || order.payment_status === "partially_refunded") return { success: false, error: "This order has already been paid — use Refund instead." };
 
   if (order.stripe_checkout_session_id) {
     const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", businessId).single();

@@ -30,6 +30,18 @@ export interface TaxableBusinessAddress {
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
+  /** The business's own stored rate (migration 013), used only when Stripe Tax can't answer. */
+  tax_rate_bps?: number | null;
+}
+
+// Tax is calculated while the caller waits on the phone, so Stripe gets
+// one short try; a slow answer falls back to the stored rate below.
+const TAX_TIMEOUT_MS = 3000;
+
+/** The business's stored rate applied to the subtotal: the fallback when Stripe Tax fails. */
+function fallbackTaxCents(business: TaxableBusinessAddress, subtotalCents: number): number {
+  const bps = business.tax_rate_bps || 0;
+  return bps > 0 ? Math.round((subtotalCents * bps) / 10000) : 0;
 }
 
 /**
@@ -44,12 +56,12 @@ export async function calculateTaxCents(business: TaxableBusinessAddress, subtot
   if (subtotalCents <= 0) return 0;
 
   const stripe = getStripeClient();
-  if (!stripe) return 0;
+  if (!stripe) return fallbackTaxCents(business, subtotalCents);
 
   const { address_city: city, address_state: state, address_zip: postalCode } = business;
   if (!city || !state || !postalCode) {
     console.warn(`calculateTaxCents: skipping Stripe Tax -- ${businessAddressFieldsNote}`);
-    return 0;
+    return fallbackTaxCents(business, subtotalCents);
   }
 
   try {
@@ -77,11 +89,14 @@ export async function calculateTaxCents(business: TaxableBusinessAddress, subtot
           tax_code: "txcd_99999999",
         },
       ],
-    });
+    }, { timeout: TAX_TIMEOUT_MS, maxNetworkRetries: 0 });
 
     return calculation.tax_amount_exclusive;
   } catch (err) {
-    console.error("Stripe Tax calculation failed:", err);
-    return 0;
+    // Used to silently become $0 tax, so the restaurant under-collected tax
+    // it still owes. The business's stored rate is the fallback now.
+    const fallback = fallbackTaxCents(business, subtotalCents);
+    console.error(`Stripe Tax calculation failed; using the stored rate (${business.tax_rate_bps || 0} bps = ${fallback} cents):`, err);
+    return fallback;
   }
 }

@@ -1,4 +1,4 @@
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { mockIntegrations } from "@/lib/mock/data";
@@ -26,8 +26,11 @@ export async function getIntegrations(): Promise<DbIntegration[]> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockIntegrations.filter((i) => ALL_PROVIDERS.includes(i.provider));
 
-  const supabase = createClient();
-  const { data } = await supabase.from("integrations").select("*").eq("business_id", businessId);
+  // Read on the server only: the integrations table (it holds each
+  // business's Twilio credentials) is hidden from signed-in users since
+  // migration 032. Scoped to the signed-in business above.
+  const admin = createAdminClient();
+  const { data } = await admin.from("integrations").select("*").eq("business_id", businessId);
   const existing = data || [];
 
   // printer_app doesn't live in the generic `integrations` table — its
@@ -36,7 +39,6 @@ export async function getIntegrations(): Promise<DbIntegration[]> {
   // rather than as this business's logged-in owner. Built here as a
   // synthetic row so the rest of the dashboard can treat it like any
   // other integration.
-  const admin = createAdminClient();
   const { data: device } = await admin.from("printer_devices").select("paired_at, printer_ip, last_seen_at").eq("business_id", businessId).maybeSingle();
 
   return ALL_PROVIDERS.map((provider) => {

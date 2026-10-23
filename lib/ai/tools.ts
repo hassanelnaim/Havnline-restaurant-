@@ -6,6 +6,7 @@ import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
 import { isBusinessOpenNow } from "@/lib/business/hours";
+import { normalizePhoneDigits } from "@/lib/phone-utils";
 import { closedDatesOf } from "@/lib/ai/context";
 import { checkItemChoice } from "@/lib/menu/similarItems";
 import { calculateTaxCents } from "@/lib/billing/stripeTax";
@@ -266,6 +267,12 @@ async function add_item_to_order(
   const biz = ctx.context.business;
   if (ctx.channel === "phone" && !ctx.demoCaller && (!biz.stripe_connect_charges_enabled || !biz.stripe_connect_account_id)) {
     return { success: false, reason: "Phone orders can't be taken right now: this restaurant hasn't finished setting up card payments. Tell the caller you can't take orders over the phone at the moment, and offer to answer questions or pass a message to the restaurant." };
+  }
+  // Same for texting: every priced phone order is paid through a texted
+  // link, and until the restaurant's texting registration is approved the
+  // carriers reject those texts.
+  if (ctx.channel === "phone" && !ctx.demoCaller && ctx.context.textingApproved === false) {
+    return { success: false, reason: TEXTING_NOT_READY_REASON };
   }
 
   // Never invent a menu item or its price — only match against the real
@@ -536,7 +543,7 @@ async function get_current_order(_input: unknown, ctx: ToolContext): Promise<Too
 }
 
 async function confirm_and_place_order(
-  input: { customer_name: string; phone: string; special_instructions?: string },
+  input: { customer_name: string; phone?: string; number_confirmed?: boolean; special_instructions?: string },
   ctx: ToolContext
 ): Promise<ToolResult> {
   const admin = createAdminClient();
@@ -548,8 +555,16 @@ async function confirm_and_place_order(
     return { success: false, reason: "This business is currently closed and can't accept orders right now. Tell the customer you're closed rather than placing this order." };
   }
 
+  // Where the payment link goes. By default, the number they're calling
+  // from: a number heard over the phone can be misheard, and one wrong digit
+  // texts a stranger. A different number is used only when the caller asked
+  // for it and the assistant read it back (number_confirmed).
+  const destination = resolveTextDestination(input, ctx);
+  if (!destination.ok) return { success: false, reason: destination.reason };
+  const textTo = destination.phone;
+
   const { data: order } = await admin.from("orders").select("*").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
-  if (!order) return { success: false, reason: "No order to confirm — add items first." };
+  if (!order) return placedOrderFollowUp(ctx, textTo);
 
   // Three independent reads at once: the emptiness check, the subtotal
   // recomputed from the actual items (not trusting the stored number —
@@ -563,7 +578,7 @@ async function confirm_and_place_order(
   const [{ data: orderItems }, preClaimSubtotal, { data: existingCustomer }] = await Promise.all([
     admin.from("order_items").select("id").eq("order_id", order.id),
     recomputeOrderSubtotal(order.id),
-    admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", input.phone).maybeSingle(),
+    admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", textTo).maybeSingle(),
   ]);
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
@@ -588,28 +603,32 @@ async function confirm_and_place_order(
         "This business hasn't finished setting up phone payments yet, so orders can't be taken over the phone right now — tell the customer you're unable to take their order at the moment and offer to escalate a message for the business to call them back.",
     };
   }
+  // The payment link only works if it can be texted, and until the
+  // restaurant's texting registration is approved the carriers reject
+  // every text (while the AI would have said "I just texted you a link").
+  if (ctx.channel === "phone" && !ctx.demoCaller && !isFreeOrder && ctx.context.textingApproved === false) {
+    return { success: false, reason: TEXTING_NOT_READY_REASON };
+  }
 
   let customerId = existingCustomer?.id;
   if (!customerId) {
-    const { data: newCustomer } = await admin.from("customers").insert({ business_id: ctx.businessId, name: input.customer_name, phone: input.phone }).select().single();
+    const { data: newCustomer } = await admin.from("customers").insert({ business_id: ctx.businessId, name: input.customer_name, phone: textTo }).select().single();
     customerId = newCustomer?.id;
   }
 
-  // Conditioned on status still being "building" — an atomic
-  // claim, not just a write. If two overlapping requests for the same
-  // call both reach this point (the narrower race handleTurn's own
-  // dedupe can still miss — see its "fall through" comment), only the
-  // first one's update actually matches a row and flips the status;
-  // the second gets back no row and must NOT print a second kitchen
-  // ticket, start a second Checkout Session, or send a second
-  // confirmation text for the same order.
+  // Conditioned on status still being "building" — an atomic claim, not
+  // just a write. If two overlapping requests for the same call both reach
+  // this point, only the first one's update matches a row; the second gets
+  // the placed order's payment details back instead (placedOrderFollowUp)
+  // and must NOT print a second ticket, start a second checkout, or text
+  // twice.
   const { data: claimedOrder } = await admin
     .from("orders")
     .update({
       status: "confirmed",
       customer_id: customerId,
       customer_name: input.customer_name,
-      phone: input.phone,
+      phone: textTo,
       special_instructions: input.special_instructions || null,
     })
     .eq("id", order.id)
@@ -617,156 +636,278 @@ async function confirm_and_place_order(
     .select("id")
     .maybeSingle();
 
-  if (!claimedOrder) {
-    return { success: true, order_id: order.id, already_placed: true };
-  }
+  if (!claimedOrder) return placedOrderFollowUp(ctx, textTo, { racing: true });
 
-  // Everything below is independent of everything else in this block, so it
-  // runs together instead of one step after another:
-  //   - the call is marked "order placed" (bookkeeping, never blocks);
-  //   - the order, its items and their modifiers are read for the kitchen
-  //     ticket;
-  //   - the real sales tax is calculated by Stripe Tax from the business's
-  //     own address (lib/billing/stripeTax.ts) — not a manually-entered
-  //     percentage. It only needs the subtotal, which was just computed.
-  //     Works the same whether or not a printer tablet is paired: the AI
-  //     always quotes and records the real total, and the order shows up on
-  //     the dashboard with the right tax/total even if it just sits at
-  //     "confirmed" for the owner to ring in manually.
-  // The tax call is the slow one (a round trip to Stripe), so starting it
-  // alongside the database reads, rather than after them, takes the reads
-  // off the critical path entirely.
-  const taxPromise = calculateTaxCents(business, preClaimSubtotal);
-  const [, orderWithItemsRes, itemsRes] = await Promise.all([
-    soft("record call outcome", admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId)),
-    admin.from("orders").select("*").eq("id", order.id).single(),
-    admin.from("order_items").select("*").eq("order_id", order.id),
-  ]);
-  const itemIds = (itemsRes.data || []).map((i) => i.id);
-  const modifiersRes = itemIds.length ? await admin.from("order_item_modifiers").select("*").in("order_item_id", itemIds) : { data: [] };
+  // If anything below fails before the payment link exists, the claim is
+  // undone: the order goes back to "building", so the AI can simply try
+  // again. It used to sit as "confirmed" with nothing to pay, which reports
+  // counted as a sale, while a retry was told "No order to confirm".
+  const releaseClaim = () =>
+    Promise.all([
+      soft("put the order back to building", admin.from("orders").update({ status: "building" }).eq("id", order.id).eq("status", "confirmed").neq("payment_status", "paid")),
+      soft("reset call outcome", admin.from("calls").update({ outcome: "no_action" }).eq("id", ctx.callId).eq("outcome", "order_placed")),
+    ]);
 
-  // Attempt to actually send this to the kitchen printer app. If this
-  // fails (not paired, printer offline), the order still exists and
-  // shows up on the business's Orders dashboard with the failure
-  // reason — the customer still hears their order was placed, and the
-  // business follows up manually rather than the customer being told
-  // something went wrong mid-call for a problem that isn't theirs to
-  // solve.
-  const fullOrder: OrderWithItems = {
-    ...orderWithItemsRes.data,
-    items: (itemsRes.data || []).map((i) => ({ ...i, modifiers: (modifiersRes.data || []).filter((m) => m.order_item_id === i.id) })),
-  };
+  try {
+    // Everything below is independent of everything else in this block, so it
+    // runs together instead of one step after another:
+    //   - the call is marked "order placed" (bookkeeping, never blocks);
+    //   - the order, its items and their modifiers are read for the kitchen
+    //     ticket;
+    //   - the real sales tax is calculated by Stripe Tax from the business's
+    //     own address (lib/billing/stripeTax.ts) — not a manually-entered
+    //     percentage. It only needs the subtotal, which was just computed.
+    //     Works the same whether or not a printer tablet is paired: the AI
+    //     always quotes and records the real total, and the order shows up on
+    //     the dashboard with the right tax/total even if it just sits at
+    //     "confirmed" for the owner to ring in manually.
+    // The tax call is the slow one (a round trip to Stripe), so starting it
+    // alongside the database reads, rather than after them, takes the reads
+    // off the critical path entirely.
+    const taxPromise = calculateTaxCents(business, preClaimSubtotal);
+    const [, orderWithItemsRes, itemsRes] = await Promise.all([
+      soft("record call outcome", admin.from("calls").update({ outcome: "order_placed" }).eq("id", ctx.callId)),
+      admin.from("orders").select("*").eq("id", order.id).single(),
+      admin.from("order_items").select("*").eq("order_id", order.id),
+    ]);
+    const itemIds = (itemsRes.data || []).map((i) => i.id);
+    const modifiersRes = itemIds.length ? await admin.from("order_item_modifiers").select("*").in("order_item_id", itemIds) : { data: [] };
 
-  // The tax was calculated from the subtotal computed a moment ago; the
-  // row just read must agree. If it somehow doesn't, recalculate from the
-  // row rather than charge tax on a different amount than the order holds.
-  const taxCents =
-    fullOrder.subtotal_cents === preClaimSubtotal ? await taxPromise : await calculateTaxCents(business, fullOrder.subtotal_cents);
-  const totalCents = fullOrder.subtotal_cents + taxCents;
-  fullOrder.tax_cents = taxCents;
-  fullOrder.total_cents = totalCents;
-  // Started now, awaited before each return below. soft() never throws.
-  const saveTax = soft("save order tax", admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id));
+    // Attempt to actually send this to the kitchen printer app. If this
+    // fails (not paired, printer offline), the order still exists and
+    // shows up on the business's Orders dashboard with the failure
+    // reason — the customer still hears their order was placed, and the
+    // business follows up manually rather than the customer being told
+    // something went wrong mid-call for a problem that isn't theirs to
+    // solve.
+    const fullOrder: OrderWithItems = {
+      ...orderWithItemsRes.data,
+      items: (itemsRes.data || []).map((i) => ({ ...i, modifiers: (modifiersRes.data || []).filter((m) => m.order_item_id === i.id) })),
+    };
 
-  // Test channel: simulate a completed payment instead of touching
-  // Stripe or texting a real phone number — this is the owner's own
-  // preview chat, not a real order, so there's no payment to actually
-  // collect and no real customer number to send anything to. Still
-  // queues a real kitchen ticket if a printer's paired, so this is
-  // also the easiest way to test the printer without spending anything
-  // or having to actually call in. Reply keeps saying a payment link
-  // was texted so the preview sounds like a real call, even though
-  // nothing was actually sent.
-  if (ctx.channel === "test" || ctx.demoCaller) {
-    await saveTax;
-    await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
-    if (business.printer_app_paired_at) {
-      const queued = await queuePrintJob(fullOrder, business);
-      if (queued.success) {
-        await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
-      } else {
-        await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
+    // The tax was calculated from the subtotal computed a moment ago; the
+    // row just read must agree. If it somehow doesn't, recalculate from the
+    // row rather than charge tax on a different amount than the order holds.
+    const taxCents =
+      fullOrder.subtotal_cents === preClaimSubtotal ? await taxPromise : await calculateTaxCents(business, fullOrder.subtotal_cents);
+    const totalCents = fullOrder.subtotal_cents + taxCents;
+    fullOrder.tax_cents = taxCents;
+    fullOrder.total_cents = totalCents;
+    // Started now, awaited before each return below. soft() never throws.
+    const saveTax = soft("save order tax", admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id));
+
+    // Test channel: simulate a completed payment instead of touching
+    // Stripe or texting a real phone number — this is the owner's own
+    // preview chat, not a real order, so there's no payment to actually
+    // collect and no real customer number to send anything to. Still
+    // queues a real kitchen ticket if a printer's paired, so this is
+    // also the easiest way to test the printer without spending anything
+    // or having to actually call in. Reply keeps saying a payment link
+    // was texted so the preview sounds like a real call, even though
+    // nothing was actually sent.
+    if (ctx.channel === "test" || ctx.demoCaller) {
+      await saveTax;
+      await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
+      if (business.printer_app_paired_at) {
+        const queued = await queuePrintJob(fullOrder, business);
+        if (queued.success) {
+          await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
+        } else {
+          await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
+        }
       }
+      return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true, test_mode: true };
     }
-    return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true, test_mode: true };
-  }
 
-  // A genuinely free order (comped, 100%-off promo, a $0 item used to
-  // test the flow) — nothing to collect, so it's placed immediately
-  // with no Checkout Session and no payment link. This also covers
-  // testing the printer on a real call without Stripe connected or
-  // spending anything: price a menu item at $0 and call in.
-  if (totalCents === 0) {
-    await saveTax;
-    await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
-    if (business.printer_app_paired_at) {
-      const queued = await queuePrintJob(fullOrder, business);
-      if (queued.success) {
-        await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
-      } else {
-        await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
+    // A genuinely free order (comped, 100%-off promo, a $0 item used to
+    // test the flow) — nothing to collect, so it's placed immediately
+    // with no Checkout Session and no payment link. This also covers
+    // testing the printer on a real call without Stripe connected or
+    // spending anything: price a menu item at $0 and call in.
+    if (totalCents === 0) {
+      await saveTax;
+      await soft("mark order paid", admin.from("orders").update({ payment_status: "paid" }).eq("id", order.id));
+      if (business.printer_app_paired_at) {
+        const queued = await queuePrintJob(fullOrder, business);
+        if (queued.success) {
+          await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
+        } else {
+          await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
+        }
       }
+      const smsBody = `Order confirmed at ${business.name}! Total: $0.00. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
+      const sent = await smsClient.send(ctx.businessId, textTo, smsBody);
+      if (!sent.sent) console.error(`[tools] free-order confirmation text for order ${order.id} not sent: ${sent.reason}`);
+      return { success: true, order_id: order.id, total: 0, payment_link_sent: false, free_order: true };
     }
-    const smsBody = `Order confirmed at ${business.name}! Total: $0.00. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
-    await smsClient.send(ctx.businessId, input.phone, smsBody);
-    return { success: true, order_id: order.id, total: 0, payment_link_sent: false, free_order: true };
-  }
 
-  // Reaching here means channel === "phone" with a real, nonzero total
-  // (test and free orders already returned above), where the earlier
-  // check already guarantees this is set — this is just satisfying the
-  // type checker, not a real runtime path.
-  if (!business.stripe_connect_account_id) {
+    // Reaching here means channel === "phone" with a real, nonzero total
+    // (test and free orders already returned above), where the earlier
+    // check already guarantees this is set — this is just satisfying the
+    // type checker, not a real runtime path.
+    if (!business.stripe_connect_account_id) {
+      await saveTax;
+      await releaseClaim();
+      return { success: false, reason: "This business hasn't finished setting up phone payments yet." };
+    }
+
+    // An order never goes to the kitchen on the strength of a phone call
+    // alone: it sits at payment_status "awaiting_payment" until the
+    // customer actually pays the texted link, and only the Connect
+    // webhook (lib/billing/connectPayments.ts) triggers the kitchen print
+    // and the "payment received" text.
+    const siteUrl = getSiteUrl();
+    const checkout = await createOrderCheckoutSession({
+      connectedAccountId: business.stripe_connect_account_id,
+      orderId: order.id,
+      businessId: ctx.businessId,
+      businessName: business.name,
+      totalCents,
+      platformFeeBps: effectivePlatformFeeBps(business),
+      customerPhone: textTo,
+      successUrl: `${siteUrl}/order-confirmation?order_id=${order.id}`,
+      cancelUrl: `${siteUrl}/order-confirmation?order_id=${order.id}&cancelled=1`,
+      // Stable per order — a retry of this same turn must never create a
+      // second Checkout Session, which would be a second real charge attempt.
+      idempotencyKey: `order-checkout:${order.id}`,
+    });
+
+    if (!checkout.url || !checkout.sessionId) {
+      await saveTax;
+      await releaseClaim();
+      return { success: false, reason: PAYMENT_NOT_STARTED_REASON };
+    }
+
     await saveTax;
-    return { success: false, reason: "This business hasn't finished setting up phone payments yet." };
+    // The session id is what the payment webhook checks a payment against,
+    // so it is saved before the link goes out.
+    await soft(
+      "save checkout session",
+      admin
+        .from("orders")
+        .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId, payment_link_url: checkout.url })
+        .eq("id", order.id)
+    );
+
+    return await textPaymentLink(ctx, { orderId: order.id, url: checkout.url, totalCents, phone: textTo });
+  } catch (err) {
+    // An unexpected failure (a database or network error): undo the claim
+    // so the order can be retried, and tell the AI honestly.
+    console.error(`[tools] confirm_and_place_order failed for order ${order.id}:`, err);
+    await releaseClaim();
+    return { success: false, reason: PAYMENT_NOT_STARTED_REASON };
+  }
+}
+
+const TEXTING_NOT_READY_REASON =
+  "This restaurant can't text payment links yet (its texting registration is still being approved), and every phone order is paid through a texted link, so orders can't be taken over the phone right now. Tell the caller that plainly, and offer to connect them to the restaurant or take a message for a callback.";
+
+const PAYMENT_NOT_STARTED_REASON =
+  "The payment link couldn't be created right now, so the order has NOT been placed (it's still open and nothing was charged). Tell the caller that, and offer to try once more (call confirm_and_place_order again) or to connect them to the restaurant.";
+
+function usablePhone(phone: string | null | undefined): boolean {
+  return normalizePhoneDigits(phone || "").length >= 10;
+}
+
+function samePhone(a: string, b: string): boolean {
+  return normalizePhoneDigits(a).slice(-10) === normalizePhoneDigits(b).slice(-10);
+}
+
+function resolveTextDestination(
+  input: { phone?: string; number_confirmed?: boolean },
+  ctx: ToolContext
+): { ok: true; phone: string } | { ok: false; reason: string } {
+  const spoken = (input.phone || "").trim();
+  const callerId = ctx.channel === "phone" && usablePhone(ctx.callerPhone) ? (ctx.callerPhone as string) : null;
+
+  if (!usablePhone(spoken)) {
+    if (callerId) return { ok: true, phone: callerId };
+    if (ctx.channel === "test") return { ok: true, phone: spoken || "test" };
+    return {
+      ok: false,
+      reason:
+        "The caller's number is hidden, so there's no number to text the payment link to. Ask for a mobile number, read every digit back, and once they confirm call confirm_and_place_order again with it in phone and number_confirmed: true.",
+    };
+  }
+  if (callerId && samePhone(spoken, callerId)) return { ok: true, phone: callerId };
+  if (ctx.channel === "phone" && !input.number_confirmed) {
+    const digits = normalizePhoneDigits(spoken).split("").join(" ");
+    return {
+      ok: false,
+      reason: `That isn't the number they're calling from. Before texting a different number, read it back digit by digit ("that's ${digits}, right?") and get a clear yes, then call confirm_and_place_order again with number_confirmed: true. Or leave phone out to text the number they're calling from.`,
+    };
+  }
+  return { ok: true, phone: spoken };
+}
+
+/**
+ * Texts the payment link and reports honestly whether it went out. Twilio
+ * accepting the message isn't the end: a carrier can still reject it a few
+ * seconds later, which the sms-status webhook records on the order, and
+ * the next turn's CURRENT ORDER block then tells the AI (orderState.ts).
+ */
+async function textPaymentLink(ctx: ToolContext, link: { orderId: string; url: string; totalCents: number; phone: string }): Promise<ToolResult> {
+  const admin = createAdminClient();
+  const business = ctx.context.business;
+  const body = `${business.name}: your order total is $${(link.totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${link.url} (link expires in 30 min). Msg&data rates may apply.`;
+  const statusCallback = `${getSiteUrl()}/api/webhooks/twilio/sms-status?orderId=${link.orderId}`;
+  // "sending" first: Twilio's delivery report can arrive before this
+  // function finishes, and must not be overwritten by a later "sent".
+  await soft("mark the payment text sending", admin.from("orders").update({ payment_link_sms_status: "sending", payment_link_sms_error: null, phone: link.phone }).eq("id", link.orderId));
+  const sent = await smsClient.send(ctx.businessId, link.phone, body, { statusCallback });
+
+  if (!sent.sent) {
+    await soft(
+      "record the failed payment text",
+      admin.from("orders").update({ payment_link_sms_status: "failed", payment_link_sms_error: (sent.reason || "not sent").slice(0, 300) }).eq("id", link.orderId)
+    );
+    return {
+      success: false,
+      payment_link_sent: false,
+      order_id: link.orderId,
+      total: link.totalCents / 100,
+      reason:
+        "The payment link text could NOT be sent, so the caller won't receive it and the order is not going to the kitchen. Tell them that plainly. Offer to text a different mobile number (read the digits back, then call confirm_and_place_order with it in phone and number_confirmed: true), or to connect them to the restaurant.",
+    };
   }
 
-  // An order never goes to the kitchen on the strength of a phone call
-  // alone: it sits at payment_status "awaiting_payment" until the
-  // customer actually pays the texted link, and only the Connect
-  // webhook (checkout.session.completed) triggers the kitchen print
-  // and the "confirmed" text.
-  const siteUrl = getSiteUrl();
-  const checkout = await createOrderCheckoutSession({
-    connectedAccountId: business.stripe_connect_account_id,
-    orderId: order.id,
-    businessId: ctx.businessId,
-    businessName: business.name,
-    totalCents,
-    platformFeeBps: effectivePlatformFeeBps(business),
-    customerPhone: input.phone,
-    successUrl: `${siteUrl}/order-confirmation?order_id=${order.id}`,
-    cancelUrl: `${siteUrl}/order-confirmation?order_id=${order.id}&cancelled=1`,
-    // Stable per order — a Twilio retry of this same turn (see
-    // handleTurn's dedupe check) must never create a second
-    // Checkout Session, which would be a second real charge attempt.
-    idempotencyKey: `order-checkout:${order.id}`,
-  });
+  await soft("record the payment text", admin.from("orders").update({ payment_link_sms_status: "sent" }).eq("id", link.orderId).eq("payment_link_sms_status", "sending"));
+  return { success: true, order_id: link.orderId, total: link.totalCents / 100, payment_link_sent: true };
+}
 
-  if (!checkout.url || !checkout.sessionId) {
-    // Payment couldn't even be started — do NOT tell the customer
-    // their order is placed. Fall back to the honest state: the
-    // order exists but is unpaid, and the AI's reply (built from
-    // this tool result) should say payment couldn't be started
-    // right now, not that the order is confirmed.
-    await saveTax;
-    return { success: false, reason: checkout.error || "Could not start payment for this order." };
+const BEING_PLACED_NOTE =
+  "This order is being placed by a request already in progress, and its payment link is being texted now. Tell the caller the link is on its way and the order goes to the kitchen once it's paid.";
+
+/**
+ * confirm_and_place_order found no order being built: it was already
+ * placed on this call (a repeated request, or the caller wants the link
+ * re-texted). Never a bare "already placed": the AI always gets the
+ * payment details, and a link that didn't arrive is re-sent.
+ */
+async function placedOrderFollowUp(ctx: ToolContext, textTo: string, options: { racing?: boolean } = {}): Promise<ToolResult> {
+  const admin = createAdminClient();
+  const { data: placed } = await admin
+    .from("orders")
+    .select("id, status, payment_status, payment_link_url, payment_link_sms_status, total_cents, phone")
+    .eq("call_id", ctx.callId)
+    .in("status", ["confirmed", "submitted"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (placed?.payment_status === "paid") return { success: true, already_placed: true, paid: true, order_id: placed.id, total: placed.total_cents / 100 };
+
+  if (placed?.payment_status === "awaiting_payment" && placed.payment_link_url) {
+    const lastTextFailed = placed.payment_link_sms_status === "failed" || placed.payment_link_sms_status === "undelivered";
+    const differentNumber = !placed.phone || !samePhone(placed.phone, textTo);
+    if (lastTextFailed || differentNumber) {
+      return textPaymentLink(ctx, { orderId: placed.id, url: placed.payment_link_url, totalCents: placed.total_cents, phone: textTo });
+    }
+    return { success: true, already_placed: true, payment_link_sent: true, order_id: placed.id, total: placed.total_cents / 100 };
   }
 
-  const paymentSmsBody = `${business.name}: your order total is $${(totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${checkout.url} (link expires in 30 min). Msg&data rates may apply.`;
-  // Saving the checkout session id and texting the payment link don't depend
-  // on each other, so they happen together (and after the tax figure is
-  // saved, so the two writes to this row can't interleave).
-  await saveTax;
-  await Promise.all([
-    soft("save checkout session", admin
-      .from("orders")
-      .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId })
-      .eq("id", order.id)),
-    smsClient.send(ctx.businessId, input.phone, paymentSmsBody),
-  ]);
-
-  return { success: true, order_id: order.id, total: totalCents / 100, payment_link_sent: true };
+  if (options.racing) return { success: true, already_placed: true, payment_link_sent: true, note: BEING_PLACED_NOTE };
+  return { success: false, reason: "No order to confirm — add items first." };
 }
 
 async function escalate_to_human(input: { reason: string; summary: string }, ctx: ToolContext): Promise<ToolResult> {
@@ -897,10 +1038,18 @@ export const TOOL_DEFINITIONS = [
       type: "object" as const,
       properties: {
         customer_name: { type: "string" },
-        phone: { type: "string" },
+        phone: {
+          type: "string",
+          description:
+            "Leave this out to text the payment link to the number they're calling from (the normal case). Fill it in only when the caller asks for a different number, or their number is hidden.",
+        },
+        number_confirmed: {
+          type: "boolean",
+          description: "true only after you read a different number back digit by digit and the caller said it's right.",
+        },
         special_instructions: { type: "string" },
       },
-      required: ["customer_name", "phone"],
+      required: ["customer_name"],
     },
   },
   { name: "escalate_to_human", description: "Hand this call to the restaurant staff. Use for refunds, complaints, requests to change or cancel an order that was ALREADY placed (it may already be cooking), and anything you can't resolve. While the restaurant is open the system rings its phone live; if closed or nobody answers it is logged for a callback.", input_schema: { type: "object" as const, properties: { reason: { type: "string" }, summary: { type: "string" } }, required: ["reason", "summary"] } },

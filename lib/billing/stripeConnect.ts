@@ -176,7 +176,10 @@ export async function createOrderCheckoutSession(input: OrderCheckoutInput): Pro
         expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
         metadata: { order_id: input.orderId, business_id: input.businessId, ...input.extraMetadata },
       },
-      { stripeAccount: input.connectedAccountId, idempotencyKey: input.idempotencyKey }
+      // Created while the caller waits on the phone: one short try, never
+      // Stripe's 80-second default. The idempotency key makes a later
+      // retry return this same session if this one did go through.
+      { stripeAccount: input.connectedAccountId, idempotencyKey: input.idempotencyKey, timeout: 5000, maxNetworkRetries: 0 }
     );
     return { sessionId: session.id, url: session.url };
   } catch (err) {

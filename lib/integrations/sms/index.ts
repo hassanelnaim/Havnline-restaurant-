@@ -2,11 +2,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendSms as twilioSendSms, isTwilioConfigured } from "@/lib/integrations/telephony/twilioProvider";
 
 export interface SmsClientLike {
-  send(businessId: string, to: string, message: string): Promise<{ sent: boolean; reason?: string }>;
+  send(businessId: string, to: string, message: string, options?: { statusCallback?: string }): Promise<{ sent: boolean; sid?: string; reason?: string }>;
 }
 
 class TwilioBackedSmsClient implements SmsClientLike {
-  async send(businessId: string, to: string, message: string) {
+  async send(businessId: string, to: string, message: string, options: { statusCallback?: string } = {}) {
     if (!isTwilioConfigured()) {
       console.log(`[sms-stub] business=${businessId} to=${to} message="${message}"`);
       return { sent: false, reason: "Twilio not configured." };
@@ -31,7 +31,7 @@ class TwilioBackedSmsClient implements SmsClientLike {
     }
 
     const creds = subAccountSid && subAccountAuthToken ? { accountSid: subAccountSid, authToken: subAccountAuthToken } : null;
-    return twilioSendSms(creds, to, fromNumber, message);
+    return twilioSendSms(creds, to, fromNumber, message, options);
   }
 }
 

@@ -20,6 +20,26 @@ import { dbErrorResult } from "@/lib/errors";
 
 const PAIRING_CODE_TTL_MINUTES = 15;
 
+/**
+ * How long a print job stays "claimed" by the tablet before it can be
+ * handed out again. Well above the tablet's 4 s poll plus its 8 s printer
+ * timeout, so a ticket still printing is never handed out twice, but short
+ * enough that a job orphaned by a crashed tablet comes back on its own.
+ */
+export const PRINT_CLAIM_TIMEOUT_MS = 20_000;
+
+/**
+ * A ticket the printer couldn't take (off, out of paper, unplugged) is
+ * tried again this many times in all, waiting longer each time, before
+ * it's marked failed for good and the owner is emailed.
+ */
+export const MAX_PRINT_ATTEMPTS = 4;
+const PRINT_RETRY_DELAYS_MS = [30_000, 60_000, 120_000];
+
+export function printRetryDelayMs(attemptsSoFar: number): number {
+  return PRINT_RETRY_DELAYS_MS[Math.min(attemptsSoFar - 1, PRINT_RETRY_DELAYS_MS.length - 1)] ?? 120_000;
+}
+
 function randomCode(length = 8): string {
   // Digits only — easiest thing to read off a screen and type on a
   // tablet's on-screen keyboard, and avoids ambiguous letters (0/O, 1/I)
@@ -168,41 +188,57 @@ export function buildTicketText(order: OrderWithItems, business: Pick<DbBusiness
 export interface QueuePrintJobResult {
   success: boolean;
   error?: string;
+  /** This ticket was already queued earlier (a repeated webhook, a double click); nothing new was added. */
+  alreadyQueued?: boolean;
+}
+
+interface PrintJobKey {
+  kind: "order" | "addendum";
+  /** For a paid tablet add-on: one ticket per add-on charge. */
+  addendumId?: string | null;
 }
 
 /**
- * The actual DB write shared by every kind of print job this app
- * queues — a full order ticket (queuePrintJob) or a Phase 4 addendum
- * ticket (queueAddendumPrintJob) alike. Pulled out on its own so
- * neither caller has to know printer_print_jobs's column names.
+ * Queues a kitchen ticket. Each order gets ONE order ticket, and each paid
+ * add-on charge one add-on ticket (unique indexes, migration 033), so a
+ * repeated Stripe webhook or a double-clicked Retry can never print the
+ * same order twice: the second insert is refused by the database and
+ * reported back as alreadyQueued.
  */
-async function insertPrintJob(businessId: string, orderId: string, ticketText: string): Promise<QueuePrintJobResult> {
+async function insertPrintJob(businessId: string, orderId: string, ticketText: string, key: PrintJobKey): Promise<QueuePrintJobResult> {
   const admin = createAdminClient();
-  const { error } = await admin.from("printer_print_jobs").insert({ business_id: businessId, order_id: orderId, ticket_text: ticketText });
-  if (error) return dbErrorResult(error, "insertPrintJob", "Could not queue the print job.");
+  const { error } = await admin
+    .from("printer_print_jobs")
+    .insert({ business_id: businessId, order_id: orderId, ticket_text: ticketText, kind: key.kind, addendum_id: key.addendumId ?? null });
+  if (error) {
+    if ((error as { code?: string }).code === "23505") return { success: true, alreadyQueued: true };
+    return dbErrorResult(error, "insertPrintJob", "Could not queue the print job.");
+  }
   return { success: true };
 }
 
-/**
- * Queues a confirmed order for the paired tablet to pick up on its
- * next poll. Called from confirm_and_place_order in lib/ai/tools.ts
- * whenever a business has a paired printer tablet.
- */
 export async function queuePrintJob(order: OrderWithItems, business: Pick<DbBusiness, "name">): Promise<QueuePrintJobResult> {
   const ticketText = buildTicketText(order, business);
-  return insertPrintJob(order.business_id, order.id, ticketText);
+  return insertPrintJob(order.business_id, order.id, ticketText, { kind: "order" });
 }
 
-// --------------------------------------------------------------------------
-// Addendum tickets (Phase 4 of the tablet redesign — "Add Items"). A
-// staff member adding an item to an already-placed order, comped or
-// paid via a customer-scanned QR code, should never trigger a full
-// kitchen reprint of the whole order (re-cooking/re-plating items
-// already made) — just a small ticket for what's NEW. See
-// app/api/printer-app/today-orders/[id]/items (comp, inserted
-// immediately) and the Connect webhook's addendum_id branch (charge,
-// inserted once Stripe confirms payment).
-// --------------------------------------------------------------------------
+/**
+ * Prints an order's ticket again on purpose (the dashboard's Retry button):
+ * puts the existing ticket back in the queue, or queues one if there was
+ * none. Never adds a second pending ticket for the same order.
+ */
+export async function requeueOrderPrintJob(order: OrderWithItems, business: Pick<DbBusiness, "name">): Promise<QueuePrintJobResult> {
+  const admin = createAdminClient();
+  const { data: existing } = await admin.from("printer_print_jobs").select("id, status").eq("order_id", order.id).eq("kind", "order").maybeSingle();
+  if (!existing) return queuePrintJob(order, business);
+  if (existing.status === "pending") return { success: true, alreadyQueued: true };
+  const { error } = await admin
+    .from("printer_print_jobs")
+    .update({ status: "pending", claimed_at: null, error: null, attempts: 0, ticket_text: buildTicketText(order, business) })
+    .eq("id", existing.id);
+  if (error) return dbErrorResult(error, "requeueOrderPrintJob", "Could not queue the print job.");
+  return { success: true };
+}
 
 export interface AddendumTicketItem {
   item_name: string;
@@ -233,8 +269,9 @@ export async function queueAddendumPrintJob(
   business: Pick<DbBusiness, "name">,
   items: AddendumTicketItem[],
   amountCents: number,
-  paid: boolean
+  paid: boolean,
+  addendumId: string | null = null
 ): Promise<QueuePrintJobResult> {
   const ticketText = buildAddendumTicketText({ id: orderId }, business, items, amountCents, paid);
-  return insertPrintJob(businessId, orderId, ticketText);
+  return insertPrintJob(businessId, orderId, ticketText, { kind: "addendum", addendumId });
 }

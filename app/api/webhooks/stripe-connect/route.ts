@@ -2,12 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { queuePrintJob, queueAddendumPrintJob } from "@/lib/integrations/printer-app";
-import { insertOrderItems, recomputeRealOrderTotals } from "@/lib/billing/orderItemAddition";
-import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
-import { smsClient } from "@/lib/integrations/sms";
+import { handleOrderPaid, handleAddendumPaid } from "@/lib/billing/connectPayments";
 import { sendPaymentsLiveEmail, sendPaymentsDisconnectedEmail } from "@/lib/notifications/account-email";
-import type { OrderWithItems } from "@/lib/database/types";
 
 /**
  * POST /api/webhooks/stripe-connect
@@ -49,112 +45,15 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
-      case "checkout.session.completed": {
+      // A customer paid a phone order's (or a tablet add-on's) checkout
+      // link. All the checks and the exactly-once handling live in
+      // lib/billing/connectPayments.ts. async_payment_succeeded is the same
+      // moment for delayed payment methods.
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
         const session = event.data.object as Stripe.Checkout.Session;
-
-        // Phase 4 of the tablet redesign: a QR item-addition charge is
-        // its OWN, much smaller Checkout Session, not the original
-        // order's — checked first, via addendum_id, so it's never
-        // mistaken for the order-level session order_id also carries.
-        const addendumId = session.metadata?.addendum_id;
-        if (addendumId) {
-          const { data: addendum } = await admin.from("order_addendum_charges").select("*").eq("id", addendumId).single();
-          if (!addendum) {
-            console.warn(`checkout.session.completed (${event.id}): addendum ${addendumId} not found.`);
-            break;
-          }
-          // Idempotency, same reasoning as the order-level branch below
-          // — Stripe can and does redeliver webhook events, and this
-          // must never insert the same pending items twice.
-          if (addendum.status === "paid") break;
-
-          const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-          const pendingItems = (addendum.items as PendingAddendumItem[]) || [];
-
-          const inserted = await insertOrderItems(addendum.order_id, pendingItems);
-          if (!inserted.success) {
-            console.error(`checkout.session.completed (${event.id}): could not insert addendum ${addendumId} items: ${inserted.error}`);
-            break;
-          }
-
-          const { data: business } = await admin.from("businesses").select("*").eq("id", addendum.business_id).single();
-          // Re-derived fresh from every item now on the order (original
-          // plus this addition), the same approach confirm_and_place_order
-          // uses, rather than adding a tax delta on top of the stored total.
-          await recomputeRealOrderTotals(addendum.order_id, business || { address_city: null, address_state: null, address_zip: null });
-
-          await admin
-            .from("order_addendum_charges")
-            .update({ status: "paid", stripe_payment_intent_id: paymentIntentId || null, paid_at: new Date().toISOString() })
-            .eq("id", addendumId);
-
-          if (business?.printer_app_paired_at) {
-            await queueAddendumPrintJob(
-              addendum.business_id,
-              addendum.order_id,
-              business,
-              pendingItems.map((item) => ({ item_name: item.itemName, quantity: item.quantity, notes: item.notes, modifiers: item.modifiers.map((m) => ({ modifier_name: m.modifierName })) })),
-              addendum.amount_cents,
-              true
-            );
-          }
-          break;
-        }
-
-        const orderId = session.metadata?.order_id;
-        if (!orderId) {
-          console.warn(`checkout.session.completed (${event.id}): no order_id in metadata — ignoring.`);
-          break;
-        }
-
-        const { data: order } = await admin.from("orders").select("*").eq("id", orderId).single();
-        if (!order) {
-          console.warn(`checkout.session.completed (${event.id}): order ${orderId} not found.`);
-          break;
-        }
-        // Idempotency: Stripe can and does redeliver webhook events.
-        // If this order is already paid, the kitchen already has the
-        // ticket and the customer already got the confirmation text —
-        // redoing either would be a duplicate print / duplicate text.
-        if (order.payment_status === "paid") break;
-
-        const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-
-        await admin
-          .from("orders")
-          .update({ payment_status: "paid", stripe_payment_intent_id: paymentIntentId || null })
-          .eq("id", orderId);
-
-        const { data: business } = await admin.from("businesses").select("*").eq("id", order.business_id).single();
-        const { data: items } = await admin.from("order_items").select("*").eq("order_id", orderId);
-        const itemIds = (items || []).map((i) => i.id);
-        const { data: modifiers } = itemIds.length
-          ? await admin.from("order_item_modifiers").select("*").in("order_item_id", itemIds)
-          : { data: [] };
-
-        const fullOrder: OrderWithItems = {
-          ...order,
-          payment_status: "paid",
-          items: (items || []).map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
-        };
-
-        if (business?.printer_app_paired_at) {
-          const queued = await queuePrintJob(fullOrder, business);
-          if (queued.success) {
-            await admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", orderId);
-          } else {
-            await admin.from("orders").update({ submit_error: queued.error }).eq("id", orderId);
-          }
-        }
-
-        if (order.call_id) {
-          await admin.from("calls").update({ outcome: "order_placed" }).eq("id", order.call_id);
-        }
-
-        if (order.phone && business) {
-          const smsBody = `Payment received at ${business.name}! Total: $${(order.total_cents / 100).toFixed(2)}. We'll have it ready for pickup soon. Msg&data rates may apply. Reply HELP for help, STOP to cancel.`;
-          await smsClient.send(order.business_id, order.phone, smsBody);
-        }
+        if (session.metadata?.addendum_id) await handleAddendumPaid(event.id, event.account, session);
+        else await handleOrderPaid(event.id, event.account, session);
         break;
       }
 
@@ -208,7 +107,7 @@ export async function POST(request: NextRequest) {
         // kinds of minor account changes) would otherwise re-send this
         // same email over and over.
         if (before && !before.stripe_connect_charges_enabled && account.charges_enabled) {
-          sendPaymentsLiveEmail(before.id).catch((err) => console.error("Payments-live email failed:", err));
+          await sendPaymentsLiveEmail(before.id).catch((err) => console.error("Payments-live email failed:", err));
         }
         break;
       }
@@ -237,7 +136,7 @@ export async function POST(request: NextRequest) {
           .eq("stripe_connect_account_id", accountId);
 
         if (before?.stripe_connect_charges_enabled) {
-          sendPaymentsDisconnectedEmail(before.id).catch((err) => console.error("Payments-disconnected email failed:", err));
+          await sendPaymentsDisconnectedEmail(before.id).catch((err) => console.error("Payments-disconnected email failed:", err));
         }
         break;
       }

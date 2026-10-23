@@ -509,8 +509,10 @@ export async function updateNotificationPreferencesAction(prefs: NotificationPre
   const businessId = await getCurrentBusinessId();
   if (!businessId) return { success: false, error: "Not authenticated." };
 
-  const supabase = createClient();
-  const { error } = await supabase.from("businesses").update({ notification_preferences: prefs }).eq("id", businessId);
+  // Written with the server's own client: signed-in users can no longer
+  // write to the businesses table directly (migration 032).
+  const admin = createAdminClient();
+  const { error } = await admin.from("businesses").update({ notification_preferences: prefs }).eq("id", businessId);
   if (error) return dbErrorResult(error, "updateNotificationPreferencesAction", "Could not save your notification preferences.");
 
   revalidatePath("/dashboard/settings");

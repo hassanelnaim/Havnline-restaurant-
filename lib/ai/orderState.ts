@@ -84,7 +84,7 @@ function describeLine(line: OrderLine): string {
 
 export type CurrentOrder =
   | { status: "ok"; order: OrderSnapshot }
-  | { status: "none" }
+  | { status: "none"; paymentTextFailed?: boolean }
   | { status: "error" };
 
 /**
@@ -95,6 +95,9 @@ export type CurrentOrder =
 export function formatOrderStateBlock(current: CurrentOrder): string {
   if (current.status === "error") {
     return "CURRENT ORDER: it could not be loaded this turn. Call get_current_order to see what is on the order before you say anything about it or add anything to it.";
+  }
+  if (current.status === "none" && current.paymentTextFailed) {
+    return "CURRENT ORDER: the order was placed earlier in this call, but the PAYMENT LINK TEXT DID NOT REACH THE CUSTOMER (their phone carrier rejected it). Tell the caller this right away, in plain words. Offer to text the link to a different mobile number (read the digits back, then call confirm_and_place_order with that number in phone), or to connect them to the restaurant. Until they pay a link they actually received, the order is not going to the kitchen.";
   }
   if (current.status === "none" || current.order.items.length === 0) {
     return "CURRENT ORDER (read live from the database): no order is being built right now, so there is nothing on it. (An order placed earlier in this call is no longer here — it can't be changed from this conversation.)";
@@ -123,7 +126,22 @@ export async function loadCurrentOrder(callId: string): Promise<CurrentOrder> {
       .eq("status", "building")
       .maybeSingle();
     if (orderError) return { status: "error" };
-    if (!order) return { status: "none" };
+    if (!order) {
+      // Nothing being built. If an order was placed on this call and its
+      // payment-link text bounced (Twilio's delivery report, see the
+      // sms-status webhook), the caller has to hear that while still on
+      // the line.
+      const { data: placed } = await admin
+        .from("orders")
+        .select("payment_link_sms_status")
+        .eq("call_id", callId)
+        .eq("status", "confirmed")
+        .eq("payment_status", "awaiting_payment")
+        .in("payment_link_sms_status", ["undelivered", "failed"])
+        .limit(1)
+        .maybeSingle();
+      return placed ? { status: "none", paymentTextFailed: true } : { status: "none" };
+    }
 
     const { data: items, error: itemsError } = await admin
       .from("order_items")

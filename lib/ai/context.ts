@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { safeTimezone } from "@/lib/business/timezone";
+import { addDaysToDateKey } from "@/lib/business/hours";
 import { getVoiceConfigForCall } from "@/lib/ai/voiceSelection";
 import type {
   DbBusinessClosure,
@@ -15,8 +16,15 @@ export interface BusinessContext {
   voice: Pick<DbAiVoiceConfig, "voice_id" | "provider_voice_ref"> | null;
   knowledge: DbKnowledgeItem[];
   activePromotions: DbPromotion[];
-  /** Holiday closures from today onward (migration 031). Optional so older callers/tests still type-check. */
+  /** Holiday closures from YESTERDAY onward (migration 031): yesterday's matters for hours that run past midnight. Optional so older callers/tests still type-check. */
   closures?: DbBusinessClosure[];
+  /**
+   * Whether this business's texting (A2P registration) has been approved,
+   * so payment links can actually reach customers. Set by the platform
+   * admin (integrations row provider "sms", status "connected"). Absent in
+   * older callers/tests = treated as approved.
+   */
+  textingApproved?: boolean;
 }
 
 /** The local dates the business is closed, for the open/closed checks in lib/business/hours.ts. */
@@ -95,7 +103,7 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
   // "today" in the business's own timezone; the exact local filter is below.
   const closuresFrom = new Date(Date.now() - 36 * 3600_000).toISOString().slice(0, 10);
 
-  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voice, knowledgeRes, promotionsRes, closuresRes, categoriesRes] = await Promise.all([
+  const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voice, knowledgeRes, promotionsRes, closuresRes, categoriesRes, smsRes] = await Promise.all([
     admin.from("businesses").select("*").eq("id", businessId).single(),
     admin.from("business_hours").select("*").eq("business_id", businessId),
     admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
@@ -108,6 +116,7 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
     admin.from("promotions").select("*").eq("business_id", businessId).eq("is_active", true),
     admin.from("business_closures").select("*").eq("business_id", businessId).gte("closed_on", closuresFrom).order("closed_on").limit(60),
     admin.from("menu_categories").select("id, name, sort_order").eq("business_id", businessId),
+    admin.from("integrations").select("status").eq("business_id", businessId).eq("provider", "sms").maybeSingle(),
   ]);
 
   if (businessRes.error || !businessRes.data) return null;
@@ -164,7 +173,10 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
   // A failed closures read (e.g. migration 031 not applied yet) must not
   // take the phone line down: the business just has no closures.
   if (closuresRes.error) console.error(`[context] could not load closures for ${businessId}:`, closuresRes.error.message);
-  const closures = ((closuresRes.error ? [] : closuresRes.data) || []).filter((c) => c.closed_on >= todayInBusinessTz) as DbBusinessClosure[];
+  // From yesterday on: a holiday closure yesterday also covers the part of
+  // yesterday's hours that runs past midnight into today.
+  const yesterdayInBusinessTz = addDaysToDateKey(todayInBusinessTz, -1);
+  const closures = ((closuresRes.error ? [] : closuresRes.data) || []).filter((c) => c.closed_on >= yesterdayInBusinessTz) as DbBusinessClosure[];
 
   return {
     business,
@@ -175,6 +187,7 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
     knowledge: knowledgeRes.data || [],
     activePromotions,
     closures,
+    textingApproved: smsRes.data?.status === "connected",
   };
 }
 

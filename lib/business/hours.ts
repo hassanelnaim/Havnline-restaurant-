@@ -64,40 +64,60 @@ export function formatTimeForSpeech(time: string): string {
  * blocking every order for a business that simply hasn't filled in
  * its hours yet would be a footgun, not a real safeguard.
  */
-export function isBusinessOpenNow(business: Pick<DbBusiness, "timezone">, hours: DbBusinessHours[], closedDates: readonly string[] = []): boolean {
-  // A holiday closure (migration 031) shuts the whole local calendar day,
-  // whatever the weekly hours say.
-  if (closedDates.length > 0 && closedDates.includes(localDateKeyNow(business.timezone))) return false;
-  if (hours.length === 0) return true;
+export function isBusinessOpenNow(
+  business: Pick<DbBusiness, "timezone">,
+  hours: DbBusinessHours[],
+  closedDates: readonly string[] = [],
+  now: Date = new Date()
+): boolean {
+  const todayKey = localDateKeyNow(business.timezone, now);
+  if (hours.length === 0) return !closedDates.includes(todayKey);
 
-  const currentWeekday = new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, weekday: "long" })
-    .format(new Date())
-    .toLowerCase();
   const currentTimeStr = new Intl.DateTimeFormat("en-GB", {
     timeZone: business.timezone,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date());
+  }).format(now);
+  const yesterdayKey = addDaysToDateKey(todayKey, -1);
+  const rowFor = (dateKey: string) => hours.find((h) => h.weekday === weekdayOfDateKey(dateKey));
 
-  const todayHours = hours.find((h) => h.weekday === currentWeekday);
-  if (!todayHours?.is_open || !todayHours.open_time || !todayHours.close_time) return false;
+  // Today's own hours. A holiday closure (migration 031) shuts today's
+  // hours whatever the weekly schedule says.
+  const today = rowFor(todayKey);
+  if (!closedDates.includes(todayKey) && today?.is_open && today.open_time && today.close_time) {
+    const openTime = today.open_time.slice(0, 5);
+    const closeTime = today.close_time.slice(0, 5);
+    // Equal open/close time (e.g. 7:00 AM to 7:00 AM) is the convention
+    // for "open 24 hours".
+    if (openTime === closeTime) return true;
+    if (openTime < closeTime) {
+      if (currentTimeStr >= openTime && currentTimeStr <= closeTime) return true;
+    } else if (currentTimeStr >= openTime) {
+      // Hours that run past midnight (10 PM to 2 AM): today's part is from
+      // opening until midnight. The part after midnight belongs to today's
+      // row only tomorrow, as "yesterday's" hours (below).
+      return true;
+    }
+  }
 
-  const openTime = todayHours.open_time.slice(0, 5);
-  const closeTime = todayHours.close_time.slice(0, 5);
+  // Yesterday's hours that ran past midnight: Friday 10 AM to 2 AM still
+  // covers 1 AM Saturday, even when Saturday itself is closed. Not if
+  // yesterday was a holiday closure. (This used to be checked against
+  // today's row instead, so 1 AM Saturday looked closed, and 1 AM Friday
+  // looked open even after a closed Thursday.)
+  const yesterday = rowFor(yesterdayKey);
+  if (!closedDates.includes(yesterdayKey) && yesterday?.is_open && yesterday.open_time && yesterday.close_time) {
+    const openTime = yesterday.open_time.slice(0, 5);
+    const closeTime = yesterday.close_time.slice(0, 5);
+    if (closeTime < openTime && currentTimeStr < closeTime) return true;
+  }
 
-  // Equal open/close time (e.g. 7:00 AM to 7:00 AM) is the convention
-  // for "open 24 hours" — the plain range check below would otherwise
-  // only ever match the single instant equal to that time, which is
-  // exactly backwards from what setting the same time for both fields
-  // is meant to express.
-  if (openTime === closeTime) return true;
+  return false;
+}
 
-  // Same overnight-wrap handling as effectivePriceCents
-  // (lib/business/pricing.ts) — e.g. 10 PM to 2 AM wraps past
-  // midnight, so a close time earlier than the open time doesn't mean
-  // "already closed," it means "still open until that time tomorrow."
-  return openTime <= closeTime ? currentTimeStr >= openTime && currentTimeStr <= closeTime : currentTimeStr >= openTime || currentTimeStr <= closeTime;
+function weekdayOfDateKey(dateKey: string): Weekday {
+  return WEEKDAY_SEQUENCE[new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
 }
 
 /**

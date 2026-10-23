@@ -175,16 +175,20 @@ export async function sendSms(
   subAccountCreds: TwilioCredentials | null,
   to: string,
   from: string,
-  body: string
-): Promise<{ sent: boolean; reason?: string }> {
+  body: string,
+  options: { statusCallback?: string } = {}
+): Promise<{ sent: boolean; sid?: string; reason?: string }> {
   const client = getClient(subAccountCreds);
   if (!client) {
     console.log(`[twilio-sms-stub] to=${to} body="${body}"`);
     return { sent: false, reason: "Twilio not configured (logged instead)." };
   }
   try {
-    await client.messages.create({ to, from, body });
-    return { sent: true };
+    // "Accepted" is not "delivered": a carrier can still reject the text a
+    // few seconds later (an unregistered A2P sender, a landline). Callers
+    // that need to know pass a statusCallback to hear the final outcome.
+    const message = await client.messages.create({ to, from, body, ...(options.statusCallback ? { statusCallback: options.statusCallback } : {}) });
+    return { sent: true, sid: message.sid };
   } catch (err) {
     console.error("Twilio SMS send failed:", err);
     return { sent: false, reason: err instanceof Error ? err.message : "Unknown error" };
