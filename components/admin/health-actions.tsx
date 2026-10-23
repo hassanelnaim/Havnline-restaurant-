@@ -46,7 +46,17 @@ export function RunJobButton({ job }: { job: CronJob }) {
   const { pending, result, run } = useAction();
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => runJobNowAction(job))}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        onClick={(e) => {
+          // The button sits on a row that opens and closes; don't toggle it.
+          e.preventDefault();
+          e.stopPropagation();
+          run(() => runJobNowAction(job));
+        }}
+      >
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
         {pending ? "Running…" : "Run now"}
       </Button>

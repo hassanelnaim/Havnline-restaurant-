@@ -1,10 +1,9 @@
 import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
-import { getHealthReport, healthCounts } from "@/lib/admin/health";
+import { getHealthReport } from "@/lib/admin/health";
 import { ADMIN_TIMEZONE } from "@/lib/admin/overview";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
 import { HealthView } from "@/components/admin/health-view";
-import { HealthSummary } from "@/components/admin/health-summary";
 
 export const dynamic = "force-dynamic";
 // "Run now" on the weekly digest can take up to 45 seconds.
@@ -28,9 +27,6 @@ export default async function AdminHealthPage() {
   return (
     <div>
       <AutoRefresh />
-      <h1 className="font-display text-[24px] font-semibold text-ink">Health</h1>
-      <p className="mt-1 text-[13.5px] text-text-muted">Background jobs, anything stuck that needs a person, alerts, and setup. Refreshes every minute.</p>
-      <HealthSummary counts={healthCounts(report)} />
       <HealthView report={report} now={now} timeZone={ADMIN_TIMEZONE} />
     </div>
   );
