@@ -327,7 +327,7 @@ export interface SetupCheck {
 const REQUIRED_ENV: { name: string; what: string }[] = [
   { name: "NEXT_PUBLIC_SUPABASE_URL", what: "Database address" },
   { name: "SUPABASE_SERVICE_ROLE_KEY", what: "Database server key" },
-  { name: "NEXT_PUBLIC_APP_URL", what: "Public site address, used in links and webhooks" },
+  { name: "NEXT_PUBLIC_SITE_URL", what: "Your site address. Twilio sends every call here" },
   { name: "ANTHROPIC_API_KEY", what: "The AI" },
   { name: "ELEVENLABS_API_KEY", what: "The voice" },
   { name: "TWILIO_ACCOUNT_SID", what: "Phone numbers" },
@@ -370,6 +370,15 @@ export async function getSetupChecks(): Promise<SetupCheck[]> {
     label: "SIGNING_SECRET",
     state: process.env.SIGNING_SECRET ? "ok" : "warn",
     detail: process.env.SIGNING_SECRET ? "Signs call links." : "Optional. Call links are signed with the database server key instead, so rotating that key also breaks calls in progress.",
+  });
+  checks.push({
+    id: "env:NEXT_PUBLIC_APP_URL",
+    group: "Keys",
+    label: "NEXT_PUBLIC_APP_URL",
+    state: process.env.NEXT_PUBLIC_APP_URL ? "ok" : "warn",
+    detail: process.env.NEXT_PUBLIC_APP_URL
+      ? "Address used for the links in emails."
+      : "Optional. Links in emails point to https://havnline.com without it.",
   });
   if (process.env.DEMO_CALLER_NUMBERS) {
     checks.push({ id: "env:DEMO_CALLER_NUMBERS", group: "Keys", label: "DEMO_CALLER_NUMBERS", state: "warn", detail: "Set in this environment. Remove it in production." });
