@@ -1,4 +1,5 @@
 import { handleTurn } from "@/lib/ai/receptionist";
+import { withCallKey } from "@/lib/ai/callUrlKey";
 import { buildTurnResponseTwiml, errorFallbackTwiml, sayLine, twiml, escapeXml, type VoiceSelection } from "@/lib/ai/twimlHelpers";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { getSiteUrl } from "@/lib/env";
@@ -57,7 +58,7 @@ export async function runPhoneTurn(input: {
   }
 
   timer.set("deadline", "redirected");
-  const waitUrl = `${SITE_URL}/api/webhooks/twilio/turn-wait?callId=${callId}&seq=${seq}&n=1`;
+  const waitUrl = withCallKey(`${SITE_URL}/api/webhooks/twilio/turn-wait?callId=${callId}&seq=${seq}&n=1`, callId);
   return twiml(`<Response>
   ${sayLine(voice, "Just a moment.", businessId)}
   <Redirect method="POST">${escapeXml(waitUrl)}</Redirect>

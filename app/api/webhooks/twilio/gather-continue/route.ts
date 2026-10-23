@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasValidCallKey } from "@/lib/ai/callUrlKey";
 import { readSpeech } from "@/lib/ai/speechHandoff";
 import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
@@ -27,6 +28,8 @@ const SITE_URL = getSiteUrl();
 export async function POST(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
   if (!callId) return new NextResponse("Missing callId", { status: 400 });
+  // Checked before anything touches the database (lib/ai/callUrlKey.ts).
+  if (!hasValidCallKey(request.nextUrl, callId)) return new NextResponse("Invalid link", { status: 403 });
   const original = (await readSpeech(callId, request.nextUrl.searchParams.get("h"))) ?? request.nextUrl.searchParams.get("original") ?? "";
 
   const timer = createTimer("gather-continue", { call: shortId(callId) });

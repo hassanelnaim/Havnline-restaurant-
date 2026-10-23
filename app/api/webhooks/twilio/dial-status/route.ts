@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasValidCallKey } from "@/lib/ai/callUrlKey";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { getVoiceSelectionForCall } from "@/lib/ai/voiceSelection";
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest) {
 async function handle(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
   if (!callId) return new NextResponse("Missing callId", { status: 400 });
+  // Checked before anything touches the database (lib/ai/callUrlKey.ts).
+  if (!hasValidCallKey(request.nextUrl, callId)) return new NextResponse("Invalid link", { status: 403 });
 
   const formData = await request.formData();
   const params: Record<string, string> = {};

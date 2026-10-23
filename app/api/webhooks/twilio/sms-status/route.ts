@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasValidCallKey } from "@/lib/ai/callUrlKey";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBusinessTwilioAuthToken } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
@@ -27,6 +28,7 @@ const RANK: Record<string, number> = { sending: 0, queued: 1, accepted: 1, sent:
 export async function POST(request: NextRequest) {
   const orderId = request.nextUrl.searchParams.get("orderId");
   if (!orderId) return new NextResponse("Missing orderId", { status: 400 });
+  if (!hasValidCallKey(request.nextUrl, orderId)) return new NextResponse("Invalid link", { status: 403 });
 
   const formData = await request.formData();
   const params: Record<string, string> = {};

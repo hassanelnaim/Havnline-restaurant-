@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withCallKey, hasValidCallKey } from "@/lib/ai/callUrlKey";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml } from "@/lib/ai/twimlHelpers";
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
   const seq = Number(request.nextUrl.searchParams.get("seq"));
   const n = Number(request.nextUrl.searchParams.get("n") || "1");
   if (!callId || !Number.isInteger(seq) || seq < 0) return new NextResponse("Missing callId or seq", { status: 400 });
+  if (!hasValidCallKey(request.nextUrl, callId)) return new NextResponse("Invalid link", { status: 403 });
 
   const formData = await request.formData();
   const params: Record<string, string> = {};
@@ -41,7 +43,7 @@ export async function POST(request: NextRequest) {
   if (stored) return buildTurnResponseTwiml(call.business_id, callId, stored, voice);
 
   if (n < MAX_WAITS) {
-    const next = `${SITE_URL}/api/webhooks/twilio/turn-wait?callId=${callId}&seq=${seq}&n=${n + 1}`;
+    const next = withCallKey(`${SITE_URL}/api/webhooks/twilio/turn-wait?callId=${callId}&seq=${seq}&n=${n + 1}`, callId);
     return twiml(`<Response>
   ${sayLine(voice, "Thanks for waiting, almost there.", call.business_id)}
   <Redirect method="POST">${escapeXml(next)}</Redirect>

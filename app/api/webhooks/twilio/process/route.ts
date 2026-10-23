@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasValidCallKey } from "@/lib/ai/callUrlKey";
 import { readSpeech } from "@/lib/ai/speechHandoff";
 import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
@@ -28,6 +29,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const callId = request.nextUrl.searchParams.get("callId");
   if (!callId) return new NextResponse("Missing callId", { status: 400 });
+  // Checked before anything touches the database (lib/ai/callUrlKey.ts).
+  if (!hasValidCallKey(request.nextUrl, callId)) return new NextResponse("Invalid link", { status: 403 });
   // The caller's words: stored by /gather and passed as an id (h=), or in
   // the URL itself only if storing them failed (see speechHandoff.ts).
   const speechResult = (await readSpeech(callId, request.nextUrl.searchParams.get("h"))) ?? request.nextUrl.searchParams.get("speech");

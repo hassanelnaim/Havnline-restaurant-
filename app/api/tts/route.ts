@@ -4,7 +4,7 @@ import { synthesizeSpeech, resolveElevenLabsVoiceId, getTtsMode, TtsError } from
 import { tripTtsCircuit } from "@/lib/integrations/telephony/ttsCircuit";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { logElevenLabsUsage } from "@/lib/usage/tracking";
-import { verifyTtsParams } from "@/lib/integrations/telephony/ttsSigning";
+import { verifyTtsParams, openTtsText } from "@/lib/integrations/telephony/ttsSigning";
 import { getCachedTts, storeCachedTts } from "@/lib/integrations/telephony/ttsCache";
 import { isCacheableTtsLine } from "@/lib/ai/twimlHelpers";
 import type { VoiceId } from "@/lib/database/types";
@@ -15,23 +15,29 @@ import type { VoiceId } from "@/lib/database/types";
 const MAX_TEXT_LENGTH = 2000;
 
 export async function GET(request: NextRequest) {
-  const text = request.nextUrl.searchParams.get("text");
+  // t = the line's words, encrypted (lib/ai/twimlHelpers.ts sayLine);
+  // text = the older readable form, still accepted for URLs issued before.
+  const sealed = request.nextUrl.searchParams.get("t");
+  const signedText = sealed ?? request.nextUrl.searchParams.get("text");
   const voiceId = request.nextUrl.searchParams.get("voiceId") as VoiceId | null;
   const providerVoiceRef = request.nextUrl.searchParams.get("providerVoiceRef");
   const businessId = request.nextUrl.searchParams.get("businessId");
   const exp = Number(request.nextUrl.searchParams.get("exp"));
   const sig = request.nextUrl.searchParams.get("sig");
 
-  if (!text) return new NextResponse("Missing text", { status: 400 });
-  if (text.length > MAX_TEXT_LENGTH) return new NextResponse("Text too long", { status: 400 });
+  if (!signedText) return new NextResponse("Missing text", { status: 400 });
 
   // Twilio's <Play> can't send an auth header, so this URL is the only
   // thing standing between the public internet and a real ElevenLabs
   // charge — it must have been signed by us, for these exact params,
   // and not have expired. See lib/integrations/telephony/ttsSigning.ts.
-  if (!verifyTtsParams({ text, voiceId: voiceId || "", providerVoiceRef, businessId }, exp, sig)) {
+  if (!verifyTtsParams({ text: signedText, voiceId: voiceId || "", providerVoiceRef, businessId }, exp, sig)) {
     return new NextResponse("Invalid or expired request", { status: 403 });
   }
+
+  const text = sealed ? openTtsText(sealed) : signedText;
+  if (!text) return new NextResponse("Invalid request", { status: 403 });
+  if (text.length > MAX_TEXT_LENGTH) return new NextResponse("Text too long", { status: 400 });
 
   try {
     const elevenVoiceId = resolveElevenLabsVoiceId(voiceId, providerVoiceRef);

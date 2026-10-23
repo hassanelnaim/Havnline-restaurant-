@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { withCallKey } from "@/lib/ai/callUrlKey";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider";
 import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath } from "@/lib/integrations/telephony/elevenlabsProvider";
@@ -6,7 +7,7 @@ import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isGreetingLine } from "@/lib/ai/greeting";
 import { FILLER_CATEGORIES, PLACING_ORDER_FILLERS, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller, CALL_CAP_LINE, ALREADY_ON_LINE_LINE, TURN_RETRY_LINE } from "@/lib/ai/fillers";
-import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
+import { signTtsParams, sealTtsText } from "@/lib/integrations/telephony/ttsSigning";
 import { LIVE_TRANSFER_MARKER, escalationTargetPhone, toDialableNumber } from "@/lib/ai/liveTransfer";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
 import type { VoiceId } from "@/lib/database/types";
@@ -52,7 +53,7 @@ export function gatherActionUrl(callId: string, seq?: number | null, missed?: nu
   let url = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
   if (typeof seq === "number" && Number.isFinite(seq)) url += `&seq=${seq}`;
   if (typeof missed === "number" && missed > 0) url += `&miss=${missed}`;
-  return url;
+  return withCallKey(url, callId);
 }
 
 /** How many times in a row nothing was heard (see the gather route). */
@@ -137,8 +138,11 @@ export function sayLine(voice: VoiceSelection, rawText: string, businessId?: str
   if (path === "play") {
     const voiceId = voice.voiceId || "alex_professional";
     const providerVoiceRef = voice.providerVoiceRef || undefined;
-    const { signature, expiresAt } = signTtsParams({ text, voiceId, providerVoiceRef, businessId });
-    const params = new URLSearchParams({ text, voiceId, exp: String(expiresAt), sig: signature });
+    // The words go in encrypted (t=), not readable (text=): request URLs end
+    // up in Twilio's and Vercel's logs. The signature covers the sealed form.
+    const sealed = sealTtsText(text);
+    const { signature, expiresAt } = signTtsParams({ text: sealed, voiceId, providerVoiceRef, businessId });
+    const params = new URLSearchParams({ t: sealed, voiceId, exp: String(expiresAt), sig: signature });
     if (providerVoiceRef) params.set("providerVoiceRef", providerVoiceRef);
     if (businessId) params.set("businessId", businessId);
     const ttsUrl = `${SITE_URL}/api/tts?${params.toString()}`;
@@ -187,7 +191,7 @@ export async function buildTurnResponseTwiml(
       // on this call, and lets the voice webhook spot it coming back.
       await admin.from("call_messages").insert({ call_id: callId, role: "system", content: `${LIVE_TRANSFER_MARKER} ${transferTo}` });
       const callerIdAttr = getMadeNumber ? ` callerId="${escapeXml(getMadeNumber)}"` : "";
-      const dialStatusAction = `${SITE_URL}/api/webhooks/twilio/dial-status?callId=${callId}`;
+      const dialStatusAction = withCallKey(`${SITE_URL}/api/webhooks/twilio/dial-status?callId=${callId}`, callId);
       return twiml(`<Response>
   ${sayLine(voice, "One moment while I connect you.", businessId)}
   <Dial${callerIdAttr} timeout="20" action="${escapeXml(dialStatusAction)}" method="POST">${escapeXml(transferTo)}</Dial>
@@ -269,7 +273,7 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
         .from("call_messages")
         .insert({ call_id: callId, role: "system", content: `AI turn error (recovered by re-prompting): ${err instanceof Error ? err.message : String(err)}` });
 
-      const gatherAction = `${SITE_URL}/api/webhooks/twilio/gather?callId=${callId}`;
+      const gatherAction = gatherActionUrl(callId);
       await settleWithin(ownerAlert, 1500);
       return twiml(`<Response>
   ${speechGatherOpen(gatherAction, 15, { retryOnSilence: true })}

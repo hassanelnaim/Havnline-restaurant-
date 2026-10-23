@@ -1,4 +1,4 @@
-import { createHmac, createHash, timingSafeEqual } from "crypto";
+import { createHmac, createHash, timingSafeEqual, randomBytes, createCipheriv, createDecipheriv } from "crypto";
 
 // Twilio's <Play> verb just fetches a plain URL — no way to attach a
 // header or session token the way every other route in this app is
@@ -60,4 +60,37 @@ export function verifyTtsParams(params: TtsParams, expiresAt: number, signature:
   const gotBuf = Buffer.from(signature);
   if (expectedBuf.length !== gotBuf.length) return false;
   return timingSafeEqual(expectedBuf, gotBuf);
+}
+
+/**
+ * The words of a spoken line travel to /api/tts inside the audio URL that
+ * Twilio fetches, and request URLs are logged (by Twilio and Vercel). A
+ * reply like "That's $14.99 for Jane, I'll text 313-555-0100" ended up in
+ * those logs. The text is now encrypted (AES-256-GCM) before it goes in the
+ * URL; only this server can read it back.
+ */
+function textKey(): Buffer {
+  const source = process.env.SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.TWILIO_AUTH_TOKEN;
+  if (!source) throw new Error("Cannot encrypt TTS text: no SIGNING_SECRET, SUPABASE_SERVICE_ROLE_KEY or TWILIO_AUTH_TOKEN is configured.");
+  return createHash("sha256").update(`havnline-tts-text-key:${source}`).digest();
+}
+
+export function sealTtsText(text: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", textKey(), iv);
+  const body = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64url");
+}
+
+/** null if it wasn't sealed by this server (or the key changed). */
+export function openTtsText(sealed: string): string | null {
+  try {
+    const raw = Buffer.from(sealed, "base64url");
+    if (raw.length < 29) return null;
+    const decipher = createDecipheriv("aes-256-gcm", textKey(), raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
 }

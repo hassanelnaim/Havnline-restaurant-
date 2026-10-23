@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { withCallKey } from "@/lib/ai/callUrlKey";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
@@ -883,7 +884,7 @@ async function textPaymentLink(ctx: ToolContext, link: { orderId: string; url: s
   const admin = createAdminClient();
   const business = ctx.context.business;
   const body = `${business.name}: your order total is $${(link.totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${link.url} (link expires in 30 min). Msg&data rates may apply.`;
-  const statusCallback = `${getSiteUrl()}/api/webhooks/twilio/sms-status?orderId=${link.orderId}`;
+  const statusCallback = withCallKey(`${getSiteUrl()}/api/webhooks/twilio/sms-status?orderId=${link.orderId}`, link.orderId);
   // "sending" first: Twilio's delivery report can arrive before this
   // function finishes, and must not be overwritten by a later "sent".
   await soft("mark the payment text sending", admin.from("orders").update({ payment_link_sms_status: "sending", payment_link_sms_error: null, phone: link.phone }).eq("id", link.orderId));
