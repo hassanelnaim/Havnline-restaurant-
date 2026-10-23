@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPaymentFailedEmail, sendSubscriptionCanceledEmail } from "@/lib/notifications/account-email";
+
+export const maxDuration = 60;
 
 /**
  * POST /api/webhooks/stripe
@@ -120,7 +123,7 @@ export async function POST(request: NextRequest) {
       const businessId = subscription.metadata?.business_id;
       if (businessId) {
         await admin.from("businesses").update({ subscription_status: "canceled", cancel_at_period_end: false }).eq("id", businessId);
-        sendSubscriptionCanceledEmail(businessId).catch((err) => console.error("Subscription-canceled email failed:", err));
+        runAfterResponse("subscription-canceled email", sendSubscriptionCanceledEmail(businessId));
       }
       break;
     }
@@ -136,7 +139,7 @@ export async function POST(request: NextRequest) {
           .select("id");
         const businessId = updated?.[0]?.id;
         if (businessId) {
-          sendPaymentFailedEmail(businessId).catch((err) => console.error("Payment-failed email failed:", err));
+          runAfterResponse("payment-failed email", sendPaymentFailedEmail(businessId));
         }
       }
       break;

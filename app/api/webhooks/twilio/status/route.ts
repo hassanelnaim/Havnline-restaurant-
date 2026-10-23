@@ -8,6 +8,7 @@ import { reportCallErrors } from "@/lib/monitoring/callErrorReport";
 import { settleWithin, sendPlatformAlert } from "@/lib/monitoring/platformAlert";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * POST /api/webhooks/twilio/status

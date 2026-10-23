@@ -6,6 +6,7 @@ import { getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { sendOrderAttentionEmail } from "@/lib/notifications/account-email";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * POST /api/webhooks/twilio/sms-status?orderId=...

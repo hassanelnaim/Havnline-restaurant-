@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleTurn } from "@/lib/ai/receptionist";
+import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, buildTurnResponseTwiml, getRequestUrl, errorFallbackTwiml, readSeqParam } from "@/lib/ai/twimlHelpers";
+import { twiml, getRequestUrl, readSeqParam } from "@/lib/ai/twimlHelpers";
 import { warmResponse } from "@/lib/ai/warmup";
 import { createTimer, shortId } from "@/lib/monitoring/timing";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Start-up ping sent from the voice webhook while the greeting plays (see
 // lib/ai/warmup.ts). Does no work and returns nothing.
@@ -47,12 +48,7 @@ export async function POST(request: NextRequest) {
       return new NextResponse("Invalid signature", { status: 403 });
     }
 
-    try {
-      const result = await handleTurn(call.business_id, callId, speechResult, "phone", { timer, seq: readSeqParam(request.nextUrl) });
-      return buildTurnResponseTwiml(call.business_id, callId, result, voice);
-    } catch (err) {
-      return errorFallbackTwiml(call.business_id, callId, voice, err);
-    }
+    return await runPhoneTurn({ businessId: call.business_id, callId, speech: speechResult, seq: readSeqParam(request.nextUrl), timer, voice });
   } finally {
     timer.done();
   }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ALREADY_ON_LINE_LINE } from "@/lib/ai/fillers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveBusinessFromPhoneNumber, loadBusinessContext, closedDatesOf } from "@/lib/ai/context";
 import { isBusinessOpenNow, nextOpenTimeText, localDateKeyNow } from "@/lib/business/hours";
@@ -16,6 +17,9 @@ import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { warmCallRoutes } from "@/lib/ai/warmup";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const MAX_OPEN_CALLS_PER_CALLER = 2;
 
 const SITE_URL = getSiteUrl();
 
@@ -178,6 +182,31 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   if (isTransferLoop({ from: callerNumber, to: dialedNumber, restaurantPhone, recentTransfer })) {
     console.warn(`Rejected looping transfer for business ${businessId}`);
     return twiml(`<Response><Reject reason="busy"/></Response>`);
+  }
+
+  // One caller, at most two calls at once. Without a limit, one number
+  // (or a script) could open call after call, each one running the AI and
+  // using the speech capacity every restaurant shares. Hidden caller IDs
+  // aren't counted together (they all look the same). Only calls from the
+  // last 30 minutes count, so a call whose "ended" callback never arrived
+  // can't block the caller for good.
+  if (normalizedCallerNumber.length >= 10) {
+    const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { count: openCalls } = await admin
+      .from("calls")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", businessId)
+      .eq("phone", callerNumber)
+      .eq("status", "in_progress")
+      .gte("started_at", since);
+    if ((openCalls ?? 0) >= MAX_OPEN_CALLS_PER_CALLER) {
+      timer.set("path", "caller_limit");
+      const capVoice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded };
+      return twiml(`<Response>
+  ${sayLine(capVoice, ALREADY_ON_LINE_LINE, businessId)}
+  <Hangup/>
+</Response>`);
+    }
   }
 
   // The call is going to be answered. Start waking the webhooks the caller

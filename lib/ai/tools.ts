@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
@@ -946,7 +947,7 @@ async function escalate_to_human(input: { reason: string; summary: string }, ctx
     };
   }
 
-  sendEscalationEmail(ctx.businessId, ctx.callId).catch((err) => console.error("Escalation email failed:", err));
+  runAfterResponse("escalation email", sendEscalationEmail(ctx.businessId, ctx.callId));
   return { logged: true, message: "This has been logged for the business to follow up on." };
 }
 

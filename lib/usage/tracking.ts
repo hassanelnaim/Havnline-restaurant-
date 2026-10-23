@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sumUsageCostsByProvider, sumCallSeconds } from "@/lib/usage/costTotals";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockCostBreakdown } from "@/lib/mock/data";
 
@@ -101,16 +102,10 @@ export async function getBusinessCostBreakdown(businessId: string): Promise<Busi
   if (!isSupabaseConfigured()) return mockCostBreakdown;
   const admin = createAdminClient();
 
-  const [{ data: usageRecords }, { data: calls }] = await Promise.all([
-    admin.from("usage_records").select("provider, estimated_cost_cents").eq("business_id", businessId),
-    admin.from("calls").select("duration_seconds").eq("business_id", businessId),
-  ]);
-
-  const anthropicCents = (usageRecords || []).filter((r) => r.provider === "anthropic").reduce((sum, r) => sum + Number(r.estimated_cost_cents), 0);
-  const elevenLabsCents = (usageRecords || []).filter((r) => r.provider === "elevenlabs").reduce((sum, r) => sum + Number(r.estimated_cost_cents), 0);
-
-  const totalMinutes = (calls || []).reduce((sum, c) => sum + c.duration_seconds, 0) / 60;
-  const twilioCents = totalMinutes * 4.85;
+  const [byProvider, callSeconds] = await Promise.all([sumUsageCostsByProvider(admin, { businessId }), sumCallSeconds(admin, { businessId })]);
+  const anthropicCents = byProvider.get("anthropic") || 0;
+  const elevenLabsCents = byProvider.get("elevenlabs") || 0;
+  const twilioCents = (callSeconds / 60) * 4.85;
 
   return {
     anthropicCents,

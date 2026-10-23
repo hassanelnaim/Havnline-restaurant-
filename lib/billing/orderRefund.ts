@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { refundOrderPayment } from "@/lib/billing/stripeConnect";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendOrderRefundedEmail } from "@/lib/notifications/account-email";
@@ -100,7 +101,7 @@ export async function processOrderRefund(
   // their card — silent from their side even though real money moved.
   if (order.phone && business?.name && result.refundedCents) {
     const smsBody = `${business.name}: $${(result.refundedCents / 100).toFixed(2)} has been refunded to your card${fullyRefunded ? "" : " for part of your order"}. It can take a few business days to show up on your statement. Msg&data rates may apply.`;
-    smsClient.send(businessId, order.phone, smsBody).catch((err) => console.error("Refund-confirmation SMS failed:", err));
+    runAfterResponse("refund-confirmation text", smsClient.send(businessId, order.phone, smsBody));
   }
 
   // The owner/staff side of the same gap: nothing told them a refund
@@ -108,7 +109,7 @@ export async function processOrderRefund(
   // the button themselves. Fires only here, after Stripe and the DB
   // both confirm it really happened — never optimistically.
   if (result.refundedCents) {
-    sendOrderRefundedEmail({
+    runAfterResponse("order-refunded email", sendOrderRefundedEmail({
       businessId,
       orderId,
       customerName: order.customer_name,
@@ -116,7 +117,7 @@ export async function processOrderRefund(
       refundedCents: result.refundedCents,
       fullyRefunded,
       reason,
-    }).catch((err) => console.error("Order-refunded email failed:", err));
+    }));
   }
 
   return { success: true, refundedCents: result.refundedCents, fullyRefunded };

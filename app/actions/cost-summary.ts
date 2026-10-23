@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockTotalSpentThisMonth } from "@/lib/mock/data";
+import { sumUsageCostsByProvider, sumCallSeconds } from "@/lib/usage/costTotals";
 
 /**
  * Real, honest total — actual AI usage costs (Anthropic + ElevenLabs,
@@ -15,14 +16,10 @@ export async function getTotalSpentThisMonth(): Promise<number> {
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
-  const [{ data: usageRecords }, { data: calls }] = await Promise.all([
-    admin.from("usage_records").select("estimated_cost_cents").gte("created_at", startOfMonth.toISOString()),
-    admin.from("calls").select("duration_seconds").gte("started_at", startOfMonth.toISOString()),
-  ]);
-
-  const aiCostCents = (usageRecords || []).reduce((sum, r) => sum + Number(r.estimated_cost_cents), 0);
-  const totalMinutes = (calls || []).reduce((sum, c) => sum + (c.duration_seconds || 0), 0) / 60;
-  const twilioCostCents = totalMinutes * 4.85; // ~$0.0485/min, same rate used elsewhere in the app
+  const since = startOfMonth.toISOString();
+  const [byProvider, callSeconds] = await Promise.all([sumUsageCostsByProvider(admin, { since }), sumCallSeconds(admin, { since })]);
+  const aiCostCents = Array.from(byProvider.values()).reduce((sum, v) => sum + v, 0);
+  const twilioCostCents = (callSeconds / 60) * 4.85; // ~$0.0485/min, same rate used elsewhere in the app
 
   return (aiCostCents + twilioCostCents) / 100;
 }

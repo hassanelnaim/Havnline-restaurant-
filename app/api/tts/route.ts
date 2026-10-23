@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { synthesizeSpeech, resolveElevenLabsVoiceId, getTtsMode, TtsError } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { tripTtsCircuit } from "@/lib/integrations/telephony/ttsCircuit";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     if (cacheable) {
       const cached = await getCachedTts(elevenVoiceId, text);
       if (cached) {
-        if (businessId) logElevenLabsUsage(businessId, text.length);
+        if (businessId) runAfterResponse("ElevenLabs usage log", logElevenLabsUsage(businessId, text.length));
         return new NextResponse(cached, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
       }
     }
@@ -57,18 +58,30 @@ export async function GET(request: NextRequest) {
       // own ElevenLabs quickly once the burst passes.
       onSaturated: () => {
         if (getTtsMode() === "auto") void tripTtsCircuit("ElevenLabs concurrency limit reached (repeated 429)", 10);
+        // One account's concurrency limit is shared by every call on the
+        // platform; hitting it means callers are getting the backup voice.
+        runAfterResponse(
+          "voice capacity alert",
+          sendPlatformAlert({
+            key: "elevenlabs-saturated",
+            throttleMinutes: 60,
+            subject: "HavnLine: the voice service is at its concurrency limit",
+            heading: "Callers are hearing the backup voice",
+            intro: "ElevenLabs refused speech requests because too many were running at once, so calls switched to the backup voice for a few seconds. If this happens at busy times, move to an ElevenLabs plan with more concurrent requests.",
+          })
+        );
       },
     });
 
     // Real usage logging, attributed to whichever business this
     // speech was generated for — fire-and-forget, never delays the
     // actual audio response.
-    if (businessId) logElevenLabsUsage(businessId, text.length);
+    if (businessId) runAfterResponse("ElevenLabs usage log", logElevenLabsUsage(businessId, text.length));
 
     if (cacheable) {
       // Fire-and-forget — the caller (Twilio) is waiting on the audio
       // response below, not on this write ever completing.
-      storeCachedTts(elevenVoiceId, text, audioBuffer).catch((err) => console.error("TTS cache store failed:", err));
+      runAfterResponse("TTS cache store", storeCachedTts(elevenVoiceId, text, audioBuffer));
     }
 
     return new NextResponse(audioBuffer, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });

@@ -8,6 +8,7 @@ import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { settleWithin } from "@/lib/monitoring/platformAlert";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * POST /api/webhooks/twilio/dial-status

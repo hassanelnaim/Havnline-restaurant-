@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendWeeklyDigestEmails } from "@/lib/notifications/weekly-digest-email";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * GET /api/cron/weekly-digest

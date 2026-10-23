@@ -8,6 +8,7 @@ import { isTransferLoop } from "@/lib/ai/liveTransfer";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const SITE_URL = getSiteUrl();
 

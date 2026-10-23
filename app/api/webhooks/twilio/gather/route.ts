@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { handleTurn } from "@/lib/ai/receptionist";
+import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam, readMissParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
-import { isFarewell, POST_ORDER_GOODBYE } from "@/lib/ai/fillers";
+import { twiml, escapeXml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, gatherActionUrl, readSeqParam, readMissParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
+import { isFarewell, POST_ORDER_GOODBYE, CALL_CAP_LINE } from "@/lib/ai/fillers";
 import { warmResponse } from "@/lib/ai/warmup";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const SITE_URL = getSiteUrl();
 
 // Re-prompts after silence before giving up on the call.
 const MAX_MISSED_LISTENS = 2;
+
+const MAX_CALL_MINUTES = 25;
+const MAX_CALL_TURNS = 80;
+
+function callTooLong(startedAt: string | null, seq: number | null): boolean {
+  if (typeof seq === "number" && seq >= MAX_CALL_TURNS) return true;
+  return Boolean(startedAt && Date.now() - Date.parse(startedAt) > MAX_CALL_MINUTES * 60_000);
+}
 
 // Start-up ping sent from the voice webhook while the greeting plays (see
 // lib/ai/warmup.ts). Does no work and returns nothing.
@@ -88,6 +97,17 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
   // end the call now. Sending "thanks" through the AI only produces
   // another "you're welcome" and another 15 seconds of waiting. Both
   // sides are still recorded so the transcript shows how the call ended.
+  // A call can't run forever: a phone left off the hook next to a TV, or a
+  // bot, used to keep the AI talking (and paying for every turn) for up to
+  // Twilio's 4-hour limit. A real order takes a few minutes.
+  if (callTooLong(state.call.started_at, seq)) {
+    timer.set("path", "call_cap");
+    return twiml(`<Response>
+  ${sayLine(voice, CALL_CAP_LINE, call.business_id)}
+  <Hangup/>
+</Response>`);
+  }
+
   if (call.outcome === "order_placed" && isFarewell(speechResult)) {
     await admin.from("call_messages").insert([
       { call_id: callId, role: "customer", content: speechResult },
@@ -110,12 +130,7 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
 
   if (!filler) {
     timer.set("path", "direct");
-    try {
-      const result = await handleTurn(call.business_id, callId, speechResult, "phone", { timer, seq });
-      return buildTurnResponseTwiml(call.business_id, callId, result, voice);
-    } catch (err) {
-      return errorFallbackTwiml(call.business_id, callId, voice, err);
-    }
+    return runPhoneTurn({ businessId: call.business_id, callId, speech: speechResult, seq, timer, voice });
   }
 
   timer.set("path", "filler");

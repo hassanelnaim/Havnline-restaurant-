@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { openSecret, sealSecret, isSealed, encryptionConfigured } from "@/lib/security/secretBox";
 import { safeTimezone } from "@/lib/business/timezone";
 import { addDaysToDateKey } from "@/lib/business/hours";
@@ -107,13 +108,13 @@ async function fetchBusinessContext(businessId: string): Promise<BusinessContext
   const [businessRes, hoursRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, aiRes, voice, knowledgeRes, promotionsRes, closuresRes, categoriesRes, smsRes] = await Promise.all([
     admin.from("businesses").select("*").eq("id", businessId).single(),
     admin.from("business_hours").select("*").eq("business_id", businessId),
-    admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
-    admin.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order"),
-    admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
-    admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId),
+    fetchAllRows((from, to) => admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => admin.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId).order("id").range(from, to)),
     admin.from("ai_receptionists").select("*").eq("business_id", businessId).single(),
     getVoiceConfigForCall(businessId, "loadBusinessContext"),
-    admin.from("knowledge_items").select("*").eq("business_id", businessId),
+    fetchAllRows((from, to) => admin.from("knowledge_items").select("*").eq("business_id", businessId).order("id").range(from, to)),
     admin.from("promotions").select("*").eq("business_id", businessId).eq("is_active", true),
     admin.from("business_closures").select("*").eq("business_id", businessId).gte("closed_on", closuresFrom).order("closed_on").limit(60),
     admin.from("menu_categories").select("id, name, sort_order").eq("business_id", businessId),

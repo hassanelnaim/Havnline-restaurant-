@@ -14,6 +14,8 @@ function bearerToken(request: NextRequest): string | null {
 // See PRINT_CLAIM_TIMEOUT_MS in lib/integrations/printer-app.ts.
 const CLAIM_TIMEOUT_MS = PRINT_CLAIM_TIMEOUT_MS;
 
+const POSSIBLE_REPRINT_BANNER = "** POSSIBLE REPRINT **\nCheck this order isn't already made";
+
 /**
  * GET /api/printer-app/orders
  *
@@ -38,18 +40,40 @@ async function handleGET(request: NextRequest) {
   const admin = createAdminClient();
   const claimCutoff = new Date(Date.now() - CLAIM_TIMEOUT_MS).toISOString();
 
-  const { data: jobs, error } = await admin
-    .from("printer_print_jobs")
-    .update({ claimed_at: new Date().toISOString() })
-    .eq("business_id", device.businessId)
-    .eq("status", "pending")
-    .or(`claimed_at.is.null,claimed_at.lt.${claimCutoff}`)
-    .select("id, ticket_text, created_at")
-    .order("created_at", { ascending: true });
+  // One atomic claim in the database (migration 036) that also counts how
+  // many times each job has been handed out without a "printed" reply.
+  let jobs: { id: string; ticket_text: string; created_at: string; handed_out?: number }[] = [];
+  const { data: claimed, error: rpcError } = await admin.rpc("claim_print_jobs", { p_business: device.businessId, p_cutoff: claimCutoff });
+  if (!rpcError) {
+    jobs = (claimed || []) as typeof jobs;
+  } else {
+    if (!/could not find the function|PGRST202|42883/i.test(`${rpcError.code} ${rpcError.message}`)) {
+      return NextResponse.json(dbErrorResult(rpcError, "printer-app/orders GET", "Could not fetch print jobs."), { status: 500 });
+    }
+    // Before migration 036: the original single-update claim.
+    const { data, error } = await admin
+      .from("printer_print_jobs")
+      .update({ claimed_at: new Date().toISOString() })
+      .eq("business_id", device.businessId)
+      .eq("status", "pending")
+      .or(`claimed_at.is.null,claimed_at.lt.${claimCutoff}`)
+      .select("id, ticket_text, created_at");
+    if (error) return NextResponse.json(dbErrorResult(error, "printer-app/orders GET", "Could not fetch print jobs."), { status: 500 });
+    jobs = data || [];
+  }
 
-  if (error) return NextResponse.json(dbErrorResult(error, "printer-app/orders GET", "Could not fetch print jobs."), { status: 500 });
+  // A job handed out before with no "printed" reply may already be on paper
+  // (the reply was lost on the way back). It's printed again, since it may
+  // not have been, but marked so the kitchen checks before making it twice.
+  jobs = jobs
+    .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
+    .map((j) => ({
+      id: j.id,
+      created_at: j.created_at,
+      ticket_text: (j.handed_out ?? 1) > 1 ? `${POSSIBLE_REPRINT_BANNER}\n${j.ticket_text}` : j.ticket_text,
+    }));
 
-  return NextResponse.json({ success: true, jobs: jobs || [] });
+  return NextResponse.json({ success: true, jobs });
 }
 
 export const GET = guardRoute("printer-app/orders GET", handleGET);

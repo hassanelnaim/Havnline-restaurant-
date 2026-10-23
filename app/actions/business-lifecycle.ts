@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { openSecret } from "@/lib/security/secretBox";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -47,7 +48,7 @@ export async function suspendBusinessAction(businessId: string, reason: string):
     return { success: false, error: "Business was suspended, but turning off the AI failed. Check server logs and retry." };
   }
 
-  sendBusinessSuspendedEmail(businessId, reason).catch((err) => console.error("Business-suspended email failed:", err));
+  runAfterResponse("business-suspended email", sendBusinessSuspendedEmail(businessId, reason));
 
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);
@@ -72,7 +73,7 @@ export async function reactivateBusinessAction(businessId: string): Promise<Acti
   // admin) should make explicitly, not something that silently
   // re-activates on its own.
 
-  sendBusinessReactivatedEmail(businessId).catch((err) => console.error("Business-reactivated email failed:", err));
+  runAfterResponse("business-reactivated email", sendBusinessReactivatedEmail(businessId));
 
   revalidatePath("/admin");
   revalidatePath(`/admin/businesses/${businessId}`);

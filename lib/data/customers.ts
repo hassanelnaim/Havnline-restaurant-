@@ -2,6 +2,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { mockCustomers } from "@/lib/mock/data";
 import type { DbCustomer } from "@/lib/database/types";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 
 export async function getCustomers(): Promise<DbCustomer[]> {
   if (!isSupabaseConfigured()) return mockCustomers;
@@ -9,8 +10,11 @@ export async function getCustomers(): Promise<DbCustomer[]> {
   if (!businessId) return mockCustomers;
 
   const supabase = createClient();
-  const { data } = await supabase.from("customers").select("*").eq("business_id", businessId).order("created_at", { ascending: false });
-  return data || mockCustomers;
+  // Every customer, not just the newest 1,000 (lib/supabase/fetchAll.ts).
+  const { data, error } = await fetchAllRows((from, to) =>
+    supabase.from("customers").select("*").eq("business_id", businessId).order("created_at", { ascending: false }).order("id").range(from, to)
+  );
+  return error && data.length === 0 ? mockCustomers : data;
 }
 
 export async function getCustomer(customerId: string): Promise<DbCustomer | null> {

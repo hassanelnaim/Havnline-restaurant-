@@ -1,6 +1,7 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockOrders } from "@/lib/mock/data";
 import type { OrderWithItems } from "@/lib/database/types";
+import { fetchAllRows, fetchRowsByIds } from "@/lib/supabase/fetchAll";
 import { localDateKey, localDayBoundsUtc } from "@/lib/format";
 
 export async function getOrdersForBusiness(businessId: string, limit = 100): Promise<OrderWithItems[]> {
@@ -17,19 +18,7 @@ export async function getOrdersForBusiness(businessId: string, limit = 100): Pro
 
   if (!orders || orders.length === 0) return [];
 
-  const orderIds = orders.map((o) => o.id);
-  const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
-  const itemIds = (items || []).map((i) => i.id);
-  const { data: modifiers } = itemIds.length
-    ? await supabase.from("order_item_modifiers").select("*").in("order_item_id", itemIds)
-    : { data: [] };
-
-  return orders.map((order) => ({
-    ...order,
-    items: (items || [])
-      .filter((i) => i.order_id === order.id)
-      .map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
-  }));
+  return attachItems(supabase, orders);
 }
 
 /**
@@ -49,13 +38,10 @@ export async function getOrderTotalsSince(
       .map((o) => ({ status: o.status, payment_status: o.payment_status, total_cents: o.total_cents }));
   }
   const supabase = createClient();
-  const { data } = await supabase
-    .from("orders")
-    .select("status, payment_status, total_cents")
-    .eq("business_id", businessId)
-    .neq("status", "building")
-    .gte("created_at", sinceIso);
-  return data || [];
+  const { data } = await fetchAllRows((from, to) =>
+    supabase.from("orders").select("status, payment_status, total_cents").eq("business_id", businessId).neq("status", "building").gte("created_at", sinceIso).order("id").range(from, to)
+  );
+  return data;
 }
 
 /**
@@ -72,28 +58,13 @@ export async function getOrdersWithItemsSince(businessId: string, sinceIso: stri
   if (!isSupabaseConfigured()) return mockOrders.filter((o) => o.created_at >= sinceIso);
   const supabase = createClient();
 
-  const { data: orders } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("business_id", businessId)
-    .neq("status", "building")
-    .gte("created_at", sinceIso);
+  const { data: orders } = await fetchAllRows((from, to) =>
+    supabase.from("orders").select("*").eq("business_id", businessId).neq("status", "building").gte("created_at", sinceIso).order("id").range(from, to)
+  );
 
   if (!orders || orders.length === 0) return [];
 
-  const orderIds = orders.map((o) => o.id);
-  const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
-  const itemIds = (items || []).map((i) => i.id);
-  const { data: modifiers } = itemIds.length
-    ? await supabase.from("order_item_modifiers").select("*").in("order_item_id", itemIds)
-    : { data: [] };
-
-  return orders.map((order) => ({
-    ...order,
-    items: (items || [])
-      .filter((i) => i.order_id === order.id)
-      .map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
-  }));
+  return attachItems(supabase, orders);
 }
 
 /**
@@ -113,30 +84,14 @@ export async function getOrdersForDate(businessId: string, dateKey: string, time
   const supabase = createClient();
   const { startIso, endIso } = localDayBoundsUtc(dateKey, timezone);
 
-  const { data: orders } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("business_id", businessId)
-    .neq("status", "building") // building = still in progress on a live call, not a real order yet
-    .gte("created_at", startIso)
-    .lt("created_at", endIso)
-    .order("created_at", { ascending: true });
+  // building = still in progress on a live call, not a real order yet
+  const { data: orders } = await fetchAllRows((from, to) =>
+    supabase.from("orders").select("*").eq("business_id", businessId).neq("status", "building").gte("created_at", startIso).lt("created_at", endIso).order("created_at", { ascending: true }).order("id").range(from, to)
+  );
 
   if (!orders || orders.length === 0) return [];
 
-  const orderIds = orders.map((o) => o.id);
-  const { data: items } = await supabase.from("order_items").select("*").in("order_id", orderIds);
-  const itemIds = (items || []).map((i) => i.id);
-  const { data: modifiers } = itemIds.length
-    ? await supabase.from("order_item_modifiers").select("*").in("order_item_id", itemIds)
-    : { data: [] };
-
-  return orders.map((order) => ({
-    ...order,
-    items: (items || [])
-      .filter((i) => i.order_id === order.id)
-      .map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
-  }));
+  return attachItems(supabase, orders);
 }
 
 export async function getOrderWithItems(orderId: string): Promise<OrderWithItems | null> {
@@ -155,4 +110,24 @@ export async function getOrderWithItems(orderId: string): Promise<OrderWithItems
     ...order,
     items: (items || []).map((i) => ({ ...i, modifiers: (modifiers || []).filter((m) => m.order_item_id === i.id) })),
   };
+}
+
+type ServerClient = ReturnType<typeof createClient>;
+
+/**
+ * Loads the items and their options for a set of orders and attaches them.
+ * Paged and chunked (lib/supabase/fetchAll.ts): a busy day's orders can
+ * have more than 1,000 items, and items past that used to vanish silently.
+ */
+async function attachItems(supabase: ServerClient, orders: any[]): Promise<OrderWithItems[]> {
+  const orderIds = orders.map((o) => o.id as string);
+  const { data: items } = await fetchRowsByIds<any>(orderIds, (chunk, from, to) => supabase.from("order_items").select("*").in("order_id", chunk).order("id").range(from, to));
+  const itemIds = items.map((i) => i.id as string);
+  const { data: modifiers } = await fetchRowsByIds<any>(itemIds, (chunk, from, to) => supabase.from("order_item_modifiers").select("*").in("order_item_id", chunk).order("id").range(from, to));
+
+  const modsByItem = new Map<string, any[]>();
+  for (const m of modifiers) modsByItem.set(m.order_item_id, [...(modsByItem.get(m.order_item_id) || []), m]);
+  const itemsByOrder = new Map<string, any[]>();
+  for (const i of items) itemsByOrder.set(i.order_id, [...(itemsByOrder.get(i.order_id) || []), { ...i, modifiers: modsByItem.get(i.id) || [] }]);
+  return orders.map((order) => ({ ...order, items: itemsByOrder.get(order.id) || [] }));
 }

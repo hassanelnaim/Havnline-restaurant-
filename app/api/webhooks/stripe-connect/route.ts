@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { handleOrderPaid, handleAddendumPaid } from "@/lib/billing/connectPayments";
 import { sendPaymentsLiveEmail, sendPaymentsDisconnectedEmail } from "@/lib/notifications/account-email";
 
+export const maxDuration = 60;
+
 /**
  * POST /api/webhooks/stripe-connect
  *

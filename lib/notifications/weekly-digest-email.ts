@@ -4,6 +4,7 @@ import { renderEmailLayout } from "@/lib/email/templates";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 import { formatCents } from "@/lib/format";
 import { countsTowardSales } from "@/lib/orders/sales";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://havnline.com";
@@ -15,7 +16,21 @@ function escapeHtml(s: string): string {
 interface DigestResult {
   businessesChecked: number;
   emailsSent: number;
+  /** Still due this week when the time budget ran out; the next daily run sends them. */
+  remaining: number;
   errors: string[];
+}
+
+// The cron runs every day. Each business gets one digest per week (the week
+// is named by its Monday, UTC), so the first run of the week sends them,
+// and any run that ran out of time is finished by the next one.
+const TIME_BUDGET_MS = 45_000;
+
+function weekKeyOf(now: Date): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const daysSinceMonday = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - daysSinceMonday);
+  return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -34,40 +49,69 @@ interface DigestResult {
  */
 export async function sendWeeklyDigestEmails(): Promise<DigestResult> {
   const admin = createAdminClient();
-  const result: DigestResult = { businessesChecked: 0, emailsSent: 0, errors: [] };
+  const startedAt = Date.now();
+  const result: DigestResult = { businessesChecked: 0, emailsSent: 0, remaining: 0, errors: [] };
 
   if (!resend) {
     result.errors.push("RESEND_API_KEY is not set — no digest emails sent.");
     return result;
   }
 
-  const { data: businesses } = await admin
-    .from("businesses")
-    .select("id, name, timezone, notification_preferences, subscription_status")
-    .not("notification_preferences", "is", null);
+  const now = new Date();
+  const weekKey = weekKeyOf(now);
 
-  const digestBusinesses = (businesses || []).filter((b) => {
+  let trackWeeks = true;
+  let { data: businesses, error: listError } = await admin
+    .from("businesses")
+    .select("id, name, timezone, notification_preferences, subscription_status, last_digest_week")
+    .not("notification_preferences", "is", null);
+  if (listError) {
+    // Before migration 036 (no last_digest_week column): the old behavior,
+    // everyone gets one now, nothing is remembered.
+    console.error("[weekly-digest] could not read last_digest_week (run migration 036):", listError.message);
+    trackWeeks = false;
+    ({ data: businesses } = await admin
+      .from("businesses")
+      .select("id, name, timezone, notification_preferences, subscription_status")
+      .not("notification_preferences", "is", null) as any);
+  }
+
+  const digestBusinesses = (businesses || []).filter((b: any) => {
     const prefs = b.notification_preferences as { digest?: boolean } | null;
-    return prefs?.digest && OPERATIONAL_SUBSCRIPTION_STATUSES.includes(b.subscription_status);
+    return prefs?.digest && OPERATIONAL_SUBSCRIPTION_STATUSES.includes(b.subscription_status) && (!trackWeeks || b.last_digest_week !== weekKey);
   });
 
   result.businessesChecked = digestBusinesses.length;
 
-  const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const startIso = weekAgo.toISOString();
   const endIso = now.toISOString();
 
-  for (const business of digestBusinesses) {
+  for (const business of digestBusinesses as any[]) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      result.remaining += 1;
+      continue;
+    }
+    if (trackWeeks) {
+      // Claimed before sending, so two overlapping runs can't both send it.
+      const { data: claimed } = await admin
+        .from("businesses")
+        .update({ last_digest_week: weekKey })
+        .eq("id", business.id)
+        .or(`last_digest_week.is.null,last_digest_week.neq.${weekKey}`)
+        .select("id")
+        .maybeSingle();
+      if (!claimed) continue;
+    }
     try {
+      // Paged: a busy restaurant has more than 1,000 calls in a week.
       const [{ data: calls }, { data: orders }, { data: members }] = await Promise.all([
-        admin.from("calls").select("outcome").eq("business_id", business.id).gte("started_at", startIso).lt("started_at", endIso),
-        admin
-          .from("orders")
-          .select("total_cents, status, payment_status")
-          .eq("business_id", business.id)
-          .gte("created_at", startIso)
-          .lt("created_at", endIso),
+        fetchAllRows<{ outcome: string | null }>((from, to) =>
+          admin.from("calls").select("outcome").eq("business_id", business.id).gte("started_at", startIso).lt("started_at", endIso).order("id").range(from, to)
+        ),
+        fetchAllRows<{ total_cents: number; status: string; payment_status: string }>((from, to) =>
+          admin.from("orders").select("total_cents, status, payment_status").eq("business_id", business.id).gte("created_at", startIso).lt("created_at", endIso).order("id").range(from, to)
+        ),
         admin.from("business_members").select("user_id").eq("business_id", business.id),
       ]);
 

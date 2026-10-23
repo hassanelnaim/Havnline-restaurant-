@@ -1,4 +1,5 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { mockMenuItems } from "@/lib/mock/data";
 import type { DbMenuCategory, DbModifierGroup, DbModifier, MenuItemWithModifiers } from "@/lib/database/types";
 
@@ -19,10 +20,10 @@ export async function getMenuForBusiness(businessId: string): Promise<MenuForBus
 
   const [categoriesRes, itemsRes, groupsRes, modifiersRes, attachmentsRes] = await Promise.all([
     supabase.from("menu_categories").select("*").eq("business_id", businessId).order("sort_order"),
-    supabase.from("menu_items").select("*").eq("business_id", businessId).order("sort_order"),
-    supabase.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order"),
-    supabase.from("modifiers").select("*").eq("business_id", businessId).order("sort_order"),
-    supabase.from("menu_item_modifier_groups").select("*").eq("business_id", businessId),
+    fetchAllRows((from, to) => supabase.from("menu_items").select("*").eq("business_id", businessId).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => supabase.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => supabase.from("modifiers").select("*").eq("business_id", businessId).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => supabase.from("menu_item_modifier_groups").select("*").eq("business_id", businessId).order("id").range(from, to)),
   ]);
 
   const groups = groupsRes.data || [];

@@ -5,7 +5,7 @@ import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import type { VoiceSelection } from "@/lib/ai/twimlHelpers";
 
 export interface CallWebhookState {
-  call: { business_id: string; outcome: string | null };
+  call: { business_id: string; outcome: string | null; started_at: string | null };
   /** The business's Twilio sub-account token, for checking Twilio's signature. */
   authToken: string | null;
   voice: VoiceSelection;
@@ -31,7 +31,7 @@ export interface CallWebhookState {
 // instance; an instance that hasn't seen this call just looks it up.
 const STATIC_TTL_MS = 15 * 60_000;
 const MAX_REMEMBERED_CALLS = 500;
-const remembered = new Map<string, { businessId: string; authToken: string | null; voice: VoiceSelection; at: number }>();
+const remembered = new Map<string, { businessId: string; startedAt: string | null; authToken: string | null; voice: VoiceSelection; at: number }>();
 
 export async function loadCallWebhookState(callId: string, caller: string): Promise<CallWebhookState | null> {
   const admin = createAdminClient();
@@ -44,10 +44,10 @@ export async function loadCallWebhookState(callId: string, caller: string): Prom
       isTtsDegraded(),
     ]);
     if (!call) return null;
-    return { call: { business_id: known.businessId, outcome: call.outcome ?? null }, authToken: known.authToken, voice: { ...known.voice, ttsDegraded } };
+    return { call: { business_id: known.businessId, outcome: call.outcome ?? null, started_at: known.startedAt }, authToken: known.authToken, voice: { ...known.voice, ttsDegraded } };
   }
 
-  const { data: call } = await admin.from("calls").select("business_id, outcome").eq("id", callId).single();
+  const { data: call } = await admin.from("calls").select("business_id, outcome, started_at").eq("id", callId).single();
   if (!call) return null;
 
   const [authToken, voice] = await Promise.all([
@@ -59,7 +59,7 @@ export async function loadCallWebhookState(callId: string, caller: string): Prom
     const oldest = remembered.keys().next().value;
     if (oldest) remembered.delete(oldest);
   }
-  remembered.set(callId, { businessId: call.business_id, authToken, voice, at: Date.now() });
+  remembered.set(callId, { businessId: call.business_id, startedAt: call.started_at ?? null, authToken, voice, at: Date.now() });
 
-  return { call: { business_id: call.business_id, outcome: call.outcome ?? null }, authToken, voice };
+  return { call: { business_id: call.business_id, outcome: call.outcome ?? null, started_at: call.started_at ?? null }, authToken, voice };
 }

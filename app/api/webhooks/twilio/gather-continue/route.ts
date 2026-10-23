@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleTurn } from "@/lib/ai/receptionist";
+import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
-import { twiml, escapeXml, buildTurnResponseTwiml, sayLine, getRequestUrl, errorFallbackTwiml, gatherActionUrl, readSeqParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
+import { twiml, sayLine, getRequestUrl, gatherActionUrl, readSeqParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const SITE_URL = getSiteUrl();
 
@@ -70,10 +71,5 @@ async function handleContinue(request: NextRequest, callId: string, original: st
 </Response>`);
   }
 
-  try {
-    const result = await handleTurn(call.business_id, callId, combinedSpeech, "phone", { timer, seq });
-    return buildTurnResponseTwiml(call.business_id, callId, result, voice);
-  } catch (err) {
-    return errorFallbackTwiml(call.business_id, callId, voice, err);
-  }
+  return runPhoneTurn({ businessId: call.business_id, callId, speech: combinedSpeech, seq, timer, voice });
 }

@@ -5,6 +5,8 @@ import type { ToolContext } from "./tools";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { loadCurrentOrder } from "./orderState";
 import { isDemoCall } from "@/lib/ai/demoCallers";
+import { encodeToolCalls, decodeToolCalls, waitForTurnReply } from "./turnRecord";
+import { TURN_RETRY_LINE } from "./fillers";
 
 export interface HandleTurnResult {
   reply: string;
@@ -129,7 +131,7 @@ export async function handleTurn(
           timer.set("retry", true);
           return {
             reply: reply.content,
-            toolCalls: reply.tool_call ? JSON.parse(reply.tool_call).map((name: string) => ({ name, input: {}, result: {} })) : [],
+            toolCalls: decodeToolCalls(reply.tool_call),
             turnCount: priorCustomerCount,
           };
         }
@@ -141,6 +143,22 @@ export async function handleTurn(
 
     if (!context) {
       return { reply: "Sorry, I'm having trouble accessing business information right now.", toolCalls: [] };
+    }
+
+    // A repeat of this same turn while the first copy is still thinking
+    // (Twilio retried before we answered) used to run the AI a second
+    // time, which could add the item twice. Each turn is claimed once
+    // (migration 036); a second request for it waits for the first one's
+    // reply instead.
+    if (channel === "phone" && typeof options.seq === "number") {
+      const { error: claimError } = await admin.from("call_turn_claims").insert({ call_id: callId, seq: options.seq });
+      if (claimError && (claimError as { code?: string }).code === "23505") {
+        timer.set("retry_in_flight", true);
+        const stored = await waitForTurnReply(callId, options.seq, 9000);
+        if (stored) return stored;
+        return { reply: TURN_RETRY_LINE, toolCalls: [], turnCount: priorCustomerCount };
+      }
+      if (claimError) console.error(`[handleTurn] could not claim turn ${options.seq} of call ${callId} (run migration 036?):`, claimError.message);
     }
 
     const callerPhone = channel === "phone" ? callRow?.phone || null : null;
@@ -227,7 +245,7 @@ export async function handleTurn(
       call_id: callId,
       role: "ai",
       content: result.reply,
-      tool_call: result.toolCalls.length > 0 ? JSON.stringify(result.toolCalls.map((t) => t.name)) : null,
+      tool_call: encodeToolCalls(result.toolCalls),
     });
     timer.mark("save_reply");
 

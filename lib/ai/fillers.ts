@@ -159,3 +159,9 @@ export function isFarewell(text: string): boolean {
   return words.every((w) => FAREWELL_WORDS.has(w)) && words.some((w) => FAREWELL_TRIGGERS.has(w));
 }
 
+
+// Fixed lines for the limits added in the audit (batch 3). Kept here with
+// the other fixed lines so their audio is cached (twimlHelpers.ts).
+export const CALL_CAP_LINE = "We've been on the line for a while, so I'm going to wrap up here. If you still need anything, please call us back. Goodbye.";
+export const ALREADY_ON_LINE_LINE = "It looks like you're already on another call with us. Please finish that one first. Goodbye.";
+export const TURN_RETRY_LINE = "Sorry, could you say that one more time?";

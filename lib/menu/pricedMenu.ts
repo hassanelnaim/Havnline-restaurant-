@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { effectivePriceCents } from "@/lib/business/pricing";
 import { safeTimezone } from "@/lib/business/timezone";
 import type { MenuItemWithModifiers } from "@/lib/database/types";
@@ -31,10 +32,10 @@ export async function loadPricedMenu(businessId: string): Promise<PricedMenuResu
 
   const [businessRes, itemsRes, groupsRes, modifiersRes, attachmentsRes, categoriesRes] = await Promise.all([
     admin.from("businesses").select("timezone").eq("id", businessId).single(),
-    admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
-    admin.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order"),
-    admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order"),
-    admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId),
+    fetchAllRows((from, to) => admin.from("menu_items").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => admin.from("modifier_groups").select("*").eq("business_id", businessId).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => admin.from("modifiers").select("*").eq("business_id", businessId).eq("is_active", true).order("sort_order").order("id").range(from, to)),
+    fetchAllRows((from, to) => admin.from("menu_item_modifier_groups").select("*").eq("business_id", businessId).order("id").range(from, to)),
     admin.from("menu_categories").select("id, name").eq("business_id", businessId),
   ]);
 

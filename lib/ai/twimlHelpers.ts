@@ -1,10 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { resolveTwilioVoice } from "@/lib/integrations/telephony/twilioProvider";
 import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath } from "@/lib/integrations/telephony/elevenlabsProvider";
 import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isGreetingLine } from "@/lib/ai/greeting";
-import { FILLER_CATEGORIES, PLACING_ORDER_FILLERS, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller } from "@/lib/ai/fillers";
+import { FILLER_CATEGORIES, PLACING_ORDER_FILLERS, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller, CALL_CAP_LINE, ALREADY_ON_LINE_LINE, TURN_RETRY_LINE } from "@/lib/ai/fillers";
 import { signTtsParams } from "@/lib/integrations/telephony/ttsSigning";
 import { LIVE_TRANSFER_MARKER, escalationTargetPhone, toDialableNumber } from "@/lib/ai/liveTransfer";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
@@ -150,7 +151,7 @@ export function sayLine(voice: VoiceSelection, rawText: string, businessId?: str
     // line never touches this app's ElevenLabs concurrency limit.
     // Nothing else records this speech (the /api/tts route that logs
     // usage for the <Play> path isn't involved), so log it here.
-    if (businessId) void logTwilioHostedTtsUsage(businessId, text.length);
+    if (businessId) runAfterResponse("Twilio-hosted voice usage log", logTwilioHostedTtsUsage(businessId, text.length));
     return `<Say voice="${twilioHostedElevenLabsVoice(voice.voiceId, voice.providerVoiceRef)}">${escapeXml(text)}</Say>`;
   }
 
@@ -289,7 +290,7 @@ export async function errorFallbackTwiml(businessId: string, callId: string, voi
     .insert({ call_id: callId, role: "system", content: `AI turn error: ${err instanceof Error ? err.message : String(err)}` });
 
   const { sendEscalationEmail } = await import("@/lib/notifications/escalation-email");
-  sendEscalationEmail(businessId, callId).catch((emailErr) => console.error("Escalation email failed:", emailErr));
+  runAfterResponse("escalation email", sendEscalationEmail(businessId, callId));
   await settleWithin(ownerAlert, 1500);
 
   return twiml(`<Response>
@@ -342,6 +343,11 @@ export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   POST_ORDER_GOODBYE,
   "Sorry, could you say that again?",
   "Sorry, I missed that. Could you say it again?",
+  "Just a moment.",
+  "Thanks for waiting, almost there.",
+  CALL_CAP_LINE,
+  ALREADY_ON_LINE_LINE,
+  TURN_RETRY_LINE,
   "I'm not able to hear you — please call back. Goodbye.",
   "One moment while I connect you.",
   "Thanks for calling. Goodbye.",

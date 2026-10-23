@@ -63,7 +63,9 @@ async function handlePOST(request: NextRequest, { params }: { params: { id: stri
     const retryAt = Date.now() + printRetryDelayMs(attempts);
     const { error } = await admin
       .from("printer_print_jobs")
-      .update({ status: "pending", attempts, error: reason, claimed_at: new Date(retryAt - PRINT_CLAIM_TIMEOUT_MS).toISOString() })
+      // handed_out back to 0: this ticket is known NOT to have printed, so
+      // its next print isn't a possible reprint (migration 036).
+      .update({ status: "pending", attempts, handed_out: 0, error: reason, claimed_at: new Date(retryAt - PRINT_CLAIM_TIMEOUT_MS).toISOString() })
       .eq("id", job.id);
     if (error) return NextResponse.json(dbErrorResult(error, "printer-app/orders/[id] POST", "Could not update that print job."), { status: 500 });
     return NextResponse.json({ success: true, willRetry: true });

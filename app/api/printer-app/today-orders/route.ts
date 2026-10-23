@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { dbErrorResult } from "@/lib/errors";
+import { fetchAllRows, fetchRowsByIds } from "@/lib/supabase/fetchAll";
 import { localDateKey, localDayBoundsUtc } from "@/lib/format";
 import { safeTimezone } from "@/lib/business/timezone";
 import { buildDailySummary } from "@/lib/orders/dailySummary";
@@ -49,28 +50,33 @@ async function handleGET(request: NextRequest) {
   const todayKey = localDateKey(new Date().toISOString(), timezone);
   const { startIso, endIso } = localDayBoundsUtc(todayKey, timezone);
 
-  const { data: orders, error } = await admin
-    .from("orders")
-    .select("id, status, payment_status, customer_name, phone, subtotal_cents, tax_cents, total_cents, amount_refunded_cents, special_instructions, submit_error, created_at")
-    .eq("business_id", device.businessId)
-    .neq("status", "building") // still in progress on a live call, not a real order yet
-    .gte("created_at", startIso)
-    .lt("created_at", endIso)
-    .order("created_at", { ascending: false }); // newest first — kitchen staff care about what just came in
+  // Newest first (kitchen staff care about what just came in), never
+  // "building" (still in progress on a live call). Paged: a busy day can
+  // pass Supabase's 1,000-row cap (lib/supabase/fetchAll.ts).
+  const { data: orders, error } = await fetchAllRows<any>((from, to) =>
+    admin
+      .from("orders")
+      .select("id, status, payment_status, customer_name, phone, subtotal_cents, tax_cents, total_cents, amount_refunded_cents, special_instructions, submit_error, created_at")
+      .eq("business_id", device.businessId)
+      .neq("status", "building")
+      .gte("created_at", startIso)
+      .lt("created_at", endIso)
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to)
+  );
 
   if (error) return NextResponse.json(dbErrorResult(error, "printer-app/today-orders GET", "Could not fetch today's orders."), { status: 500 });
   if (!orders || orders.length === 0) return NextResponse.json({ success: true, orders: [], summary: buildDailySummary(todayKey, []) });
 
-  const orderIds = orders.map((o) => o.id);
-  const { data: items } = await admin
-    .from("order_items")
-    .select("id, order_id, item_name, unit_price_cents, quantity, notes")
-    .in("order_id", orderIds);
-
-  const itemIds = (items || []).map((i) => i.id);
-  const { data: modifiers } = itemIds.length
-    ? await admin.from("order_item_modifiers").select("order_item_id, modifier_name, price_delta_cents").in("order_item_id", itemIds)
-    : { data: [] as { order_item_id: string; modifier_name: string; price_delta_cents: number }[] };
+  const orderIds = orders.map((o) => o.id as string);
+  const { data: items } = await fetchRowsByIds<any>(orderIds, (chunk, from, to) =>
+    admin.from("order_items").select("id, order_id, item_name, unit_price_cents, quantity, notes").in("order_id", chunk).order("id").range(from, to)
+  );
+  const itemIds = items.map((i) => i.id as string);
+  const { data: modifiers } = await fetchRowsByIds<{ order_item_id: string; modifier_name: string; price_delta_cents: number }>(itemIds, (chunk, from, to) =>
+    admin.from("order_item_modifiers").select("order_item_id, modifier_name, price_delta_cents").in("order_item_id", chunk).order("id").range(from, to)
+  );
 
   const result = orders.map((order) => ({
     ...order,

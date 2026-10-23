@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchRowsByIds } from "@/lib/supabase/fetchAll";
 import { OPERATIONAL_SUBSCRIPTION_STATUSES } from "@/lib/billing/stripe";
 
 export type IssueSeverity = "critical" | "warning" | "info";
@@ -41,8 +42,14 @@ export async function getBusinessIssues(businessId?: string): Promise<BusinessIs
 
   const [{ data: aiReceptionists }, { data: recentCalls }, { data: failedOrders }] = await Promise.all([
     admin.from("ai_receptionists").select("business_id, status").in("business_id", businessIds),
-    admin.from("calls").select("business_id, started_at").in("business_id", businessIds).gte("started_at", sevenDaysAgo),
-    admin.from("orders").select("business_id, submit_error").in("business_id", businessIds).not("submit_error", "is", null).gte("created_at", sevenDaysAgo),
+    // Paged and chunked: across every business, a week of calls is far
+    // past Supabase's 1,000-row cap (lib/supabase/fetchAll.ts).
+    fetchRowsByIds<{ business_id: string; started_at: string }>(businessIds, (chunk, from, to) =>
+      admin.from("calls").select("business_id, started_at").in("business_id", chunk).gte("started_at", sevenDaysAgo).order("id").range(from, to)
+    ),
+    fetchRowsByIds<{ business_id: string; submit_error: string }>(businessIds, (chunk, from, to) =>
+      admin.from("orders").select("business_id, submit_error").in("business_id", chunk).not("submit_error", "is", null).gte("created_at", sevenDaysAgo).order("id").range(from, to)
+    ),
   ]);
 
   const aiStatusByBusiness = new Map((aiReceptionists || []).map((a) => [a.business_id, a.status]));

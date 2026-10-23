@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { sendPlatformAlert } from "@/lib/monitoring/platformAlert";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { buildSystemPrompt } from "./systemPrompt";
 import { TOOL_DEFINITIONS, TOOL_HANDLERS, type ToolContext } from "./tools";
 import type { BusinessContext } from "./context";
@@ -167,6 +169,23 @@ export async function runTurn(
       }
 
       console.warn(`[claude] ${model} unavailable (${err instanceof Error ? err.message : err}); retrying this turn on ${alternate}.`);
+      // Rate limits are the first wall when many calls run at once (one
+      // Anthropic account serves every restaurant). Throttled to one email
+      // an hour; the turn itself carries on with the other model.
+      runAfterResponse(
+        "capacity alert",
+        sendPlatformAlert({
+          key: "anthropic-capacity",
+          throttleMinutes: 60,
+          subject: "HavnLine: the AI hit a rate limit or timeout during calls",
+          heading: "The AI model is at capacity",
+          intro: "A call had to switch to the backup AI model because the main one was rate-limited, timing out or down. If this happens during busy hours, raise the Anthropic rate limit (Console, Limits) before adding more restaurants.",
+          rows: [
+            { label: "Model", value: model },
+            { label: "Error", value: (err instanceof Error ? err.message : String(err)).slice(0, 300) },
+          ],
+        })
+      );
       try {
         response = await client.messages.create(
           { model: alternate, max_tokens: maxTokens, system, messages, tools: TOOL_DEFINITIONS },
@@ -203,11 +222,9 @@ export async function runTurn(
     stats.cacheReadTokens += cacheRead;
     stats.cacheWriteTokens += cacheWrite;
     stats.inputTokens += usage.input_tokens;
-    logAnthropicUsage(
-      toolCtx.businessId,
-      model,
-      Math.round(usage.input_tokens + cacheWrite * 1.25 + cacheRead * 0.1),
-      usage.output_tokens
+    runAfterResponse(
+      "Anthropic usage log",
+      logAnthropicUsage(toolCtx.businessId, model, Math.round(usage.input_tokens + cacheWrite * 1.25 + cacheRead * 0.1), usage.output_tokens)
     );
 
     finalReply = textBlocks.map((b) => b.text).join(" ").trim();

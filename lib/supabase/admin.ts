@@ -16,5 +16,20 @@ export function createAdminClient() {
 
   return createSupabaseClient(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+    global: { fetch: fetchWithTimeout },
   });
 }
+
+/**
+ * No database request may hang. Without a limit, one stalled query held a
+ * caller in silence until Twilio gave up on the turn. 8 seconds is far
+ * above a normal query (milliseconds) and below Twilio's 15-second limit.
+ * A request that already carries its own abort signal keeps it too.
+ */
+const DB_REQUEST_TIMEOUT_MS = 8000;
+
+const fetchWithTimeout: typeof fetch = (input, init = {}) => {
+  const timeout = AbortSignal.timeout(DB_REQUEST_TIMEOUT_MS);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+  return fetch(input, { ...init, signal });
+};
