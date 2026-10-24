@@ -8,7 +8,7 @@ import { countsTowardSales } from "@/lib/orders/sales";
 import type { OrderWithItems } from "@/lib/database/types";
 
 async function requireBusinessId(): Promise<string> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated.");
 
@@ -56,7 +56,7 @@ export async function getEndOfDaySummaryAction(dateKey: string): Promise<EndOfDa
     return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: business } = await supabase.from("businesses").select("timezone").eq("id", businessId).single();
   const timezone = business?.timezone || "America/New_York";
 

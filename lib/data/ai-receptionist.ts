@@ -8,7 +8,7 @@ export async function getAiReceptionist(): Promise<DbAiReceptionist> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockAiReceptionist;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("ai_receptionists").select("*").eq("business_id", businessId).single();
   return data || mockAiReceptionist;
 }
@@ -18,7 +18,7 @@ export async function getVoiceConfig(): Promise<DbAiVoiceConfig> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockVoiceConfig;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("ai_voice_configs").select("*").eq("business_id", businessId).maybeSingle();
   return data || mockVoiceConfig;
 }

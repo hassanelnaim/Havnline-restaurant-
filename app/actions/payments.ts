@@ -20,7 +20,7 @@ export interface ActionResult {
 }
 
 async function requireBusinessId(): Promise<string> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -89,7 +89,7 @@ export async function voidOrderAction(orderId: string): Promise<ActionResult> {
 
   const {
     data: { user },
-  } = await createClient().auth.getUser();
+  } = await (await createClient()).auth.getUser();
 
   const { error } = await admin
     .from("orders")
@@ -113,7 +113,7 @@ export async function refundOrderAction(orderId: string, amountCents: number | u
   const businessId = await requireBusinessId();
   const {
     data: { user },
-  } = await createClient().auth.getUser();
+  } = await (await createClient()).auth.getUser();
 
   const result = await processOrderRefund(businessId, orderId, amountCents, reason, { refundedByUserId: user?.id || null });
   if (!result.success) return { success: false, error: result.error };

@@ -5,7 +5,8 @@ import { BillingClient } from "@/components/dashboard/billing-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function BillingPage({ searchParams }: { searchParams?: { success?: string; canceled?: string } }) {
+export default async function BillingPage(props: { searchParams?: Promise<{ success?: string; canceled?: string }> }) {
+  const searchParams = await props.searchParams;
   const business = await getBusiness();
   const overview = await getBillingOverview(business);
   return (

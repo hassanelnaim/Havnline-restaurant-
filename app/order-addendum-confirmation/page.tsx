@@ -25,7 +25,10 @@ export const dynamic = "force-dynamic";
  * branch (app/api/webhooks/stripe-connect/route.ts), which can fire
  * slightly before or after Stripe redirects the customer here.
  */
-export default async function OrderAddendumConfirmationPage({ searchParams }: { searchParams: { addendum_id?: string; cancelled?: string } }) {
+export default async function OrderAddendumConfirmationPage(
+  props: { searchParams: Promise<{ addendum_id?: string; cancelled?: string }> }
+) {
+  const searchParams = await props.searchParams;
   const addendumId = searchParams.addendum_id;
   const cancelled = searchParams.cancelled === "1";
 

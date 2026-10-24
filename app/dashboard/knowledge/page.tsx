@@ -10,7 +10,10 @@ export const dynamic = "force-dynamic";
 // default function timeout when rendering a JS-heavy page.
 export const maxDuration = 180;
 
-export default async function KnowledgePage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+export default async function KnowledgePage(
+  props: { searchParams: Promise<Record<string, string | string[] | undefined>> }
+) {
+  const searchParams = await props.searchParams;
   // Promotions moved to the Menu page. Old links (bookmarks, earlier
   // dashboard ideas) still land on the right form, with their prefill.
   if (searchParams.tab === "promotions" || searchParams.prefill === "1") {

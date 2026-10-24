@@ -135,7 +135,7 @@ export async function refundPaidAfterVoidAction(orderId: string): Promise<Health
   if (!order) return { success: false, error: "Order not found." };
   if (order.status !== "cancelled" || order.payment_status !== "paid") return done("Nothing to refund any more.");
 
-  const { data: { user } } = await createClient().auth.getUser();
+  const { data: { user } } = await (await createClient()).auth.getUser();
   const result = await processOrderRefund(order.business_id, order.id, undefined, "Paid after the order was voided (refunded by HavnLine)", {
     refundedByUserId: user?.id ?? null,
   });

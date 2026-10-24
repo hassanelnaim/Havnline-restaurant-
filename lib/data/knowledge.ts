@@ -8,7 +8,7 @@ export async function getKnowledgeItems(): Promise<DbKnowledgeItem[]> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockKnowledgeItems;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("knowledge_items").select("*").eq("business_id", businessId).order("created_at", { ascending: false });
   return data || mockKnowledgeItems;
 }

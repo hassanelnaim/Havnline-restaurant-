@@ -9,21 +9,21 @@ export async function getCalls(): Promise<DbCall[]> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockCalls;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("calls").select("*").eq("business_id", businessId).order("started_at", { ascending: false });
   return data || mockCalls;
 }
 
 export async function getCall(callId: string): Promise<DbCall | null> {
   if (!isSupabaseConfigured()) return mockCalls.find((c) => c.id === callId) || null;
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("calls").select("*").eq("id", callId).maybeSingle();
   return data || null;
 }
 
 export async function getCallMessages(callId: string): Promise<DbCallMessage[]> {
   if (!isSupabaseConfigured()) return mockCallMessages.filter((m) => m.call_id === callId);
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("call_messages").select("*").eq("call_id", callId).order("created_at");
   return data || [];
 }

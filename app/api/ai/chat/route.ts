@@ -13,7 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 const MAX_MESSAGE_LENGTH = 2000;
 
 export async function POST(request: NextRequest) {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 

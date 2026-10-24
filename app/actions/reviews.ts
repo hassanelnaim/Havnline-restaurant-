@@ -21,7 +21,7 @@ export async function submitReviewAction(input: {
   // Real rate limiting — this endpoint requires no login at all, so
   // without this, anyone could script thousands of fake submissions
   // into the moderation queue.
-  const ip = getClientIp();
+  const ip = await getClientIp();
   const allowed = await checkRateLimit(`review_submit:${ip}`, 3, 60);
   if (!allowed) {
     return { success: false, error: "Too many review submissions from this connection. Please try again later." };

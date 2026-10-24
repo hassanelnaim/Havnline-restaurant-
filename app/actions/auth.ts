@@ -21,13 +21,13 @@ export async function signUpAction(formData: FormData) {
   // Caps automated mass account creation from one network. Looser
   // than login's limits since a shared office/coffee-shop IP could
   // plausibly have a few real signups in an hour, just not dozens.
-  const ip = getClientIp();
+  const ip = await getClientIp();
   const ipOk = await checkRateLimit(`signup_ip:${ip}`, 5, 60);
   if (!ipOk) {
     redirect(`/signup?error=${encodeURIComponent("Too many signup attempts from this network. Please try again in a bit.")}`);
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
 
   // Critical: sign out any existing session BEFORE creating the new
   // account. Without this, if someone is already logged in (e.g.
@@ -70,7 +70,7 @@ export async function signInAction(formData: FormData) {
   // rotates IPs still hammer one victim's account, and an email limit
   // alone lets an attacker with a botnet spray many accounts from one
   // machine without ever tripping it. Both together cover each gap.
-  const ip = getClientIp();
+  const ip = await getClientIp();
   const normalizedEmail = email?.trim().toLowerCase() || "";
 
   // Every attempt from one network counts; for one email, only FAILED
@@ -86,7 +86,7 @@ export async function signInAction(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent("Too many sign-in attempts. Please wait a few minutes and try again.")}`);
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
@@ -100,7 +100,7 @@ export async function signInAction(formData: FormData) {
 }
 
 export async function signOutAction() {
-  const supabase = createClient();
+  const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
 }

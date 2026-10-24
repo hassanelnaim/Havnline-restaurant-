@@ -10,8 +10,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // whatever a caller chose to send, making every IP-based rate limit
 // (most importantly the printer-pairing brute-force limiter) trivially
 // bypassable by sending a different X-Forwarded-For value each time.
-export function getClientIp(): string {
-  const h = headers();
+export async function getClientIp(): Promise<string> {
+  const h = await headers();
 
   // Vercel's edge sets this to the actual connecting client's IP
   // itself — a single value the platform determines, not one a

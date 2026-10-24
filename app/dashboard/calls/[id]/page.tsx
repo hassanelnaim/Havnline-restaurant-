@@ -10,11 +10,12 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function CallDetailPage({ params }: { params: { id: string } }) {
+export default async function CallDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const businessId = await getCurrentBusinessId();
   if (!businessId) notFound();
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const [{ data: call }, business] = await Promise.all([
     supabase.from("calls").select("*").eq("id", params.id).eq("business_id", businessId).maybeSingle(),
     getBusiness(),

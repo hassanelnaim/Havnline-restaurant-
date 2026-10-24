@@ -19,7 +19,7 @@ export interface CompleteOnboardingResult {
 export async function completeOnboardingAction(draft: OnboardingDraft): Promise<CompleteOnboardingResult> {
   if (!isSupabaseConfigured()) return { success: true, demoMode: true };
 
-  const authClient = createClient();
+  const authClient = await createClient();
   const { data: { user }, error: userError } = await authClient.auth.getUser();
 
   if (userError || !user) return { success: false, error: "You need to be logged in to finish setup." };

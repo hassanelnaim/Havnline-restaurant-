@@ -15,7 +15,7 @@ import { normaliseSchedule, normaliseDiscount } from "@/lib/business/promotionIn
 // since a "use server" file can only export async functions.
 
 async function requireBusinessId(): Promise<string> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated.");
 

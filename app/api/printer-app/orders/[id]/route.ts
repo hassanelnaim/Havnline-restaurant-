@@ -21,7 +21,9 @@ function bearerToken(request: NextRequest): string | null {
  * a real failure ("printer offline") instead of an order silently
  * never showing up in the kitchen with no explanation anywhere.
  */
-async function handlePOST(request: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // Next 15: route params arrive as a promise.
+  const params = await ctx.params;
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 

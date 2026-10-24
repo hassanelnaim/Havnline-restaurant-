@@ -21,7 +21,10 @@ export const dynamic = "force-dynamic";
  * fresh page load right after paying may still show "processing" for
  * a moment; that's normal, not a bug.
  */
-export default async function OrderConfirmationPage({ searchParams }: { searchParams: { order_id?: string; cancelled?: string } }) {
+export default async function OrderConfirmationPage(
+  props: { searchParams: Promise<{ order_id?: string; cancelled?: string }> }
+) {
+  const searchParams = await props.searchParams;
   const orderId = searchParams.order_id;
   const cancelled = searchParams.cancelled === "1";
 

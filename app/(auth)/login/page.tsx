@@ -5,7 +5,10 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 
-export default function LoginPage({ searchParams }: { searchParams: { error?: string; justSignedUp?: string } }) {
+export default async function LoginPage(
+  props: { searchParams: Promise<{ error?: string; justSignedUp?: string }> }
+) {
+  const searchParams = await props.searchParams;
   return (
     <div>
       <h1 className="font-display text-[22px] font-semibold text-ink">Log in</h1>

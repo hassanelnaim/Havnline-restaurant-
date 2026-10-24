@@ -12,7 +12,7 @@ export interface BillingActionResult {
 }
 
 async function requireAuth(): Promise<{ businessId: string; email: string }> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated.");
 

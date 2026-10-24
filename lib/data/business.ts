@@ -8,7 +8,7 @@ export async function getBusiness(): Promise<DbBusiness> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockBusiness;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("businesses").select("*").eq("id", businessId).single();
   return data || mockBusiness;
 }
@@ -19,7 +19,7 @@ export async function getUpcomingClosures(timezone: string): Promise<DbBusinessC
   const businessId = await getCurrentBusinessId();
   if (!businessId) return [];
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data, error } = await supabase.from("business_closures").select("*").eq("business_id", businessId).gte("closed_on", today).order("closed_on");
   if (error) return [];
   return (data || []) as DbBusinessClosure[];
@@ -30,7 +30,7 @@ export async function getBusinessHours(): Promise<DbBusinessHours[]> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockBusinessHours;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("business_hours").select("*").eq("business_id", businessId);
   return data || mockBusinessHours;
 }

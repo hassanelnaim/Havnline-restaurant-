@@ -8,7 +8,7 @@ import { isRateLimited, recordRateLimitHit } from "@/lib/security/rateLimit";
 import type { ActionResult } from "./business";
 
 export async function updateProfileNameAction(fullName: string): Promise<ActionResult> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user }, error: userError } = await supabase.auth.getUser();
 
   if (userError || !user) return { success: false, error: "You need to be logged in." };
@@ -30,7 +30,7 @@ export async function updateProfileNameAction(fullName: string): Promise<ActionR
  * wrong guesses are limited.
  */
 async function verifyCurrentPassword(currentPassword: string): Promise<{ ok: true; userId: string } | { ok: false; error: string }> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) return { ok: false, error: "You need to be logged in." };
   if (!currentPassword) return { ok: false, error: "Enter your current password." };
@@ -54,7 +54,7 @@ async function verifyCurrentPassword(currentPassword: string): Promise<{ ok: tru
 export async function updateEmailAction(newEmail: string, currentPassword: string): Promise<ActionResult> {
   const check = await verifyCurrentPassword(currentPassword);
   if (!check.ok) return { success: false, error: check.error };
-  const supabase = createClient();
+  const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ email: newEmail });
   if (error) return { success: false, error: error.message };
   return { success: true };
@@ -64,7 +64,7 @@ export async function updatePasswordAction(newPassword: string, currentPassword:
   if (newPassword.length < 8) return { success: false, error: "Password must be at least 8 characters." };
   const check = await verifyCurrentPassword(currentPassword);
   if (!check.ok) return { success: false, error: check.error };
-  const supabase = createClient();
+  const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) return { success: false, error: error.message };
   return { success: true };

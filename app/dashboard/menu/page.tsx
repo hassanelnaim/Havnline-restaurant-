@@ -18,7 +18,10 @@ export const dynamic = "force-dynamic";
 // silently re-capping it at some lower platform limit.
 export const maxDuration = 180;
 
-export default async function MenuPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+export default async function MenuPage(
+  props: { searchParams: Promise<Record<string, string | string[] | undefined>> }
+) {
+  const searchParams = await props.searchParams;
   const business = await getBusiness();
   const [{ categories, items, addonTemplates }, promotions] = await Promise.all([getMenuForBusiness(business.id), getPromotions()]);
   const timezone = safeTimezone(business.timezone);

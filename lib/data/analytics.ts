@@ -6,7 +6,7 @@ import type { SalesBucket, SalesData, SalesPeriodTotals, SalesUnit, SellerData, 
 // "previous" stretch the total is compared against. (The database function
 // accepts up to 60 periods; the largest request here is 48 hours.)
 async function loadBuckets(businessId: string, unit: SalesUnit, timezone: string): Promise<{ current: SalesBucket[]; previous: SalesPeriodTotals }> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const count = SALES_WINDOWS[unit];
   const { data, error } = await supabase.rpc("sales_buckets", {
     p_business_id: businessId,
@@ -47,7 +47,7 @@ export async function getSalesSeries(businessId: string, timezone: string): Prom
 }
 
 async function loadSellers(businessId: string, days: number): Promise<SellerRow[]> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase.rpc("top_sellers", { p_business_id: businessId, p_since: since });
   if (error) throw new Error(`top_sellers(${days}d) failed: ${error.message}`);

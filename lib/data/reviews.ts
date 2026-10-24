@@ -6,7 +6,7 @@ import type { DbReview } from "@/lib/database/types";
 /** Public: only ever approved reviews — used on the landing page. */
 export async function getApprovedReviews(): Promise<DbReview[]> {
   if (!isSupabaseConfigured()) return [];
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("reviews").select("*").eq("status", "approved").order("created_at", { ascending: false });
   return data || [];
 }

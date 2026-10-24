@@ -6,7 +6,7 @@ import { localDateKey, localDayBoundsUtc } from "@/lib/format";
 
 export async function getOrdersForBusiness(businessId: string, limit = 100): Promise<OrderWithItems[]> {
   if (!isSupabaseConfigured()) return mockOrders;
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { data: orders } = await supabase
     .from("orders")
@@ -37,7 +37,7 @@ export async function getOrderTotalsSince(
       .filter((o) => o.created_at >= sinceIso)
       .map((o) => ({ status: o.status, payment_status: o.payment_status, total_cents: o.total_cents }));
   }
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await fetchAllRows((from, to) =>
     supabase.from("orders").select("status, payment_status, total_cents").eq("business_id", businessId).neq("status", "building").gte("created_at", sinceIso).order("id").range(from, to)
   );
@@ -56,7 +56,7 @@ export async function getOrderTotalsSince(
  */
 export async function getOrdersWithItemsSince(businessId: string, sinceIso: string): Promise<OrderWithItems[]> {
   if (!isSupabaseConfigured()) return mockOrders.filter((o) => o.created_at >= sinceIso);
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { data: orders } = await fetchAllRows((from, to) =>
     supabase.from("orders").select("*").eq("business_id", businessId).neq("status", "building").gte("created_at", sinceIso).order("id").range(from, to)
@@ -81,7 +81,7 @@ export async function getOrdersForDate(businessId: string, dateKey: string, time
     return mockOrders.filter((o) => localDateKey(o.created_at, timezone) === dateKey);
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { startIso, endIso } = localDayBoundsUtc(dateKey, timezone);
 
   // building = still in progress on a live call, not a real order yet
@@ -96,7 +96,7 @@ export async function getOrdersForDate(businessId: string, dateKey: string, time
 
 export async function getOrderWithItems(orderId: string): Promise<OrderWithItems | null> {
   if (!isSupabaseConfigured()) return mockOrders.find((o) => o.id === orderId) || null;
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: order } = await supabase.from("orders").select("*").eq("id", orderId).single();
   if (!order) return null;
 
@@ -112,7 +112,7 @@ export async function getOrderWithItems(orderId: string): Promise<OrderWithItems
   };
 }
 
-type ServerClient = ReturnType<typeof createClient>;
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
 
 /**
  * Loads the items and their options for a set of orders and attaches them.

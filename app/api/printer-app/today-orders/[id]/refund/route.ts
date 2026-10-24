@@ -34,7 +34,9 @@ function bearerToken(request: NextRequest): string | null {
  * (app/api/printer-app/verify-pin/route.ts) — unlike every read-only
  * printer-app route, device auth alone is not enough here.
  */
-async function handlePOST(request: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // Next 15: route params arrive as a promise.
+  const params = await ctx.params;
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 

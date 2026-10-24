@@ -16,7 +16,7 @@ export interface MenuForBusiness {
 
 export async function getMenuForBusiness(businessId: string): Promise<MenuForBusiness> {
   if (!isSupabaseConfigured()) return { categories: [], items: mockMenuItems, addonTemplates: [] };
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const [categoriesRes, itemsRes, groupsRes, modifiersRes, attachmentsRes] = await Promise.all([
     supabase.from("menu_categories").select("*").eq("business_id", businessId).order("sort_order"),

@@ -13,7 +13,7 @@ import { setMoneyPin } from "@/lib/security/moneyPin";
 import { toDialableNumber } from "@/lib/ai/liveTransfer";
 
 async function requireBusinessId(): Promise<string> {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated.");
 

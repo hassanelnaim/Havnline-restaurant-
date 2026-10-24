@@ -4,7 +4,7 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { listVoices, isElevenLabsConfigured } from "@/lib/integrations/telephony/elevenlabsProvider";
 
 export async function GET() {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   // Only accounts that belong to a restaurant can list voices.

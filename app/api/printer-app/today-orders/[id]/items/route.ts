@@ -148,7 +148,9 @@ function resolveSpecial(input: SpecialInput): SpecialResult {
  * the same deferred-until-paid pattern confirm_and_place_order uses
  * for the original order itself.
  */
-async function handlePOST(request: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // Next 15: route params arrive as a promise.
+  const params = await ctx.params;
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 

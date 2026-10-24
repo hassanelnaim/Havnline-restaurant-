@@ -15,7 +15,7 @@ export default async function PlatformAdminLayout({ children }: { children: Reac
     // the actual page, since that's real information a non-admin
     // visitor (or an attacker) shouldn't be able to learn just by
     // navigating here.
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     const configuredEmail = process.env.PLATFORM_ADMIN_EMAIL;
     console.warn(`[platform-admin] Access denied. Logged in as: ${user?.email || "no session"}. Configured admin set: ${Boolean(configuredEmail)}.`);

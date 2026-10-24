@@ -25,7 +25,9 @@ function bearerToken(request: NextRequest): string | null {
  * Trimmed response on purpose, matching GET today-orders — no Stripe
  * session/payment-intent ids reach the device.
  */
-async function handleGET(request: NextRequest, { params }: { params: { id: string; chargeId: string } }) {
+async function handleGET(request: NextRequest, ctx: { params: Promise<{ id: string; chargeId: string }> }) {
+  // Next 15: route params arrive as a promise.
+  const params = await ctx.params;
   const device = await authenticateDevice(bearerToken(request));
   if (!device) return NextResponse.json({ success: false, error: "Not paired." }, { status: 401 });
 

@@ -8,7 +8,7 @@ export async function getPromotions(): Promise<DbPromotion[]> {
   const businessId = await getCurrentBusinessId();
   if (!businessId) return mockPromotions;
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data } = await supabase.from("promotions").select("*").eq("business_id", businessId).order("start_date", { ascending: false });
   return data || mockPromotions;
 }

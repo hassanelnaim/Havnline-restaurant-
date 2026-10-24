@@ -18,7 +18,7 @@ export async function blockCustomerAction(customerId: string): Promise<ActionRes
   const businessId = await getCurrentBusinessId();
   if (!businessId) return { success: false, error: "Not signed in." };
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { error } = await supabase
     .from("customers")
     .update({ is_blocked: true, blocked_at: new Date().toISOString() })
@@ -35,7 +35,7 @@ export async function unblockCustomerAction(customerId: string): Promise<ActionR
   const businessId = await getCurrentBusinessId();
   if (!businessId) return { success: false, error: "Not signed in." };
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { error } = await supabase
     .from("customers")
     .update({ is_blocked: false, blocked_at: null })
@@ -58,7 +58,7 @@ export async function deleteCustomerAction(customerId: string): Promise<ActionRe
   const businessId = await getCurrentBusinessId();
   if (!businessId) return { success: false, error: "Not signed in." };
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { error } = await supabase
     .from("customers")
     .delete()

@@ -11,7 +11,7 @@ export async function getCurrentUserProfile(): Promise<UserProfile> {
     return { id: "demo", email: "demo@havnline.example", fullName: "Demo User" };
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {

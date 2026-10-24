@@ -26,7 +26,7 @@ async function handlePOST(request: NextRequest) {
   // codes. It isn't needed: a code is 8 digits (100,000,000 possibilities)
   // and lives 15 minutes, so even thousands of networks guessing at this
   // rate would expect to need years.
-  const ip = getClientIp();
+  const ip = await getClientIp();
   const ipOk = await checkRateLimit(`printer_pair_ip:${ip}`, 10, 15);
   if (!ipOk) {
     return NextResponse.json({ success: false, error: "Too many attempts. Please wait a few minutes and try again." }, { status: 429 });

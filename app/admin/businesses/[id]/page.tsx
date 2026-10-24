@@ -17,7 +17,8 @@ import { TextingRegistration, type TextingRegistrationInfo } from "@/components/
 
 export const dynamic = "force-dynamic";
 
-export default async function PlatformBusinessDetailPage({ params }: { params: { id: string } }) {
+export default async function PlatformBusinessDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   await requirePlatformAdmin();
   const demoMode = !isSupabaseConfigured();
 
