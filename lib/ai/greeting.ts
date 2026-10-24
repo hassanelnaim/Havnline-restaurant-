@@ -22,8 +22,8 @@
 //   company was on the line; telling them up front is the main defense.
 // - they can ask for a person at any point, which the assistant handles.
 // Kept short: every second here is a second the caller waits to talk.
-const GREETING_START = "Hi, thanks for calling ";
-export const GREETING_BODY = "! You're talking to our AI order line, run by HavnLine, and this call is transcribed. I can take your order or answer questions, and you can ask for a person anytime. What can I get started for you?";
+const GREETING_START = "Thank you for calling ";
+export const GREETING_BODY = ". You've reached our automated ordering assistant, provided by HavnLine. Calls are transcribed for accuracy. I can take your order or answer any questions, and you're welcome to ask for a team member at any time. How can I help you today?";
 
 export function buildGreeting(businessName: string): string {
   return `${GREETING_START}${businessName}${GREETING_BODY}`;
@@ -31,7 +31,7 @@ export function buildGreeting(businessName: string): string {
 
 // The length bound is belt-and-braces: a business name is short, so
 // anything much longer than this isn't a greeting we built.
-const MAX_GREETING_LENGTH = 300;
+const MAX_GREETING_LENGTH = 400;
 
 export function isGreetingLine(text: string): boolean {
   return text.length <= MAX_GREETING_LENGTH && text.startsWith(GREETING_START) && text.endsWith(GREETING_BODY);

@@ -33,7 +33,7 @@ export default function PrivacyPage() {
           <p>HavnLine runs AI order lines that answer phone calls for restaurants. This policy explains what information HavnLine collects, how it&apos;s used, who it&apos;s shared with, and how long it&apos;s kept, both for restaurants that use HavnLine and for people who call them.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">1. If you called a restaurant that uses HavnLine</h2>
-          <p>When you call, you&apos;re told at the start that you&apos;re speaking with an AI order line run by HavnLine and that the call is transcribed. HavnLine answers on behalf of that restaurant. To take your order or answer your question, we process:</p>
+          <p>When you call, you&apos;re told at the start that you&apos;ve reached an automated (AI) ordering assistant provided by HavnLine and that calls are transcribed. HavnLine answers on behalf of that restaurant. To take your order or answer your question, we process:</p>
           <ul className="ml-5 list-disc space-y-1.5">
             <li><strong>What you say:</strong> your speech is converted to text so the AI can understand it. We do not keep audio recordings.</li>
             <li><strong>Your phone number,</strong> from caller ID, and the name you give for the order.</li>
