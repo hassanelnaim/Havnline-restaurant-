@@ -351,6 +351,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m037", label: "037 leftovers" },
   { key: "m038", label: "038 admin health" },
   { key: "m039", label: "039 transcript retention" },
+  { key: "m040", label: "040 consent records" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {
@@ -381,6 +382,14 @@ export async function getSetupChecks(): Promise<SetupCheck[]> {
       ? "Address used for the links in emails."
       : "Optional. Links in emails point to https://havnline.com without it.",
   });
+  // A test-mode Stripe key takes "payments" that never charge anyone.
+  if ((process.env.STRIPE_SECRET_KEY || "").startsWith("sk_test_")) {
+    const c = checks.find((x) => x.id === "env:STRIPE_SECRET_KEY");
+    if (c) {
+      c.state = "fail";
+      c.detail = "This is a Stripe test-mode key: no real money is collected. Use the live key (sk_live_…) before selling.";
+    }
+  }
   if (process.env.DEMO_CALLER_NUMBERS) {
     checks.push({ id: "env:DEMO_CALLER_NUMBERS", group: "Keys", label: "DEMO_CALLER_NUMBERS", state: "warn", detail: "No longer used. You can delete it from Vercel." });
   }

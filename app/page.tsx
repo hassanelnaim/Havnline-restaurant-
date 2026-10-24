@@ -19,7 +19,7 @@ const FEATURES = [
   { icon: Phone, title: "Answers every call while you're open", detail: "Picks up right away during your hours, even in the dinner rush or when three lines ring at once. No hold music, no voicemail. After closing, callers simply hear when you open next." },
   { icon: ClipboardList, title: "Takes the full order", detail: "Asks about sizes, toppings and anything to leave off, keeps track of every item, then reads the whole order back with the total before placing it." },
   { icon: Globe, title: "Learns your menu in minutes", detail: "Import it from your website, a photo, or pasted text. Prices, add-ons and day-or-time specials come along." },
-  { icon: MessageSquareText, title: "Texts the customer", detail: "The order details and payment link go out by text right after the call — nothing for your staff to send." },
+  { icon: MessageSquareText, title: "Collects payment by text", detail: "With the caller's OK, it texts the total and a secure payment link. The order prints in your kitchen the moment it's paid, so there are no unpaid pickups." },
   { icon: Mic2, title: "Sounds like a real person", detail: "A natural voice you pick, short conversational replies, and never a \u201cpress 1 for…\u201d menu." },
   { icon: PhoneOutgoing, title: "Hands off when it should", detail: "Refunds, complaints or anything it isn't sure about get passed to your phone or logged for a callback. It never guesses." },
 ];
@@ -44,7 +44,7 @@ const CUISINE_TYPES = [
 const STEPS = [
   { label: "Tell us about your restaurant", detail: "Hours, address, and a photo or link to your menu — we build the rest." },
   { label: "Pick a voice and set the rules", detail: "Choose a personality, what it's allowed to do, and any house rules for orders." },
-  { label: "Forward your line and go live", detail: "Keep your existing number or get a new one. Flip it on whenever you're ready." },
+  { label: "Connect payments and go live", detail: "Connect Stripe so callers pay by text, then forward your line or use a new number. Phone orders start once carriers approve your texting registration, usually within a few days." },
 ];
 
 const FAQS = [
@@ -52,7 +52,7 @@ const FAQS = [
   { q: "What if it gets an order wrong?", a: "It only orders off what you've actually loaded into your menu — it can't invent an item, a size, or a price. If it's ever unsure what a caller means, it asks instead of guessing." },
   { q: "Does it work with my POS?", a: "It prints phone orders straight to your kitchen printer with our tablet app — no POS integration needed, and no per-item mapping to set up first." },
   { q: "What if a customer asks for something off-menu or gets upset?", a: "It hands off to you instead of guessing. It never invents prices, items, or policies it wasn't given." },
-  { q: "Do I need to be technical to set this up?", a: "No setup scripts or prompt-writing. You tell us about your restaurant and menu, pick a voice, and forward your line — most owners are live the same day." },
+  { q: "Do I need to be technical to set this up?", a: "No setup scripts or prompt-writing. You tell us about your restaurant and menu, pick a voice, connect payments, and forward your line. Setup takes an afternoon; phone orders turn on once the phone carriers approve your texting registration, which usually takes a few days." },
   { q: "Do I need a new phone number?", a: "No. Forward your existing restaurant line, or use a new one we provide." },
   { q: "What happens after my free trial?", a: "You're billed automatically unless you cancel first. There's no contract — cancel anytime from Billing in your dashboard." },
   { q: "Can I control what it says?", a: "Yes — personality, voice, and ordering rules are all yours to set. No prompt-writing needed." },
@@ -62,6 +62,7 @@ export default async function LandingPage() {
   const reviews = await getApprovedReviews();
   return (
     <div className="min-h-screen bg-paper">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-card focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-ink focus:shadow-popover">Skip to content</a>
       <header className="sticky top-0 z-40 border-b border-border/70 bg-paper/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
         <Logo />
@@ -79,7 +80,7 @@ export default async function LandingPage() {
         </div>
       </header>
 
-      <main>
+      <main id="main-content">
         {/* 1. Hero — the problem, the promise, a button, and the product in one picture. */}
         <section className="relative overflow-hidden bg-ink">
           <div aria-hidden className="pointer-events-none absolute -right-40 -top-40 h-[480px] w-[480px] rounded-full bg-brand/25 blur-3xl" />
@@ -213,7 +214,7 @@ export default async function LandingPage() {
         <section className="mx-auto max-w-6xl px-6 py-14">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-[11.5px] font-semibold uppercase tracking-wide text-brand">Live in three steps</p>
-            <h2 className="mt-2.5 font-display text-[24px] font-semibold text-ink">Most owners are set up the same day.</h2>
+            <h2 className="mt-2.5 font-display text-[24px] font-semibold text-ink">Set up in an afternoon.</h2>
           </div>
           <div className="mt-7 grid gap-3.5 sm:grid-cols-3">
             {STEPS.map((step, i) => (
@@ -294,7 +295,7 @@ export default async function LandingPage() {
               </div>
               <p className="mt-1 text-[12px] text-text-muted">7 days free, then billed monthly. Cancel anytime.</p>
               <ul className="mx-auto mt-5 inline-block space-y-2 text-left">
-                {["Unlimited calls answered", "Real phone order-taking off your menu", "Sends straight to your kitchen printer", "Automatic SMS order confirmations", "Custom AI voice & personality", "Escalation to you when it matters"].map((item) => (
+                {["Unlimited calls answered", "Real phone order-taking off your menu", "Sends straight to your kitchen printer", "Payment links and receipts by text", "Custom AI voice & personality", "Escalation to you when it matters"].map((item) => (
                   <li key={item} className="flex items-center gap-2 text-[13px] text-text">
                     <Check className="h-3.5 w-3.5 shrink-0 text-brand" />
                     {item}
@@ -335,7 +336,7 @@ export default async function LandingPage() {
         <section className="bg-ink py-14">
           <div className="mx-auto max-w-6xl px-6 text-center">
             <h2 className="font-display text-[26px] font-semibold text-white sm:text-[32px]">The phone will keep ringing. Just no one has to stop for it.</h2>
-            <p className="mx-auto mt-2.5 max-w-md text-[13px] text-[#8A93A6]">Set up your AI order-taker in minutes. First 7 days are free.</p>
+            <p className="mx-auto mt-2.5 max-w-md text-[13px] text-[#8A93A6]">Set up your AI order-taker in an afternoon. First 7 days are free.</p>
             <div className="mt-7">
               <Button variant="brand" size="lg" asChild>
                 <Link href="/signup">Start your free trial <ArrowRight className="h-4 w-4" /></Link>

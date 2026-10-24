@@ -126,7 +126,7 @@ export async function processOrderRefund(
   // webhook) but, until now, nothing at all when money went back to
   // their card — silent from their side even though real money moved.
   if (order.phone && business?.name && result.refundedCents) {
-    const smsBody = `${business.name}: $${(result.refundedCents / 100).toFixed(2)} has been refunded to your card${fullyRefunded ? "" : " for part of your order"}. It can take a few business days to show up on your statement. Msg&data rates may apply.`;
+    const smsBody = `${business.name}: $${(result.refundedCents / 100).toFixed(2)} has been refunded to your card${fullyRefunded ? "" : " for part of your order"}. It can take a few business days to show up on your statement. Msg&data rates may apply. Reply STOP to opt out.`;
     runAfterResponse("refund-confirmation text", smsClient.send(businessId, order.phone, smsBody));
   }
 

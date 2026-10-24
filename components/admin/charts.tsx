@@ -60,7 +60,6 @@ export function BarChart({ bars, height = 140, color = SERIES.calls, emphasisCol
               onMouseEnter={() => setHover(b.key)}
               onMouseLeave={() => setHover(null)}
               onClick={() => setHover((h) => (h === b.key ? null : b.key))}
-              aria-label={b.tooltip.join(", ")}
             >
               {hover === b.key && <Tooltip lines={b.tooltip} align={alignOf(i, bars.length)} />}
               <div
@@ -110,7 +109,6 @@ export function PairedBarChart({ bars, height = 160, names, ariaLabel }: { bars:
             onMouseEnter={() => setHover(x.key)}
             onMouseLeave={() => setHover(null)}
             onClick={() => setHover((k) => (k === x.key ? null : x.key))}
-            aria-label={x.tooltip.join(", ")}
           >
             {hover === x.key && <Tooltip lines={x.tooltip} align={alignOf(i, bars.length)} />}
             {([["a", SERIES.calls], ["b", SERIES.orders]] as const).map(([k, c]) => (

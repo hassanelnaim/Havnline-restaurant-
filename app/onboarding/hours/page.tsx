@@ -23,14 +23,14 @@ export default function HoursStep() {
         {draft.hours.map((day, i) => (
           <div key={day.weekday} className="flex flex-wrap items-center gap-4 px-4 py-3.5">
             <div className="flex w-32 items-center gap-2.5">
-              <Switch checked={day.isOpen} onCheckedChange={(checked) => setDay(i, { isOpen: checked })} />
+              <Switch checked={day.isOpen} onCheckedChange={(checked) => setDay(i, { isOpen: checked })} aria-label={`Open on ${WEEKDAY_LABELS[day.weekday]}`} />
               <span className="text-[13.5px] font-medium text-text">{WEEKDAY_LABELS[day.weekday]}</span>
             </div>
             {day.isOpen ? (
               <div className="flex flex-1 items-center gap-2">
-                <Input type="time" className="w-32" value={day.openTime} onChange={(e) => setDay(i, { openTime: e.target.value })} />
+                <Input type="time" className="w-32" value={day.openTime} onChange={(e) => setDay(i, { openTime: e.target.value })} aria-label={`${WEEKDAY_LABELS[day.weekday]} opening time`} />
                 <span className="text-[12.5px] text-text-faint">to</span>
-                <Input type="time" className="w-32" value={day.closeTime} onChange={(e) => setDay(i, { closeTime: e.target.value })} />
+                <Input type="time" className="w-32" value={day.closeTime} onChange={(e) => setDay(i, { closeTime: e.target.value })} aria-label={`${WEEKDAY_LABELS[day.weekday]} closing time`} />
                 {day.openTime === day.closeTime && <span className="text-[12px] font-medium text-brand">Open 24 hours</span>}
               </div>
             ) : <span className="flex-1 text-[13px] text-text-faint">Closed</span>}

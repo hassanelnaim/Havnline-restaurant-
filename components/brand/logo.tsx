@@ -19,7 +19,7 @@ export function LogoWordmark({ className, tone = "dark" }: { className?: string;
   return (
     <span className={cn("font-display font-semibold tracking-tight", className)}>
       <span className={tone === "light" ? "text-white" : "text-ink"}>Havn</span>
-      <span className="text-brand">Line</span>
+      <span className={tone === "light" ? "text-brand-light" : "text-brand"}>Line</span>
     </span>
   );
 }

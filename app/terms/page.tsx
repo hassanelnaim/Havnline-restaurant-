@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
+import { TERMS_VERSION } from "@/lib/legal/versions";
 
 export const metadata = { title: "Terms of Service — HavnLine" };
 
-// Change both when these terms change. The date is fixed on purpose: it
-// must say when the terms last changed, not today's date.
-const LAST_UPDATED = "October 24, 2026";
+// Fixed on purpose: it must say when the terms last changed, not today's
+// date. Change it in lib/legal/versions.ts whenever this page changes.
+const LAST_UPDATED = TERMS_VERSION;
 // Where HavnLine is organized. Confirm with your lawyer.
 const GOVERNING_STATE = "Michigan";
 
@@ -27,10 +28,6 @@ export default function TermsPage() {
         <h1 className="font-display text-[30px] font-semibold text-ink">Terms of Service</h1>
         <p className="mt-2 text-[13px] text-text-muted">Last updated: {LAST_UPDATED}</p>
 
-        <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft px-4 py-3 text-[12.5px] leading-relaxed text-brand-dark">
-          This is a working draft covering what HavnLine actually does. It is not a substitute for review by
-          a qualified attorney, and will be reviewed by one before HavnLine relies on it.
-        </div>
 
         <section className="mt-8 space-y-5 text-[14px] leading-relaxed text-text">
           <p>These Terms of Service (&quot;Terms&quot;) are an agreement between HavnLine (&quot;HavnLine,&quot; &quot;we,&quot; &quot;us&quot;) and the business that signs up for it (&quot;you,&quot; the &quot;Restaurant&quot;). They govern your use of HavnLine (the &quot;Service&quot;), an AI order line that answers your restaurant&apos;s phone calls, answers questions, and takes orders on your behalf. By creating an account or using the Service, you agree to these Terms. <strong>Section 13 requires disputes to be resolved by individual arbitration and waives class actions; please read it.</strong></p>
@@ -56,7 +53,7 @@ export default function TermsPage() {
           <p>HavnLine processes call and customer data only as your service provider, to run the Service for you. We do not sell it, use it for advertising, or use it to train AI models. You are responsible for any additional notices or consents that laws where you operate may require, and for telling us if you need them.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">7. Text messages</h2>
-          <p>The Service sends texts only to a caller who agreed during the call: the payment link for their order, and a confirmation once it&apos;s paid. Every text says how to opt out (reply STOP) and get help (reply HELP). You may not use the Service to send marketing texts. See our <Link href="/sms-terms" className="font-medium text-brand hover:underline">SMS Terms</Link>.</p>
+          <p>The Service sends texts only to a caller who agreed during the call: the payment link for their order, a confirmation once it&apos;s paid, and a notice if it&apos;s refunded. Every text says how to opt out (reply STOP) and get help (reply HELP). You may not use the Service to send marketing texts. See our <Link href="/sms-terms" className="font-medium text-brand hover:underline">SMS Terms</Link>.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">8. Acceptable use</h2>
           <p>You may not use the Service for anything illegal, to send spam, to impersonate anyone, to collect callers&apos; information for purposes unrelated to their orders, or to reverse-engineer or overload the Service.</p>

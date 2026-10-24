@@ -14,7 +14,8 @@ const config: Config = {
         paper: "#F6F7FA",
         card: "#FFFFFF",
         border: { DEFAULT: "#E5E7EB", soft: "#EEF0F3" },
-        text: { DEFAULT: "#0B1220", muted: "#5B6472", faint: "#9AA3B2" },
+        // faint passes 4.5:1 contrast on white and on paper (accessibility)
+        text: { DEFAULT: "#0B1220", muted: "#5B6472", faint: "#646C7D" },
         brand: {
           DEFAULT: "#2563EB",
           dark: "#1D4ED8",
@@ -22,8 +23,8 @@ const config: Config = {
           soft: "#E9F0FE",
           50: "#F3F7FF",
         },
-        success: { DEFAULT: "#16A34A", soft: "#E5F6EA" },
-        danger: { DEFAULT: "#DC2626", soft: "#FBE9E8" },
+        success: { DEFAULT: "#137A36", soft: "#E5F6EA" },
+        danger: { DEFAULT: "#C81E1E", soft: "#FBE9E8" },
         info: { DEFAULT: "#60A5FA", soft: "#EAF2FE" },
       },
       fontFamily: {

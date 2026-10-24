@@ -2,7 +2,10 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import { checkRateLimit, getClientIp, isRateLimited, recordRateLimitHit } from "@/lib/security/rateLimit";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
 
 export async function signUpAction(formData: FormData) {
   const email = formData.get("email") as string;
@@ -38,7 +41,7 @@ export async function signUpAction(formData: FormData) {
   // logged in, not the new signup.
   await supabase.auth.signOut();
 
-  const { error } = await supabase.auth.signUp({
+  const { data: signUpData, error } = await supabase.auth.signUp({
     email,
     password,
     options: { data: { full_name: fullName } },
@@ -57,6 +60,26 @@ export async function signUpAction(formData: FormData) {
       ? "If that email doesn't already have an account, check your inbox to finish signing up. Already have one? Try signing in instead."
       : error.message;
     redirect(`/signup?error=${encodeURIComponent(message)}`);
+  }
+
+  // Proof of what this account agreed to. A repeat signup for an existing
+  // email comes back with no identities and isn't a new acceptance.
+  const newUser = signUpData?.user;
+  if (newUser && (newUser.identities?.length ?? 0) > 0) {
+    try {
+      const h = await headers();
+      const { error: recordError } = await createAdminClient().from("terms_acceptances").insert({
+        user_id: newUser.id,
+        email: newUser.email ?? email,
+        terms_version: TERMS_VERSION,
+        privacy_version: PRIVACY_VERSION,
+        ip,
+        user_agent: (h.get("user-agent") || "").slice(0, 300),
+      });
+      if (recordError) console.error("[signup] could not record terms acceptance (run migration 040):", recordError.message);
+    } catch (err) {
+      console.error("[signup] could not record terms acceptance:", err);
+    }
   }
 
   redirect("/login?justSignedUp=1");

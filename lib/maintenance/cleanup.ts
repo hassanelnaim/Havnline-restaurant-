@@ -49,6 +49,9 @@ export async function runNightlyCleanup(): Promise<CronJobOutcome> {
     ["job history older than 90 days", () => admin.from("cron_runs").delete({ count: "exact" }).lt("started_at", daysAgo(90))],
     ["alert log older than 90 days", () => admin.from("platform_alerts").delete({ count: "exact" }).lt("created_at", daysAgo(90))],
     [`call transcript lines older than ${TRANSCRIPT_RETENTION_DAYS} days`, () => purgeOldTranscripts(admin, daysAgo(TRANSCRIPT_RETENTION_DAYS))],
+    // Proof of texting consent is kept 4 years (migration 040), the federal
+    // texting law's window for filing a claim.
+    ["texting consent records older than 4 years", () => admin.from("sms_consents").delete({ count: "exact" }).lt("consented_at", daysAgo(4 * 365 + 1))],
   ];
 
   const result: Record<string, number | string> = {};

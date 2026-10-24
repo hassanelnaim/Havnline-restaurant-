@@ -24,7 +24,7 @@ export function AiStatusToggle({ initialStatus, tone = "dark" }: { initialStatus
     <div className="flex items-center gap-2">
       <span className={`h-2 w-2 rounded-full ${online ? "bg-success animate-pulse-ring" : tone === "light" ? "bg-[#5B6472]" : "bg-text-faint"}`} />
       <span className={`text-[13px] font-medium ${tone === "light" ? "text-white" : "text-text"}`}>{online ? "Online" : "Offline"}</span>
-      <Switch checked={online} onCheckedChange={handleToggle} />
+      <Switch checked={online} onCheckedChange={handleToggle} aria-label={online ? "AI order-taker is on. Turn it off" : "AI order-taker is off. Turn it on"} />
       {error && <span className="ml-2 text-[11.5px] text-danger">{error}</span>}
     </div>
   );

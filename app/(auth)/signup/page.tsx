@@ -10,7 +10,7 @@ export default async function SignupPage(props: { searchParams: Promise<{ error?
   return (
     <div>
       <h1 className="font-display text-[22px] font-semibold text-ink">Create your account</h1>
-      <p className="mt-1 text-[13px] text-text-muted">Set up your AI receptionist in minutes.</p>
+      <p className="mt-1 text-[13px] text-text-muted">Set up your AI order-taker in an afternoon.</p>
 
       {searchParams.error && (
         <div className="mt-4 rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">

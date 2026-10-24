@@ -23,7 +23,7 @@ export function StatusEditor({ businessId, currentStatus }: { businessId: string
 
   return (
     <div className="flex items-center gap-2">
-      <select value={status} onChange={(e) => handleChange(e.target.value)} className="h-9 rounded-lg border border-border bg-card px-3 text-[13px]">
+      <select aria-label="Subscription status" value={status} onChange={(e) => handleChange(e.target.value)} className="h-9 rounded-lg border border-border bg-card px-3 text-[13px]">
         {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
       {saved && <span className="text-[12px] font-medium text-success">Saved ✓</span>}

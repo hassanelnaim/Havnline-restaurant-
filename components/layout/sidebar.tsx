@@ -39,7 +39,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="space-y-4 px-2">
       {NAV_GROUPS.map((group) => (
         <div key={group.label}>
-          <div className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#5B6472]">{group.label}</div>
+          <div className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8A93A6]">{group.label}</div>
           <div className="space-y-0.5">
             {group.items.map((item) => {
               const active = item.href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.href);

@@ -238,6 +238,7 @@ export function MenuClient({
               <div>
                 <Label className="text-[12px] text-text-muted">Category</Label>
                 <select
+                  aria-label="Category"
                   className="mt-1 h-10 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text"
                   value={categoryChoice}
                   onChange={(e) => setCategoryChoice(e.target.value)}
@@ -701,7 +702,7 @@ function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onR
             {item.price_cents === 0 && !sizes && !item.special_price_cents
               ? <div className="rounded-full bg-amber-50 px-2 py-0.5 text-[11.5px] font-medium text-amber-700">No price</div>
               : <div className="text-right text-[13px] font-semibold tabular-nums text-ink">{priceRangeText(item.price_cents, sizes)}</div>}
-            <Switch checked={item.is_active} onCheckedChange={(checked) => onToggle(item.id, checked)} />
+            <Switch checked={item.is_active} onCheckedChange={(checked) => onToggle(item.id, checked)} aria-label={item.is_active ? `${item.name} is available. Mark unavailable` : `${item.name} is unavailable. Mark available`} />
             <button onClick={() => onRemove(item.id)} className="rounded-md p-1 text-text-faint hover:bg-danger-soft hover:text-danger" aria-label="Delete item"><Trash2 className="h-3.5 w-3.5" /></button>
           </div>
         </div>
@@ -726,7 +727,7 @@ function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onR
                   </div>
                   <div>
                     <Label className="text-[11.5px] text-text-faint">Category</Label>
-                    <select className="mt-1 h-10 w-full rounded-lg border border-border bg-card px-2.5 text-[13px]" value={draft.categoryId} onChange={(e) => setDraft((d) => ({ ...d, categoryId: e.target.value }))}>
+                    <select aria-label="Category" className="mt-1 h-10 w-full rounded-lg border border-border bg-card px-2.5 text-[13px]" value={draft.categoryId} onChange={(e) => setDraft((d) => ({ ...d, categoryId: e.target.value }))}>
                       <option value="">No category</option>
                       {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
@@ -832,6 +833,7 @@ function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onR
               ) : (
                 <div className="mt-2 flex gap-2">
                   <select
+                    aria-label="Add-on group to attach"
                     value={selectedTemplateId}
                     onChange={(e) => setSelectedTemplateId(e.target.value)}
                     className={`h-9 flex-1 rounded-lg border bg-white px-2.5 text-[13px] outline-none ${EASY_TO_MISS_INPUT_HIGHLIGHT}`}

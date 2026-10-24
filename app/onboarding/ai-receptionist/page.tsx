@@ -30,7 +30,7 @@ export default function AiReceptionistStep() {
               <div className="text-[13.5px] font-medium text-text">{item.label}</div>
               <div className="text-[11.5px] text-text-muted">{item.hint}</div>
             </div>
-            <Switch checked={draft.responsibilities[item.key]} onCheckedChange={() => toggleResponsibility(item.key)} />
+            <Switch checked={draft.responsibilities[item.key]} onCheckedChange={() => toggleResponsibility(item.key)} aria-label={item.label} />
           </div>
         ))}
       </div>

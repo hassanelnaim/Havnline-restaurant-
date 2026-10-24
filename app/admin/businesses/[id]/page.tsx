@@ -2,12 +2,14 @@ import { requirePlatformAdmin } from "@/lib/supabase/platform-admin";
 import { BusinessActions } from "@/components/admin/business-actions";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bot, DollarSign, PhoneCall, ClipboardList, CreditCard } from "lucide-react";
+import { ArrowLeft, Bot, DollarSign, PhoneCall, ClipboardList, CreditCard, FileCheck2 } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { mockAdminBusinessDetails, mockCalls, mockOrders } from "@/lib/mock/data";
 import { getBusinessCostBreakdown } from "@/lib/usage/tracking";
 import { getBusinessIssues } from "@/lib/admin/issues";
+import { getBusinessAgreements } from "@/lib/admin/agreements";
+import { TERMS_VERSION } from "@/lib/legal/versions";
 import { formatDate } from "@/lib/format";
 import { StatusEditor } from "@/components/admin/status-editor";
 import { FeeEditor } from "@/components/admin/fee-editor";
@@ -56,7 +58,11 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
     approved: integrationRows.some((r) => r.provider === "sms" && r.status === "connected"),
   };
 
-  const [costs, issues] = await Promise.all([getBusinessCostBreakdown(params.id), demoMode ? Promise.resolve([]) : getBusinessIssues(params.id)]);
+  const [costs, issues, agreements] = await Promise.all([
+    getBusinessCostBreakdown(params.id),
+    demoMode ? Promise.resolve([]) : getBusinessIssues(params.id),
+    demoMode ? Promise.resolve({ members: [], available: true }) : getBusinessAgreements(params.id),
+  ]);
 
   return (
     <div>
@@ -123,6 +129,35 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
       </div>
 
       <TextingRegistration businessId={business.id} info={texting} />
+
+      <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-card">
+        <div className="flex items-center gap-2">
+          <FileCheck2 className="h-4 w-4 text-brand" />
+          <h2 className="font-display text-[15px] font-semibold text-ink">Agreements</h2>
+        </div>
+        <p className="mt-1 text-[12px] text-text-faint">Which Terms of Service and Privacy Policy each account accepted at signup. Current version: {TERMS_VERSION}.</p>
+        {!agreements.available ? (
+          <p className="mt-3 text-[13px] text-text-muted">Run migration 040 to record agreements.</p>
+        ) : agreements.members.length === 0 ? (
+          <p className="mt-3 text-[13px] text-text-muted">No accounts on this business.</p>
+        ) : (
+          <div className="mt-3 divide-y divide-border-soft">
+            {agreements.members.map((m) => (
+              <div key={m.userId} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[13px]">
+                <span className="text-text">{m.email || "Account"} <span className="text-text-faint">· {m.role}</span></span>
+                {m.acceptedAt ? (
+                  <span className={m.termsVersion === TERMS_VERSION ? "text-text-muted" : "text-amber-700"}>
+                    Accepted the {m.termsVersion} Terms on {formatDate(m.acceptedAt)}
+                    {m.termsVersion !== TERMS_VERSION && " (older version)"}
+                  </span>
+                ) : (
+                  <span className="text-text-faint">No record (signed up before agreements were recorded)</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-card">
         <div className="flex items-center gap-2">

@@ -555,7 +555,7 @@ async function get_current_order(_input: unknown, ctx: ToolContext): Promise<Too
 }
 
 async function confirm_and_place_order(
-  input: { customer_name: string; phone?: string; number_confirmed?: boolean; special_instructions?: string },
+  input: { customer_name: string; phone?: string; number_confirmed?: boolean; text_consent?: boolean; special_instructions?: string },
   ctx: ToolContext
 ): Promise<ToolResult> {
   const admin = createAdminClient();
@@ -621,6 +621,11 @@ async function confirm_and_place_order(
   if (ctx.channel === "phone" && !isFreeOrder && ctx.context.textingApproved === false) {
     return { success: false, reason: TEXTING_NOT_READY_REASON };
   }
+  // Nothing is texted to a caller who hasn't said yes to it on this call
+  // (the SMS Terms the carriers approved promise exactly that).
+  if (ctx.channel === "phone" && input.text_consent !== true) {
+    return { success: false, reason: TEXT_CONSENT_REASON };
+  }
 
   let customerId = existingCustomer?.id;
   if (!customerId) {
@@ -668,6 +673,22 @@ async function confirm_and_place_order(
     .maybeSingle();
 
   if (!claimedOrder) return placedOrderFollowUp(ctx, textTo, { racing: true });
+
+  // Proof the caller agreed to the text, kept 4 years (migration 040), long
+  // after the 90-day transcript is gone: their own words when they said yes.
+  if (ctx.channel === "phone") {
+    await soft(
+      "record texting consent",
+      admin.from("sms_consents").insert({
+        business_id: ctx.businessId,
+        order_id: order.id,
+        call_id: ctx.callId,
+        phone: textTo,
+        method: "verbal_on_call",
+        evidence: (ctx.recentWords?.customer?.[0] || "").slice(0, 300) || null,
+      })
+    );
+  }
 
   // If anything below fails before the payment link exists, the claim is
   // undone: the order goes back to "building", so the AI can simply try
@@ -830,6 +851,9 @@ async function confirm_and_place_order(
   }
 }
 
+const TEXT_CONSENT_REASON =
+  "Before placing the order, ask the caller if it's okay to text the payment link to the number they're calling from (or the number they gave), and wait for a clear yes. Then call confirm_and_place_order again with text_consent: true. If they say no, explain that paying by the texted link is the only way to place a phone order here, and offer to have someone from the restaurant call them back (escalate_to_human).";
+
 const TEXTING_NOT_READY_REASON =
   "This restaurant can't text payment links yet (its texting registration is still being approved), and every phone order is paid through a texted link, so orders can't be taken over the phone right now. Tell the caller that plainly, and offer to connect them to the restaurant or take a message for a callback.";
 
@@ -880,7 +904,7 @@ function resolveTextDestination(
 async function textPaymentLink(ctx: ToolContext, link: { orderId: string; url: string; totalCents: number; phone: string }): Promise<ToolResult> {
   const admin = createAdminClient();
   const business = ctx.context.business;
-  const body = `${business.name}: your order total is $${(link.totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${link.url} (link expires in 30 min). Msg&data rates may apply.`;
+  const body = `${business.name}: your order total is $${(link.totalCents / 100).toFixed(2)}. Pay here to send it to the kitchen: ${link.url} (link expires in 30 min). Msg&data rates may apply. Reply STOP to opt out.`;
   const statusCallback = withCallKey(`${getSiteUrl()}/api/webhooks/twilio/sms-status?orderId=${link.orderId}`, link.orderId);
   // "sending" first: Twilio's delivery report can arrive before this
   // function finishes, and must not be overwritten by a later "sent".
@@ -985,20 +1009,9 @@ async function transfer_call(_input: unknown, _ctx: ToolContext): Promise<ToolRe
   return { transferring: true };
 }
 
-async function send_sms(input: { phone: string; message: string }, ctx: ToolContext): Promise<ToolResult> {
-  // Unlike confirm_and_place_order's own payment/confirmation texts
-  // (which are tied to a real order the customer just built and can
-  // legitimately go to a number they stated, e.g. ordering for someone
-  // else), this is a free-form "send any message to any number" tool
-  // with no order behind it — exactly what would let a caller turn the
-  // business's own paid Twilio number into an arbitrary SMS relay by
-  // just asking the AI to "text this message to this other number."
-  // Lock it to the verified caller on a real call; the test channel
-  // has no real caller ID to lock to.
-  const phone = ctx.channel === "phone" && ctx.callerPhone ? ctx.callerPhone : input.phone;
-  const result = await smsClient.send(ctx.businessId, phone, input.message);
-  return { sent: result.sent, reason: result.reason };
-}
+// There is deliberately no free-form "send a text" tool. The only texts a
+// caller gets are the ones they agreed to on the call: the payment link,
+// then the payment receipt (and a refund notice if they're refunded).
 
 export const TOOL_HANDLERS: Record<string, (input: any, ctx: ToolContext) => Promise<ToolResult>> = {
   get_business_information,
@@ -1013,7 +1026,6 @@ export const TOOL_HANDLERS: Record<string, (input: any, ctx: ToolContext) => Pro
   confirm_and_place_order,
   escalate_to_human,
   transfer_call,
-  send_sms,
 };
 
 export const TOOL_DEFINITIONS = [
@@ -1078,6 +1090,10 @@ export const TOOL_DEFINITIONS = [
           type: "boolean",
           description: "true only after you read a different number back digit by digit and the caller said it's right.",
         },
+        text_consent: {
+          type: "boolean",
+          description: "true only after you asked if it's okay to text the payment link to that number and the caller clearly said yes.",
+        },
         special_instructions: { type: "string", description: "Notes for the kitchen about the whole order. Any allergy the caller mentioned goes here (or in that item's notes) starting with \"ALLERGY:\"." },
       },
       required: ["customer_name"],
@@ -1085,5 +1101,4 @@ export const TOOL_DEFINITIONS = [
   },
   { name: "escalate_to_human", description: "Hand this call to the restaurant staff. Use for refunds, complaints, requests to change or cancel an order that was ALREADY placed (it may already be cooking), and anything you can't resolve. While the restaurant is open the system rings its phone live; if closed or nobody answers it is logged for a callback.", input_schema: { type: "object" as const, properties: { reason: { type: "string" }, summary: { type: "string" } }, required: ["reason", "summary"] } },
   { name: "transfer_call", description: "Transfer the caller to a real person live, immediately. ONLY when they explicitly ask to speak to a human.", input_schema: { type: "object" as const, properties: {} } },
-  { name: "send_sms", description: "Send a text message to the customer.", input_schema: { type: "object" as const, properties: { phone: { type: "string" }, message: { type: "string" } }, required: ["phone", "message"] } },
 ];

@@ -18,7 +18,7 @@ function AdminNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   return (
     <nav className="space-y-0.5 px-2">
-      <div className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#5B6472]">Platform</div>
+      <div className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8A93A6]">Platform</div>
       {NAV.map((item) => {
         const active = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
         return (
@@ -65,6 +65,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="min-h-screen bg-paper">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-card focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-ink focus:shadow-popover">Skip to content</a>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-ink py-6 lg:flex">
         <div className="mb-6 px-4"><Brand /></div>
         <AdminNav />
@@ -90,7 +91,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           <button onClick={() => setOpen(true)} className="text-text-muted" aria-label="Open menu"><Menu className="h-5 w-5" /></button>
           <span className="text-[13px] font-semibold text-ink">HavnLine admin</span>
         </header>
-        <main className="mx-auto max-w-6xl p-4 lg:p-8">{children}</main>
+        <main id="main-content" className="mx-auto max-w-6xl p-4 lg:p-8">{children}</main>
       </div>
     </div>
   );

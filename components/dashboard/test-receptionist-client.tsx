@@ -52,7 +52,7 @@ export function TestReceptionistClient() {
       </div>
       <div className="flex items-center gap-2 border-t border-border p-4">
         <Input placeholder="Type a message…" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMessage()} />
-        <Button variant="brand" size="icon" onClick={sendMessage} disabled={loading}><Send className="h-4 w-4" /></Button>
+        <Button variant="brand" size="icon" onClick={sendMessage} disabled={loading} aria-label="Send message"><Send className="h-4 w-4" /></Button>
       </div>
     </Card>
   );

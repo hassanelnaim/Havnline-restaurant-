@@ -36,6 +36,7 @@ export function FeeEditor({ businessId, currentFeeBps }: { businessId: string; c
       <div className="flex items-center gap-2">
         <div className="relative">
           <input
+            aria-label="Platform fee percent"
             type="number"
             min={0}
             max={100}

@@ -22,6 +22,7 @@ export function DashboardShell({
 
   return (
     <div className="min-h-screen bg-paper print:bg-white">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-card focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-ink focus:shadow-popover">Skip to content</a>
       {/* Printing a report (see app/dashboard/orders) should produce a
           plain page of that report, not the sidebar/header chrome around
           it — print:hidden here, and print:pl-0/print:p-0 below, strip
@@ -58,7 +59,7 @@ export function DashboardShell({
                 <LogoMark className="h-8 w-8" />
                 <LogoWordmark tone="light" className="text-[14px]" />
               </Link>
-              <button onClick={() => setMobileOpen(false)} className="text-white"><X className="h-5 w-5" /></button>
+              <button onClick={() => setMobileOpen(false)} className="text-white" aria-label="Close menu"><X className="h-5 w-5" /></button>
             </div>
             <SidebarNav onNavigate={() => setMobileOpen(false)} />
           </div>
@@ -68,7 +69,7 @@ export function DashboardShell({
       <div className="lg:pl-64 print:pl-0">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card px-4 py-3 lg:px-6 print:hidden">
           <div className="flex items-center gap-3">
-            <button onClick={() => setMobileOpen(true)} className="text-text-muted lg:hidden"><Menu className="h-5 w-5" /></button>
+            <button onClick={() => setMobileOpen(true)} className="text-text-muted lg:hidden" aria-label="Open menu"><Menu className="h-5 w-5" /></button>
             <AiStatusToggle initialStatus={initialStatus} />
           </div>
           <div className="relative">
@@ -87,7 +88,7 @@ export function DashboardShell({
             )}
           </div>
         </header>
-        <main className="p-4 lg:p-8 print:p-0">{children}</main>
+        <main id="main-content" className="p-4 lg:p-8 print:p-0">{children}</main>
       </div>
     </div>
   );

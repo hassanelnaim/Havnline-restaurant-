@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
+import { PRIVACY_VERSION } from "@/lib/legal/versions";
 
 export const metadata = { title: "Privacy Policy — HavnLine" };
 
-// Fixed on purpose: it must say when the policy last changed.
-const LAST_UPDATED = "October 24, 2026";
+// Fixed on purpose: it must say when the policy last changed. Change it in
+// lib/legal/versions.ts whenever this page changes.
+const LAST_UPDATED = PRIVACY_VERSION;
 
 export default function PrivacyPage() {
   return (
@@ -24,10 +26,6 @@ export default function PrivacyPage() {
         <h1 className="font-display text-[30px] font-semibold text-ink">Privacy Policy</h1>
         <p className="mt-2 text-[13px] text-text-muted">Last updated: {LAST_UPDATED}</p>
 
-        <div className="mt-4 rounded-xl border border-brand/20 bg-brand-soft px-4 py-3 text-[12.5px] leading-relaxed text-brand-dark">
-          This is a working draft covering what HavnLine actually does. It is not a substitute for review by
-          a qualified attorney.
-        </div>
 
         <section className="mt-8 space-y-5 text-[14px] leading-relaxed text-text">
           <p>HavnLine runs AI order lines that answer phone calls for restaurants. This policy explains what information HavnLine collects, how it&apos;s used, who it&apos;s shared with, and how long it&apos;s kept, both for restaurants that use HavnLine and for people who call them.</p>
@@ -56,7 +54,7 @@ export default function PrivacyPage() {
           </ul>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">4. Text messages and consent</h2>
-          <p>Callers agree during the call to receive a text with their payment link; we send it only to the number they&apos;re calling from unless they ask for a different one and it&apos;s read back to them. They also get one confirmation once it&apos;s paid. Reply STOP to opt out or HELP for help.</p>
+          <p>The AI asks during the call whether it may text the payment link, and nothing is sent unless the caller says yes. We send it only to the number they&apos;re calling from unless they ask for a different one and it&apos;s read back to them. They also get one confirmation once it&apos;s paid. Reply STOP to opt out or HELP for help.</p>
           <p className="rounded-lg border border-border bg-paper px-4 py-3 font-medium">
             No mobile information — including text messaging originator opt-in data and consent — will be shared
             with any third parties or affiliates for marketing or promotional purposes. This information is used
@@ -77,6 +75,7 @@ export default function PrivacyPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">6. How long we keep it</h2>
           <ul className="ml-5 list-disc space-y-1.5">
             <li><strong>Call transcripts:</strong> deleted automatically 90 days after the call. A record that the call happened (date, length, outcome) stays with the restaurant&apos;s history.</li>
+            <li><strong>Texting consent:</strong> a short record that you agreed to the payment-link text (the time, your number, and what you said) is kept for 4 years as proof of consent, then deleted.</li>
             <li><strong>Orders:</strong> kept as the restaurant&apos;s sales records while its account is active, then deleted when the account is.</li>
             <li><strong>Restaurant accounts:</strong> kept while active; deleted on request or when the account is closed.</li>
           </ul>
