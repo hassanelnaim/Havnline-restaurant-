@@ -106,7 +106,7 @@ export async function runTurn(
   // phone replies fast.
   const maxTokens = options.maxTokens || (toolCtx.channel === "phone" ? 240 : 1024);
 
-  const systemText = buildSystemPrompt(toolCtx.context, toolCtx.channel, { demoCaller: toolCtx.demoCaller });
+  const systemText = buildSystemPrompt(toolCtx.context, toolCtx.channel);
 
   // Prompt caching. The system prompt (rules + the whole menu) and the tool
   // definitions in front of it are the same on every turn of every call to

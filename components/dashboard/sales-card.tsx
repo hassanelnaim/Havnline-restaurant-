@@ -50,7 +50,7 @@ const IN_PROGRESS_STYLE = {
     "repeating-linear-gradient(135deg, rgba(255,255,255,0.45) 0 6px, rgba(255,255,255,0) 6px 12px), linear-gradient(to top, #60A5FA, #2563EB)",
 };
 
-export function SalesCard({ data, projectedMonthlyCents }: { data: SalesData | null; projectedMonthlyCents: number }) {
+export function SalesCard({ data }: { data: SalesData | null }) {
   const router = useRouter();
   const [unit, setUnit] = useState<SalesUnit>("day");
   const [selected, setSelected] = useState<string | null>(null);
@@ -118,7 +118,7 @@ export function SalesCard({ data, projectedMonthlyCents }: { data: SalesData | n
       </div>
 
       {/* Figures strip */}
-      <div className="mt-4 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
         <div className="bg-paper px-4 py-3">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">vs previous {SPANS[unit]}</div>
           {change === null ? (
@@ -134,12 +134,6 @@ export function SalesCard({ data, projectedMonthlyCents }: { data: SalesData | n
         <div className="bg-paper px-4 py-3">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Average order</div>
           <div className="mt-1 text-[15px] font-semibold text-ink">{dollars(avgOrderCents)}</div>
-        </div>
-        <div className="bg-paper px-4 py-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">On pace for</div>
-          <div className="mt-1 text-[15px] font-semibold text-ink">
-            {dollars(projectedMonthlyCents)}<span className="ml-1 text-[12px] font-normal text-text-faint">a month, at the last 7 days&apos; pace</span>
-          </div>
         </div>
       </div>
 

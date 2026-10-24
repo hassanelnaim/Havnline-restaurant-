@@ -3,7 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { PhoneCall, ClipboardList, AlertTriangle, ArrowUpRight, DollarSign } from "lucide-react";
 import { getBusiness } from "@/lib/data/business";
 import { getCalls } from "@/lib/data/calls";
-import { getOrdersForBusiness, getOrderTotalsSince, getOrdersWithItemsSince } from "@/lib/data/orders";
+import { getOrdersForBusiness, getOrdersWithItemsSince } from "@/lib/data/orders";
 import { getMenuForBusiness } from "@/lib/data/menu";
 import { countsTowardSales } from "@/lib/orders/sales";
 import { getSpecialSuggestions } from "@/lib/analytics/specialSuggestions";
@@ -20,11 +20,6 @@ function toBizDateString(iso: string, timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
 }
 
-// Rolling, not calendar-aligned, so it visibly moves week to week
-// instead of settling into one flat number — see the "On pace for" figure
-// below.
-const TRAILING_WINDOW_DAYS = 7;
-const PROJECTED_MONTH_DAYS = 30;
 // Wider window for the specials-suggestion engine — a week is too short to tell a
 // real slow-day pattern from one quiet Tuesday.
 const PATTERN_WINDOW_DAYS = 28;
@@ -62,15 +57,13 @@ function StatTile({ href, label, value, icon: Icon, hint, accentClass }: StatTil
 
 export default async function OverviewPage() {
   const business = await getBusiness();
-  const sinceIso = new Date(Date.now() - TRAILING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const patternSinceIso = new Date(Date.now() - PATTERN_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   const timezone = business.timezone || "America/New_York";
 
-  const [calls, orders, weekOrders, patternOrders, menu, salesData, sellerData] = await Promise.all([
+  const [calls, orders, patternOrders, menu, salesData, sellerData] = await Promise.all([
     getCalls(),
     getOrdersForBusiness(business.id),
-    getOrderTotalsSince(business.id, sinceIso),
     getOrdersWithItemsSince(business.id, patternSinceIso),
     getMenuForBusiness(business.id),
     getSalesSeries(business.id, timezone),
@@ -93,14 +86,6 @@ export default async function OverviewPage() {
     : ordersTodayList.filter(countsTowardSales).reduce((sum, o) => sum + o.total_cents, 0);
   const escalationsToday = calls.filter((c) => c.outcome === "escalated" && toBizDateString(c.started_at, timezone) === todayInBizTz).length;
 
-  // Rolling trailing-week figures, not lifetime averages — a
-  // lifetime average flattens out and stops moving once a business has
-  // enough history; these stay responsive to how the last 7 days
-  // actually went, which is what makes them useful for judging "is the
-  // AI paying for itself" on an ongoing basis.
-  const weekSalesOrders = weekOrders.filter(countsTowardSales);
-  const weekRevenueCents = weekSalesOrders.reduce((sum, o) => sum + o.total_cents, 0);
-  const projectedMonthlyIncomeCents = Math.round((weekRevenueCents / TRAILING_WINDOW_DAYS) * PROJECTED_MONTH_DAYS);
 
   const specialSuggestions = getSpecialSuggestions(patternOrders, menu.items, timezone, PATTERN_WINDOW_DAYS);
 
@@ -124,7 +109,7 @@ export default async function OverviewPage() {
       </div>
 
       <div className="mt-6">
-        <SalesCard data={salesData} projectedMonthlyCents={projectedMonthlyIncomeCents} />
+        <SalesCard data={salesData} />
       </div>
 
       <div className="mt-6">

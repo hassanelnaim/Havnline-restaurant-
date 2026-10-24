@@ -4,7 +4,6 @@ import { runTurn, type ConversationMessage, type RunTurnResult } from "./claude"
 import type { ToolContext } from "./tools";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { loadCurrentOrder } from "./orderState";
-import { isDemoCall } from "@/lib/ai/demoCallers";
 import { encodeToolCalls, decodeToolCalls, waitForTurnReply } from "./turnRecord";
 import { TURN_RETRY_LINE } from "./fillers";
 
@@ -217,8 +216,9 @@ export async function handleTurn(
     const lastAi = [...priorRows].reverse().find((m) => m.role === "ai");
     const recentWords = { customer: [userMessage, ...recentCustomer], lastAssistant: lastAi ? lastAi.content : null };
 
-    const demoCaller = channel === "phone" && isDemoCall(callerPhone, context.business);
-    const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone, recentWords, demoCaller };
+    // Every phone order is paid by card through the texted link before it
+    // reaches the kitchen; no caller can skip that.
+    const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone, recentWords };
     let result: RunTurnResult;
     try {
       result = await runTurn(history, userMessage, toolCtx, { currentOrder });

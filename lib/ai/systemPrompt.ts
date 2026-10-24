@@ -26,7 +26,7 @@ function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone", options: { demoCaller?: boolean } = {}): string {
+export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone"): string {
   const { business, hours, menu, ai, knowledge, activePromotions } = ctx;
 
   const enabledResponsibilities = (Object.keys(ai.responsibilities) as (keyof AiResponsibilities)[])
@@ -140,10 +140,10 @@ export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone
   // that isn't set up, the order step refuses at the very end, so the
   // model is told up front instead of walking a caller through an order
   // it can't place. (The test chat simulates payment, so it's exempt.)
-  const paymentsOff = channel === "phone" && !options.demoCaller && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id);
+  const paymentsOff = channel === "phone" && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id);
   // Payment links are texted, and until the restaurant's texting
   // registration is approved the carriers reject them.
-  const textingOff = !paymentsOff && channel === "phone" && !options.demoCaller && ctx.textingApproved === false;
+  const textingOff = !paymentsOff && channel === "phone" && ctx.textingApproved === false;
 
   const now = new Date();
   const todayInBusinessTz = new Intl.DateTimeFormat("en-US", {

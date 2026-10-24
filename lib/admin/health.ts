@@ -381,7 +381,7 @@ export async function getSetupChecks(): Promise<SetupCheck[]> {
       : "Optional. Links in emails point to https://havnline.com without it.",
   });
   if (process.env.DEMO_CALLER_NUMBERS) {
-    checks.push({ id: "env:DEMO_CALLER_NUMBERS", group: "Keys", label: "DEMO_CALLER_NUMBERS", state: "warn", detail: "Set in this environment. Remove it in production." });
+    checks.push({ id: "env:DEMO_CALLER_NUMBERS", group: "Keys", label: "DEMO_CALLER_NUMBERS", state: "warn", detail: "No longer used. You can delete it from Vercel." });
   }
 
   const admin = createAdminClient();
