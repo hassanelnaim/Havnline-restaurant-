@@ -6,6 +6,7 @@ import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { getBusiness } from "@/lib/data/business";
 import { Card, CardContent } from "@/components/ui/card";
 import { CallOutcomeBadge } from "@/components/dashboard/status-badges";
+import { TRANSCRIPT_RETENTION_DAYS } from "@/lib/maintenance/cleanup";
 import { formatDateTime, formatDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +59,11 @@ export default async function CallDetailPage(props: { params: Promise<{ id: stri
       <Card className="mt-4">
         <CardContent className="space-y-4 p-5">
           {(!messages || messages.length === 0) && (
-            <p className="text-[13px] text-text-muted">No transcript available for this call.</p>
+            <p className="text-[13px] text-text-muted">
+              {Date.now() - Date.parse(call.started_at) > TRANSCRIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000
+                ? `Transcripts are deleted ${TRANSCRIPT_RETENTION_DAYS} days after a call, to protect your callers' privacy.`
+                : "No transcript available for this call."}
+            </p>
           )}
           {messages && messages.length > 0 && (
             <p className="rounded-lg bg-paper px-3 py-2 text-[12px] text-text-faint">

@@ -1078,7 +1078,7 @@ export const TOOL_DEFINITIONS = [
           type: "boolean",
           description: "true only after you read a different number back digit by digit and the caller said it's right.",
         },
-        special_instructions: { type: "string" },
+        special_instructions: { type: "string", description: "Notes for the kitchen about the whole order. Any allergy the caller mentioned goes here (or in that item's notes) starting with \"ALLERGY:\"." },
       },
       required: ["customer_name"],
     },

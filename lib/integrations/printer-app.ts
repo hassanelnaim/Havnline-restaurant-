@@ -196,6 +196,14 @@ export function buildTicketText(order: OrderWithItems, business: Pick<DbBusiness
   lines.push(business.name.toUpperCase());
   lines.push(`ORDER #${order.id.slice(0, 8).toUpperCase()}`);
   lines.push(order.fulfillment_type.toUpperCase());
+  // Allergies go at the top in capitals, so they're seen before anything
+  // is cooked, not found at the bottom of the ticket afterwards.
+  const allergyNotes = [order.special_instructions, ...order.items.map((i) => i.notes)].filter((n): n is string => Boolean(n && /allerg/i.test(n)));
+  if (allergyNotes.length > 0) {
+    lines.push("********************************");
+    for (const note of allergyNotes) lines.push(`!! ${note.toUpperCase()}`);
+    lines.push("********************************");
+  }
   lines.push("--------------------------------");
   for (const item of order.items) {
     lines.push(`${item.quantity}x ${item.item_name}`);

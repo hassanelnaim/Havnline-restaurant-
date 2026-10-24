@@ -12,9 +12,28 @@ import type { CronJobOutcome } from "@/lib/monitoring/cronRuns";
  * arrived: those used to stay open forever, and count against the
  * two-calls-per-caller limit for 30 minutes.
  *
- * Never touches orders, call transcripts, customers or usage records.
- * Old cron_runs and platform_alerts rows are trimmed after 90 days.
+ * Call transcripts are deleted after TRANSCRIPT_RETENTION_DAYS (the call's
+ * date, length and outcome, and its order, stay). Never touches orders,
+ * customers or usage records. Old cron_runs and platform_alerts rows are
+ * trimmed after 90 days.
  */
+export const TRANSCRIPT_RETENTION_DAYS = 90;
+// Deleted in small batches so a big backlog can't run past the job's time limit.
+const TRANSCRIPT_BATCH = 5000;
+const TRANSCRIPT_TIME_BUDGET_MS = 30_000;
+
+async function purgeOldTranscripts(admin: ReturnType<typeof createAdminClient>, before: string): Promise<{ count: number; error: { message: string } | null }> {
+  const started = Date.now();
+  let total = 0;
+  while (Date.now() - started < TRANSCRIPT_TIME_BUDGET_MS) {
+    const { data, error } = await admin.rpc("purge_old_call_messages", { p_before: before, p_limit: TRANSCRIPT_BATCH });
+    if (error) return { count: total, error };
+    const n = Number(data || 0);
+    total += n;
+    if (n < TRANSCRIPT_BATCH) break;
+  }
+  return { count: total, error: null };
+}
 export async function runNightlyCleanup(): Promise<CronJobOutcome> {
   const admin = createAdminClient();
   const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -29,6 +48,7 @@ export async function runNightlyCleanup(): Promise<CronJobOutcome> {
     ["calls stuck in progress for 2+ hours", () => admin.from("calls").update({ status: "completed" }, { count: "exact" }).eq("status", "in_progress").lt("started_at", hoursAgo(2))],
     ["job history older than 90 days", () => admin.from("cron_runs").delete({ count: "exact" }).lt("started_at", daysAgo(90))],
     ["alert log older than 90 days", () => admin.from("platform_alerts").delete({ count: "exact" }).lt("created_at", daysAgo(90))],
+    [`call transcript lines older than ${TRANSCRIPT_RETENTION_DAYS} days`, () => purgeOldTranscripts(admin, daysAgo(TRANSCRIPT_RETENTION_DAYS))],
   ];
 
   const result: Record<string, number | string> = {};

@@ -18,7 +18,7 @@ export default function SmsTermsPage() {
 
       <main className="mx-auto max-w-3xl px-6 py-12">
         <h1 className="font-display text-[28px] font-semibold text-ink">HavnLine SMS Program Terms</h1>
-        <p className="mt-2 text-[13px] text-text-muted">Last updated: {new Date().toLocaleDateString()}</p>
+        <p className="mt-2 text-[13px] text-text-muted">Last updated: October 24, 2026</p>
 
         <section className="mt-8 space-y-6 text-[14px] leading-relaxed text-text">
           <p>

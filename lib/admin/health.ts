@@ -350,6 +350,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m036", label: "036 scale batch" },
   { key: "m037", label: "037 leftovers" },
   { key: "m038", label: "038 admin health" },
+  { key: "m039", label: "039 transcript retention" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {

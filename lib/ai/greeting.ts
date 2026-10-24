@@ -14,13 +14,16 @@
  * only the business's own public name — no caller name, number or order
  * detail ever appears in it.
  */
-// Says plainly that the caller is talking to an AI (some states are
-// starting to require that disclosure, and callers shouldn't feel tricked),
-// and that they can ask for a person at any point, which the assistant
-// already handles. Kept short: every second here is a second the caller
-// waits before they can talk.
+// Says plainly, before the caller says anything, that:
+// - they're talking to an AI (Utah and California require that disclosure);
+// - the AI is run by HavnLine for the restaurant, and the call is
+//   transcribed. Restaurant AI phone vendors have been sued under
+//   California's wiretapping law by callers who weren't told an outside
+//   company was on the line; telling them up front is the main defense.
+// - they can ask for a person at any point, which the assistant handles.
+// Kept short: every second here is a second the caller waits to talk.
 const GREETING_START = "Hi, thanks for calling ";
-export const GREETING_BODY = "! You're talking to our AI order line. I can take your order or answer questions, and you can ask for a person anytime. What can I get started for you?";
+export const GREETING_BODY = "! You're talking to our AI order line, run by HavnLine, and this call is transcribed. I can take your order or answer questions, and you can ask for a person anytime. What can I get started for you?";
 
 export function buildGreeting(businessName: string): string {
   return `${GREETING_START}${businessName}${GREETING_BODY}`;
