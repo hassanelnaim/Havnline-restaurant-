@@ -8,6 +8,8 @@ import { fetchWebsiteText, extractKnowledgeFromText } from "@/lib/ai/websiteImpo
 import type { ActionResult } from "./business";
 import type { KnowledgeCategory } from "@/lib/database/types";
 import { dbErrorResult } from "@/lib/errors";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
+import { scanInstructions } from "@/lib/compliance/checks";
 import { normaliseSchedule, normaliseDiscount } from "@/lib/business/promotionInput";
 
 // NOTE: see app/actions/menu.ts — the maxDuration route config for
@@ -42,6 +44,7 @@ export async function addKnowledgeItemAction(input: { category: KnowledgeCategor
   });
 
   if (error) return dbErrorResult(error, "addKnowledgeItemAction", "Could not save that.");
+  runAfterResponse("compliance scan", scanInstructions(businessId));
   revalidatePath("/dashboard/knowledge");
   revalidatePath("/dashboard/menu");
   return { success: true };
@@ -67,6 +70,7 @@ export async function updateKnowledgeItemAction(id: string, input: { title?: str
     .eq("business_id", businessId);
 
   if (error) return dbErrorResult(error, "updateKnowledgeItemAction", "Could not save that.");
+  runAfterResponse("compliance scan", scanInstructions(businessId));
   revalidatePath("/dashboard/knowledge");
   revalidatePath("/dashboard/menu");
   return { success: true };
@@ -123,6 +127,7 @@ export async function importWebsiteKnowledgeAction(url: string): Promise<ImportW
   const rows = items.map((item) => ({ business_id: businessId, category: item.category, question: item.question || null, title: item.title || null, content: item.content }));
   const { error } = await admin.from("knowledge_items").insert(rows);
   if (error) return dbErrorResult(error, "importWebsiteKnowledgeAction", "Could not save the imported items.");
+  runAfterResponse("compliance scan", scanInstructions(businessId));
 
   revalidatePath("/dashboard/knowledge");
   revalidatePath("/dashboard/menu");
@@ -163,6 +168,7 @@ export async function importPastedKnowledgeAction(rawText: string): Promise<Impo
   const rows = items.map((item) => ({ business_id: businessId, category: item.category, question: item.question || null, title: item.title || null, content: item.content }));
   const { error } = await admin.from("knowledge_items").insert(rows);
   if (error) return dbErrorResult(error, "importPastedKnowledgeAction", "Could not save the imported items.");
+  runAfterResponse("compliance scan", scanInstructions(businessId));
 
   revalidatePath("/dashboard/knowledge");
   revalidatePath("/dashboard/menu");

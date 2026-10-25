@@ -5,6 +5,8 @@ import type { ToolContext } from "./tools";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { loadCurrentOrder } from "./orderState";
 import { encodeToolCalls, decodeToolCalls, waitForTurnReply } from "./turnRecord";
+import { checkCallerWords } from "@/lib/compliance/checks";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { TURN_RETRY_LINE } from "./fillers";
 
 export interface HandleTurnResult {
@@ -202,6 +204,9 @@ export async function handleTurn(
       try {
         const { error } = await admin.from("call_messages").insert({ call_id: callId, role: "customer", content: userMessage });
         if (error) console.error(`[handleTurn] could not save the customer message for call ${callId}:`, error.message);
+        // Signs the restaurant may be contacting callers outside their order
+        // (lib/compliance/checks.ts). After the reply; the caller never waits on it.
+        if (channel === "phone") runAfterResponse("compliance check", checkCallerWords(businessId, callId, userMessage));
       } catch (err) {
         console.error(`[handleTurn] could not save the customer message for call ${callId}:`, err);
       }

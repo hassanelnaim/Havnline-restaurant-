@@ -208,3 +208,12 @@ export async function returnPlatformFeeAction(orderId: string): Promise<HealthAc
     .eq("fee_return_owed_cents", owed);
   return done(`Returned $${(owed / 100).toFixed(2)} to the restaurant.`);
 }
+
+/** Marks a compliance finding as reviewed; it drops off the Health page. */
+export async function dismissFlagAction(flagId: string): Promise<HealthActionResult> {
+  const denied = await guard();
+  if (denied) return denied;
+  const { error } = await createAdminClient().from("compliance_flags").update({ dismissed_at: new Date().toISOString() }).eq("id", flagId).is("dismissed_at", null);
+  if (error) return { success: false, error: error.message };
+  return done();
+}

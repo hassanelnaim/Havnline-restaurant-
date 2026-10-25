@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runComplianceSweep } from "@/lib/compliance/checks";
 import type { CronJobOutcome } from "@/lib/monitoring/cronRuns";
 
 /**
@@ -51,6 +52,14 @@ export async function runNightlyCleanup(): Promise<CronJobOutcome> {
     [`call transcript lines older than ${TRANSCRIPT_RETENTION_DAYS} days`, () => purgeOldTranscripts(admin, daysAgo(TRANSCRIPT_RETENTION_DAYS))],
     // Proof of texting consent is kept 4 years (migration 040), the federal
     // texting law's window for filing a claim.
+    ["possible Terms violations found", async () => {
+      try {
+        const r = await runComplianceSweep();
+        return { error: null, count: r.instructions + r.signals };
+      } catch (err) {
+        return { error: { message: err instanceof Error ? err.message : String(err) }, count: null };
+      }
+    }],
     ["texting consent records older than 4 years", () => admin.from("sms_consents").delete({ count: "exact" }).lt("consented_at", daysAgo(4 * 365 + 1))],
   ];
 

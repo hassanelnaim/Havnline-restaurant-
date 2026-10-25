@@ -10,6 +10,8 @@ import { generateInstructions } from "@/lib/ai/generateInstructions";
 import type { AiResponsibilities, Personality, VoiceId } from "@/lib/database/types";
 import { dbErrorResult } from "@/lib/errors";
 import { setMoneyPin } from "@/lib/security/moneyPin";
+import { scanInstructions } from "@/lib/compliance/checks";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { toDialableNumber } from "@/lib/ai/liveTransfer";
 
 async function requireBusinessId(): Promise<string> {
@@ -320,6 +322,7 @@ export async function updateAiEmployeeAction(input: {
     })
     .eq("business_id", businessId);
   if (aiError) return dbErrorResult(aiError, "updateAiEmployeeAction:ai", "Could not save your AI employee's settings.");
+  runAfterResponse("compliance scan", scanInstructions(businessId));
 
   const { error: voiceError } = await admin.from("ai_voice_configs").upsert(
     input.customVoice
