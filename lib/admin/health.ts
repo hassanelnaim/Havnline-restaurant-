@@ -84,7 +84,7 @@ export async function getJobStatuses(): Promise<{ jobs: JobStatus[]; available: 
 
 // ---------------------------------------------------------- stuck items
 
-export type StuckAction = "retry_print" | "queue_print" | "mark_handled" | "refund" | "close_call";
+export type StuckAction = "retry_print" | "queue_print" | "mark_handled" | "refund" | "close_call" | "return_fee";
 
 export interface StuckItem {
   id: string;
@@ -99,7 +99,7 @@ export interface StuckItem {
 }
 
 export interface StuckGroup {
-  key: "unprinted" | "failed_tickets" | "bounced_texts" | "paid_after_void" | "disputes" | "stuck_calls";
+  key: "unprinted" | "failed_tickets" | "bounced_texts" | "paid_after_void" | "disputes" | "stuck_calls" | "fee_returns";
   title: string;
   explainer: string;
   items: StuckItem[];
@@ -125,7 +125,7 @@ export async function getStuckItems(): Promise<StuckGroup[]> {
   const fiveMinAgo = new Date(now - FIVE_MINUTES_MS).toISOString();
   const twoDaysAgo = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [pendingJobs, unqueuedOrders, failedJobs, bounced, paidVoid, disputes, calls] = await Promise.all([
+  const [pendingJobs, unqueuedOrders, failedJobs, bounced, paidVoid, disputes, calls, feesOwed] = await Promise.all([
     admin.from("printer_print_jobs").select("id, business_id, order_id, kind, created_at, attempts, error").eq("status", "pending").lt("created_at", fiveMinAgo).order("created_at").limit(100),
     // Paid, at a restaurant with a kitchen tablet, but never queued (the
     // queue step failed, or the payment webhook died part way).
@@ -135,10 +135,11 @@ export async function getStuckItems(): Promise<StuckGroup[]> {
     admin.from("orders").select("id, business_id, customer_name, phone, total_cents, created_at").eq("status", "cancelled").eq("payment_status", "paid").order("created_at", { ascending: false }).limit(100),
     admin.from("orders").select("id, business_id, customer_name, phone, total_cents, dispute_status, created_at").in("dispute_status", OPEN_DISPUTE).order("created_at", { ascending: false }).limit(100),
     admin.from("calls").select("id, business_id, phone, started_at").eq("status", "in_progress").lt("started_at", new Date(now - STUCK_CALL_MS).toISOString()).order("started_at").limit(200),
+    feesOwedQuery(),
   ]);
 
   const businessIds = new Set<string>();
-  for (const res of [pendingJobs, unqueuedOrders, failedJobs, bounced, paidVoid, disputes, calls]) {
+  for (const res of [pendingJobs, unqueuedOrders, failedJobs, bounced, paidVoid, disputes, calls, feesOwed]) {
     for (const row of (res.data || []) as { business_id: string }[]) businessIds.add(row.business_id);
   }
   const { data: businesses } = businessIds.size
@@ -234,6 +235,16 @@ export async function getStuckItems(): Promise<StuckGroup[]> {
     actions: ["close_call"] as StuckAction[],
   }));
 
+  const feeReturns: StuckItem[] = (feesOwed.data || []).map((o) => ({
+    id: o.id,
+    businessId: o.business_id,
+    businessName: nameOf(o.business_id),
+    title: `Return ${money(o.fee_return_owed_cents)} fee on order ${shortId(o.id)}`,
+    detail: `Refunded in the restaurant's Stripe dashboard (${money(o.amount_refunded_cents)} of ${money(o.total_cents)}), so HavnLine's fee wasn't given back automatically.`,
+    since: o.refunded_at || o.created_at,
+    actions: ["return_fee"] as StuckAction[],
+  }));
+
   const err = (res: { error: { message: string } | null }) => (res.error ? res.error.message : undefined);
   return [
     { key: "unprinted", title: "Paid but not printed", explainer: "Paid orders that haven't reached the kitchen printer after 5 minutes.", items: unprinted, error: err(pendingJobs) || err(unqueuedOrders) },
@@ -241,8 +252,21 @@ export async function getStuckItems(): Promise<StuckGroup[]> {
     { key: "bounced_texts", title: "Payment links that didn't arrive", explainer: "The carrier rejected the text in the last 2 days and the order is still unpaid. Call the customer.", items: bouncedTexts, error: err(bounced) },
     { key: "paid_after_void", title: "Paid after voiding", explainer: "The customer paid after the restaurant voided the order. Refund them unless the restaurant made it.", items: paidAfterVoid, error: err(paidVoid) },
     { key: "disputes", title: "Open disputes", explainer: "The customer's bank is disputing the charge. The restaurant answers in Stripe before the deadline.", items: openDisputes, error: err(disputes) },
+    { key: "fee_returns", title: "Fees to return", explainer: "Orders refunded outside HavnLine. Refunds made in HavnLine return the fee automatically.", items: feeReturns, error: err(feesOwed) },
     { key: "stuck_calls", title: "Calls stuck in progress", explainer: "Calls marked live for over 30 minutes (the cap is 25). The nightly cleanup closes them after 2 hours.", items: stuckCalls, error: err(calls) },
   ];
+}
+
+/** Orders with a fee still to give back. Before migration 041 the column doesn't exist, and there's nothing to show. */
+async function feesOwedQuery() {
+  const res = await createAdminClient()
+    .from("orders")
+    .select("id, business_id, total_cents, amount_refunded_cents, fee_return_owed_cents, refunded_at, created_at")
+    .gt("fee_return_owed_cents", 0)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (res.error && /fee_return_owed_cents/.test(res.error.message)) return { data: [], error: null };
+  return res;
 }
 
 /** Failed, not yet handled. Before migration 038 there's no handled_at column, so every failed ticket shows. */
@@ -352,6 +376,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m038", label: "038 admin health" },
   { key: "m039", label: "039 transcript retention" },
   { key: "m040", label: "040 consent records" },
+  { key: "m041", label: "041 platform fee returns" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {

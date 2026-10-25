@@ -53,6 +53,7 @@ const GROUP_TAG: Record<StuckGroup["key"], string> = {
   paid_after_void: "Paid after void",
   disputes: "Dispute",
   stuck_calls: "Stuck call",
+  fee_returns: "Fee to return",
 };
 
 interface NeedRow {

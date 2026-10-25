@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { TERMS_VERSION } from "@/lib/legal/versions";
+import { MONTHLY_PRICE_DISPLAY, DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY } from "@/lib/billing/constants";
 
 export const metadata = { title: "Terms of Service — HavnLine" };
 
@@ -36,13 +37,22 @@ export default function TermsPage() {
           <p>You must provide accurate information when creating an account and keep your login credentials secure. You&apos;re responsible for all activity under your account, including by anyone you give access to.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">2. Subscription &amp; billing</h2>
-          <p>The Service is a monthly subscription billed through our payment processor, Stripe. New subscriptions may include a free trial; unless you cancel before it ends, you will be charged automatically. You can cancel anytime from Billing. Fees already paid are not refunded for partial periods.</p>
+          <p>HavnLine has two charges:</p>
+          <ul className="ml-5 list-disc space-y-1.5">
+            <li><strong>Subscription:</strong> {MONTHLY_PRICE_DISPLAY} per month, billed in advance to your card through our payment processor, Stripe.</li>
+            <li><strong>Platform fee:</strong> {DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY} of the total of each phone order a customer pays through the Service (for example, $0.75 on a $25.00 order), unless we&apos;ve agreed a different rate with you in writing. Stripe deducts it automatically from each payment, so there is no separate bill. It applies only to orders customers actually pay for.</li>
+          </ul>
+          <p><strong>Free trial.</strong> New accounts get a free trial. Neither charge applies during it. Unless you cancel before it ends, the subscription starts automatically and the platform fee applies to orders paid from then on.</p>
+          <p><strong>Refunds of orders.</strong> If you refund an order, fully or partly, we return the matching share of the platform fee. Refunds made in HavnLine return it automatically; for a refund made directly in your Stripe account, we return it once we see the refund. Stripe&apos;s own card processing fees are set and kept by Stripe, not HavnLine.</p>
+          <p><strong>Cancelling.</strong> You can cancel anytime from Billing. Your subscription stays active until the end of the period you&apos;ve paid for, and subscription fees already paid are not refunded for partial periods.</p>
+          <p><strong>Price changes.</strong> We&apos;ll email you at least 30 days before any change to the subscription price or platform fee takes effect. You can cancel before then if you don&apos;t accept it.</p>
+          <p><strong>Taxes.</strong> Charges don&apos;t include taxes. You are responsible for sales tax on your orders and any taxes on your use of the Service.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">3. What the AI does, and its limits</h2>
           <p>The AI works from the menu, prices, hours, and other information you give it, and it can mishear callers or make mistakes like any phone order-taker. You&apos;re responsible for keeping that information accurate and current, and for reviewing orders, calls, and escalations. The Service is a tool to help your staff, not a guarantee that every order will be taken correctly.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">4. Orders, payments, and food: you are the seller</h2>
-          <p>Every order taken through the Service is a sale between your restaurant and your customer. You are the seller and the merchant of record: customers pay you directly, through your own connected Stripe account, and HavnLine never holds their money. HavnLine is a technology provider and is not a party to any sale. Our only share is the platform fee agreed with you, which Stripe deducts from each payment.</p>
+          <p>Every order taken through the Service is a sale between your restaurant and your customer. You are the seller and the merchant of record: customers pay you directly, through your own connected Stripe account, and HavnLine never holds their money. HavnLine is a technology provider and is not a party to any sale. Our only share is the platform fee described in Section 2, which Stripe deducts from each payment.</p>
           <p>You alone are responsible for the food and everything about it: preparation, quality, safety, ingredients and allergen information, prices, taxes, fulfillment, refunds, and customer complaints. Disputes and chargebacks are between you, your customer, and Stripe; you are responsible for responding to them.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">5. Allergies and dietary needs</h2>

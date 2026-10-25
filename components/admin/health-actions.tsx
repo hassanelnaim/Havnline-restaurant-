@@ -9,6 +9,7 @@ import {
   markTicketHandledAction,
   queueOrderPrintAction,
   refundPaidAfterVoidAction,
+  returnPlatformFeeAction,
   retryPrintJobAction,
   runJobNowAction,
   sealTwilioTokensAction,
@@ -70,6 +71,7 @@ const LABELS: Record<StuckAction, { label: string; icon: typeof Play; confirm?: 
   queue_print: { label: "Send to kitchen", icon: RotateCcw },
   mark_handled: { label: "Mark handled", icon: Check },
   close_call: { label: "Close", icon: PhoneOff },
+  return_fee: { label: "Return fee", icon: Undo2, confirm: "Return it to the restaurant?" },
   refund: { label: "Refund", icon: Undo2, confirm: "Refund in full?" },
 };
 
@@ -85,6 +87,8 @@ function callFor(action: StuckAction, id: string): () => Promise<HealthActionRes
       return () => closeStuckCallAction(id);
     case "refund":
       return () => refundPaidAfterVoidAction(id);
+    case "return_fee":
+      return () => returnPlatformFeeAction(id);
   }
 }
 

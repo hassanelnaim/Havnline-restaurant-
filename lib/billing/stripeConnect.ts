@@ -227,3 +227,37 @@ export async function refundOrderPayment(
     return { success: false, error: message };
   }
 }
+
+/**
+ * HavnLine's fee on one payment, as Stripe holds it on the platform account:
+ * how much was taken and how much has already been given back.
+ */
+export async function getApplicationFee(feeId: string): Promise<{ amountCents: number; refundedCents: number } | null> {
+  const stripe = requireStripe();
+  try {
+    const fee = await stripe.applicationFees.retrieve(feeId);
+    return { amountCents: fee.amount, refundedCents: fee.amount_refunded };
+  } catch (err) {
+    console.error(`could not read application fee ${feeId}:`, err);
+    return null;
+  }
+}
+
+/** Gives back part of HavnLine's fee on a payment (an order refunded outside HavnLine). */
+export async function returnApplicationFee(feeId: string, amountCents: number, idempotencyKey: string): Promise<{ success: boolean; error?: string }> {
+  const stripe = requireStripe();
+  try {
+    await stripe.applicationFees.createRefund(feeId, { amount: amountCents }, { idempotencyKey });
+    return { success: true };
+  } catch (err) {
+    console.error(`could not return application fee ${feeId}:`, err);
+    return { success: false, error: err instanceof Stripe.errors.StripeError ? err.message : "Could not return the fee." };
+  }
+}
+
+/** The share of a fee that matches the refunded share of the payment. */
+export function feeOwedForRefund(feeCents: number, paidCents: number, refundedCents: number, feeAlreadyReturnedCents: number): number {
+  if (feeCents <= 0 || paidCents <= 0 || refundedCents <= 0) return 0;
+  const share = Math.round((feeCents * Math.min(refundedCents, paidCents)) / paidCents);
+  return Math.max(0, Math.min(feeCents, share) - feeAlreadyReturnedCents);
+}

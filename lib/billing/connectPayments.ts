@@ -6,6 +6,7 @@ import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendOrderAttentionEmail, sendOrderRefundedEmail } from "@/lib/notifications/account-email";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
+import { feeOwedForRefund, getApplicationFee } from "@/lib/billing/stripeConnect";
 import type { OrderWithItems } from "@/lib/database/types";
 
 /**
@@ -282,6 +283,7 @@ async function findOrderForPayment(eventAccount: string | null | undefined, paym
 export async function handleChargeRefunded(eventAccount: string | null | undefined, charge: Stripe.Charge): Promise<void> {
   const order = await findOrderForPayment(eventAccount, charge.payment_intent);
   if (!order) return;
+  await recordFeeOwed(order.id, charge);
   const refunded = charge.amount_refunded || 0;
   if (refunded <= (order.amount_refunded_cents || 0)) return;
 
@@ -310,6 +312,26 @@ export async function handleChargeRefunded(eventAccount: string | null | undefin
       reason: "Refunded in the Stripe dashboard",
     });
   }
+}
+
+/**
+ * HavnLine's fee on a refunded order. Refunds made in HavnLine give the
+ * matching share of the fee back automatically; a refund made in the Stripe
+ * dashboard doesn't, so what's still owed is saved on the order and listed
+ * on the admin Health page with a "Return fee" button. Reads the fee from
+ * Stripe each time, so a repeated event can't double count.
+ */
+async function recordFeeOwed(orderId: string, charge: Stripe.Charge): Promise<void> {
+  const feeId = typeof charge.application_fee === "string" ? charge.application_fee : charge.application_fee?.id;
+  if (!feeId) return; // no fee on this payment (free trial, or a 0% business)
+  const fee = await getApplicationFee(feeId);
+  if (!fee) return;
+  const owed = feeOwedForRefund(fee.amountCents, charge.amount, charge.amount_refunded || 0, fee.refundedCents);
+  const { error } = await createAdminClient()
+    .from("orders")
+    .update({ platform_fee_id: feeId, platform_fee_cents: fee.amountCents, platform_fee_refunded_cents: fee.refundedCents, fee_return_owed_cents: owed })
+    .eq("id", orderId);
+  if (error) console.error(`[stripe-connect] could not save the fee owed on order ${orderId} (run migration 041):`, error.message);
 }
 
 /**

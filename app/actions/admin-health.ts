@@ -9,6 +9,7 @@ import { runNightlyCleanup } from "@/lib/maintenance/cleanup";
 import { runWeeklyDigestJob } from "@/lib/notifications/weekly-digest-email";
 import { queuePrintJob, requeueOrderPrintJob } from "@/lib/integrations/printer-app";
 import { processOrderRefund } from "@/lib/billing/orderRefund";
+import { returnApplicationFee } from "@/lib/billing/stripeConnect";
 import { encryptionConfigured, isSealed, sealSecret } from "@/lib/security/secretBox";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import type { OrderWithItems } from "@/lib/database/types";
@@ -169,4 +170,31 @@ export async function sealTwilioTokensAction(): Promise<HealthActionResult> {
     if (updated?.length) sealed += 1;
   }
   return done(`Encrypted ${sealed} token${sealed === 1 ? "" : "s"}.`);
+}
+
+/** Gives HavnLine's fee back to the restaurant for an order refunded outside HavnLine. */
+export async function returnPlatformFeeAction(orderId: string): Promise<HealthActionResult> {
+  const denied = await guard();
+  if (denied) return denied;
+  const admin = createAdminClient();
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, platform_fee_id, platform_fee_refunded_cents, fee_return_owed_cents")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order) return { success: false, error: "Order not found." };
+  const owed = order.fee_return_owed_cents || 0;
+  if (owed <= 0 || !order.platform_fee_id) return done("Nothing left to return.");
+
+  // Keyed on what had been returned before this click, so a double click
+  // can't return the fee twice (Stripe treats the repeat as the same request).
+  const result = await returnApplicationFee(order.platform_fee_id, owed, `fee-return:${orderId}:${order.platform_fee_refunded_cents || 0}`);
+  if (!result.success) return { success: false, error: result.error };
+
+  await admin
+    .from("orders")
+    .update({ platform_fee_refunded_cents: (order.platform_fee_refunded_cents || 0) + owed, fee_return_owed_cents: 0 })
+    .eq("id", orderId)
+    .eq("fee_return_owed_cents", owed);
+  return done(`Returned $${(owed / 100).toFixed(2)} to the restaurant.`);
 }
