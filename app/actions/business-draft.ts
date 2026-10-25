@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { isValidTimezone } from "@/lib/business/timezone";
 import { DEFAULT_PLATFORM_FEE_BPS } from "@/lib/billing/constants";
+import { sealSecret } from "@/lib/security/secretBox";
 import { dbErrorResult } from "@/lib/errors";
 
 export interface CreateBusinessDraftResult {
@@ -81,7 +82,8 @@ export async function createBusinessDraftAction(input: {
     // Only written when filled in: the onboarding form can be revisited
     // with an empty draft, and that must not erase an EIN already saved.
     ...(input.legalBusinessName?.trim() ? { legal_business_name: input.legalBusinessName.trim() } : {}),
-    ...(einDigits ? { ein: einDigits } : {}),
+    // Encrypted like other secrets (lib/security/secretBox.ts).
+    ...(einDigits ? { ein: sealSecret(einDigits) } : {}),
   };
 
   if (existingBusinessId) {

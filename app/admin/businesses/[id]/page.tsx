@@ -15,6 +15,7 @@ import { StatusEditor } from "@/components/admin/status-editor";
 import { FeeEditor } from "@/components/admin/fee-editor";
 import { IssuesPanel } from "@/components/admin/issues-panel";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
+import { openSecret } from "@/lib/security/secretBox";
 import { TextingRegistration, type TextingRegistrationInfo } from "@/components/admin/texting-registration";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +49,8 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
   const twilioMeta = (twilioRow?.metadata || null) as Record<string, unknown> | null;
   const texting: TextingRegistrationInfo = {
     legalBusinessName: business.legal_business_name ?? null,
-    ein: business.ein ?? null,
+    // Stored encrypted; only the admin page opens it, for the texting registration.
+    ein: openSecret(business.ein) ?? null,
     address: [business.address, business.address_city, [business.address_state, business.address_zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,
     website: business.website ?? null,
     contactPhone: business.phone ?? null,

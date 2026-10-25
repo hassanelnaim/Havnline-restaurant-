@@ -39,11 +39,17 @@ export default function PrivacyPage() {
           </ul>
           <p>This information is used only to serve that restaurant: to take and deliver your order to its kitchen, text you the payment link you agreed to, and let the restaurant see its calls and orders. It is never shared with other restaurants. Your card details go straight to Stripe on its secure payment page; HavnLine and the restaurant never see them.</p>
 
+          <p>The restaurant you called sees your name, number, and order so it can make your order and contact you about it (for example, to call you back about a question you asked). Under its agreement with HavnLine, it may not use your information for marketing or anything unrelated to your call. If you think a restaurant has misused it, email us at the address below.</p>
+
           <h2 className="font-display text-[18px] font-semibold text-ink">2. Information from restaurants</h2>
           <ul className="ml-5 list-disc space-y-1.5">
             <li><strong>Account information:</strong> name, email, and login details.</li>
-            <li><strong>Business information:</strong> name, address, hours, menu, prices, and the knowledge you give the AI.</li>
-            <li><strong>Billing:</strong> handled by Stripe; we store only what we need to know your subscription status.</li>
+            <li><strong>Business information:</strong> name, address, phone, hours, menu, prices, and the knowledge you give the AI.</li>
+            <li><strong>Legal business name and EIN:</strong> needed to register your restaurant&apos;s phone number with the mobile carriers so it&apos;s allowed to send payment-link texts. They&apos;re shared only with Twilio for that registration (Twilio passes them to the carriers&apos; registry), are stored encrypted, and aren&apos;t shown to anyone else.</li>
+            <li><strong>Payments and payouts:</strong> Stripe collects and verifies the details it needs to pay you (such as your bank account and identity) directly; HavnLine never sees your bank details. We keep your Stripe account ID and subscription status.</li>
+            <li><strong>Agreement records:</strong> when you sign up, the version of these terms you accepted, the time, your IP address, and your browser, as proof of what was agreed.</li>
+            <li><strong>Usage:</strong> calls, orders, and how much of each service your account uses, to run the Service, bill correctly, and keep it working well.</li>
+            <li><strong>Compliance checks:</strong> we review how restaurants use the Service, including what they tell the AI and how callers respond, to enforce our Terms and protect callers.</li>
           </ul>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">3. What we never do</h2>
@@ -64,7 +70,7 @@ export default function PrivacyPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">5. Who we share it with</h2>
           <p>Only the service providers that run HavnLine, each receiving only what its job needs:</p>
           <ul className="ml-5 list-disc space-y-1.5">
-            <li><strong>Twilio:</strong> phone calls, speech-to-text, and text messages.</li>
+            <li><strong>Twilio:</strong> phone calls, speech-to-text, and text messages, plus the texting registration described above.</li>
             <li><strong>Anthropic:</strong> the AI that understands callers and takes orders.</li>
             <li><strong>ElevenLabs:</strong> turns the AI&apos;s replies into speech.</li>
             <li><strong>Stripe:</strong> payments and subscriptions.</li>
@@ -78,10 +84,11 @@ export default function PrivacyPage() {
             <li><strong>Texting consent:</strong> a short record that you agreed to the payment-link text (the time, your number, and what you said) is kept for 4 years as proof of consent, then deleted.</li>
             <li><strong>Orders:</strong> kept as the restaurant&apos;s sales records while its account is active, then deleted when the account is.</li>
             <li><strong>Restaurant accounts:</strong> kept while active; deleted on request or when the account is closed.</li>
+            <li><strong>Agreement records:</strong> kept after an account is closed, as proof of what was agreed in case of a dispute.</li>
           </ul>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">7. Security</h2>
-          <p>Each restaurant&apos;s data is kept separate by database access rules, sensitive credentials are encrypted, and access is limited to what the Service needs. No system is perfectly secure; if a breach affects your information, we&apos;ll notify you as the law requires.</p>
+          <p>Each restaurant&apos;s data is kept separate by database access rules, sensitive details such as phone-service credentials and EINs are encrypted, and access is limited to what the Service needs. No system is perfectly secure; if a breach affects your information, we&apos;ll notify you as the law requires.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">8. Your choices and rights</h2>
           <p>You can ask us what information we have about you, or ask us to correct or delete it, by emailing us. Callers can also ask the restaurant they called. Depending on where you live (for example, California), you may have additional rights, and we won&apos;t treat you differently for using them.</p>

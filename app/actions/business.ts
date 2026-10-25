@@ -151,7 +151,7 @@ export async function saveTextingIdentityAction(input: { legalBusinessName: stri
   if (einDigits.length !== 9) return { success: false, error: "An EIN is 9 digits, like 12-3456789." };
 
   const admin = createAdminClient();
-  const { error } = await admin.from("businesses").update({ legal_business_name: legalName, ein: einDigits }).eq("id", businessId);
+  const { error } = await admin.from("businesses").update({ legal_business_name: legalName, ein: sealSecret(einDigits) }).eq("id", businessId);
   if (error) return dbErrorResult(error, "saveTextingIdentityAction", "Could not save your business details.");
   revalidatePath("/dashboard/integrations");
   return { success: true };

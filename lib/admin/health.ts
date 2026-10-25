@@ -465,6 +465,20 @@ export async function getSetupChecks(): Promise<SetupCheck[]> {
     });
   }
 
+  // EINs are encrypted when saved; ones saved before that are sealed by the same button.
+  const eins = await fetchAllRows<{ ein: string | null }>((from, to) => admin.from("businesses").select("ein").not("ein", "is", null).order("id").range(from, to));
+  if (!eins.error) {
+    const plainEins = eins.data.filter((b) => b.ein && !isSealed(b.ein)).length;
+    checks.push({
+      id: "ein:sealed",
+      group: "Restaurants",
+      label: "EINs encrypted",
+      state: plainEins ? "fail" : "ok",
+      detail: plainEins ? `${plainEins} restaurant${plainEins === 1 ? "" : "s"}' EIN still stored in plain text.` : "Every stored EIN is encrypted.",
+      action: plainEins && encryptionConfigured() ? "seal_tokens" : undefined,
+    });
+  }
+
   if (twilio.error || sms.error || ai.error) {
     checks.push({ id: "tw:texting", group: "Restaurants", label: "Texting approved where calls are on", state: "unknown", detail: "Couldn't check." });
   } else {

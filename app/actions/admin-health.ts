@@ -169,7 +169,17 @@ export async function sealTwilioTokensAction(): Promise<HealthActionResult> {
       .select("id");
     if (updated?.length) sealed += 1;
   }
-  return done(`Encrypted ${sealed} token${sealed === 1 ? "" : "s"}.`);
+  // EINs saved before they were encrypted.
+  const { data: biz } = await fetchAllRows<{ id: string; ein: string | null }>((from, to) =>
+    admin.from("businesses").select("id, ein").not("ein", "is", null).order("id").range(from, to)
+  );
+  let einsSealed = 0;
+  for (const b of biz) {
+    if (!b.ein || isSealed(b.ein)) continue;
+    const { data: updated } = await admin.from("businesses").update({ ein: sealSecret(b.ein) }).eq("id", b.id).eq("ein", b.ein).select("id");
+    if (updated?.length) einsSealed += 1;
+  }
+  return done(`Encrypted ${sealed} token${sealed === 1 ? "" : "s"} and ${einsSealed} EIN${einsSealed === 1 ? "" : "s"}.`);
 }
 
 /** Gives HavnLine's fee back to the restaurant for an order refunded outside HavnLine. */

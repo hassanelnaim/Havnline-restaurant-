@@ -66,7 +66,8 @@ export default function TermsPage() {
           <p>The Service sends texts only to a caller who agreed during the call: the payment link for their order, a confirmation once it&apos;s paid, and a notice if it&apos;s refunded. Every text says how to opt out (reply STOP) and get help (reply HELP). You may not use the Service to send marketing texts. See our <Link href="/sms-terms" className="font-medium text-brand hover:underline">SMS Terms</Link>.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">8. Acceptable use</h2>
-          <p>You may not use the Service for anything illegal, to send spam, to impersonate anyone, to collect callers&apos; information for purposes unrelated to their orders, or to reverse-engineer or overload the Service.</p>
+          <p>You may not use the Service for anything illegal, to send spam, to impersonate anyone, or to reverse-engineer or overload the Service.</p>
+          <p><strong>Callers&apos; information.</strong> You may use a caller&apos;s name, number, and order only to fulfill that order and to contact them about it, such as calling back about a question they asked or a problem with the order. You may not use it for marketing calls or texts, add it to mailing or contact lists, sell or share it, or use it for anything unrelated to their call. We may review your use of the Service to check this, and may suspend or close an account that breaks it.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">9. Third-party services</h2>
           <p>The Service relies on outside providers, including Twilio (phone calls and texts), Anthropic (the AI), ElevenLabs (the voice), Stripe (payments), Supabase (the database), Vercel (hosting), and Resend (email). We are not responsible for their outages or errors, though we work to keep the Service running when one has a problem.</p>
