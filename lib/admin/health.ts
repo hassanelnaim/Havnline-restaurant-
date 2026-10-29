@@ -1,3 +1,5 @@
+import { captchaEnabled } from "@/lib/security/captcha";
+import { findUnverifiedAccounts, SIGNUPS_PER_DAY_ALERT, UNVERIFIED_ACCOUNT_DAYS, UNVERIFIED_GRACE_HOURS } from "@/lib/admin/accounts";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { encryptionConfigured, isSealed } from "@/lib/security/secretBox";
@@ -364,11 +366,11 @@ export type CheckState = "ok" | "warn" | "fail" | "unknown";
 
 export interface SetupCheck {
   id: string;
-  group: "Keys" | "Database" | "Restaurants";
+  group: "Keys" | "Database" | "Restaurants" | "Accounts";
   label: string;
   state: CheckState;
   detail: string;
-  action?: "seal_tokens";
+  action?: "seal_tokens" | "delete_unverified";
 }
 
 // Names only: values are never read into the page.
@@ -526,7 +528,47 @@ export async function getSetupChecks(): Promise<SetupCheck[]> {
     });
   }
 
+  checks.push(...(await accountChecks()));
   return checks;
+}
+
+/** Bot protection on sign-up, and accounts that never verified. */
+async function accountChecks(): Promise<SetupCheck[]> {
+  const out: SetupCheck[] = [];
+  out.push({
+    id: "acct:captcha",
+    group: "Accounts",
+    label: captchaEnabled() ? "Bot check on sign-up and log-in" : "No bot check on sign-up and log-in",
+    state: captchaEnabled() ? "ok" : "fail",
+    detail: captchaEnabled()
+      ? "Shown on the forms. Supabase must also have CAPTCHA protection on (Authentication → Attack Protection) to block bots that skip the site."
+      : "NEXT_PUBLIC_TURNSTILE_SITE_KEY isn't set, so bots can create accounts. Add the Cloudflare Turnstile keys (site key in Vercel, secret key in Supabase).",
+  });
+  const r = await findUnverifiedAccounts(UNVERIFIED_GRACE_HOURS);
+  if (r.error) {
+    out.push({ id: "acct:unverified", group: "Accounts", label: "Unverified sign-ups", state: "unknown", detail: `Couldn't check: ${r.error}` });
+    return out;
+  }
+  const n = r.accounts.length;
+  const sample = r.accounts.slice(0, 4).map((a) => a.email).join(", ");
+  out.push({
+    id: "acct:unverified",
+    group: "Accounts",
+    label: n ? `${n} unverified sign-up${n === 1 ? "" : "s"}` : "Unverified sign-ups",
+    state: n ? "fail" : "ok",
+    detail: n
+      ? `Never verified their email and have no restaurant, so they can't sign in (usually bots): ${sample}${n > 4 ? "…" : ""}. Deleted automatically after ${UNVERIFIED_ACCOUNT_DAYS} days.`
+      : "None waiting.",
+    action: n ? "delete_unverified" : undefined,
+  });
+  out.push({
+    id: "acct:recent",
+    group: "Accounts",
+    label: "New accounts in the last 24 hours",
+    state: r.recent24h >= SIGNUPS_PER_DAY_ALERT ? "warn" : "ok",
+    detail: `${r.recent24h} of ${r.total} accounts.${r.recent24h >= SIGNUPS_PER_DAY_ALERT ? " Unusually many; check for bots." : ""}`,
+  });
+  return out;
 }
 
 // -------------------------------------------------------------- summary

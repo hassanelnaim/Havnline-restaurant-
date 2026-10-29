@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
+import { Turnstile } from "@/components/auth/turnstile";
+import { HONEYPOT_FIELD } from "@/lib/security/signupGuard";
 
 export default async function SignupPage(props: { searchParams: Promise<{ error?: string }> }) {
   const searchParams = await props.searchParams;
@@ -19,6 +21,11 @@ export default async function SignupPage(props: { searchParams: Promise<{ error?
       )}
 
       <form action={signUpAction} className="mt-6 space-y-4">
+        {/* Hidden from people (and screen readers); bots fill every field. */}
+        <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+          <label htmlFor={HONEYPOT_FIELD}>Company website</label>
+          <input id={HONEYPOT_FIELD} name={HONEYPOT_FIELD} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+        </div>
         <div>
           <Label htmlFor="fullName">Full name</Label>
           <Input id="fullName" name="fullName" required className="mt-1.5" />
@@ -40,6 +47,7 @@ export default async function SignupPage(props: { searchParams: Promise<{ error?
             <Link href="/privacy" target="_blank" className="font-medium text-brand hover:underline">Privacy Policy</Link>.
           </label>
         </div>
+        <Turnstile key={searchParams.error || "signup"} />
         <Button type="submit" variant="brand" className="w-full">Create account</Button>
       </form>
 

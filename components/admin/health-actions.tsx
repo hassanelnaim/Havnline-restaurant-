@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Play, RotateCcw, Check, PhoneOff, Undo2, Lock } from "lucide-react";
+import { Loader2, Play, RotateCcw, Check, PhoneOff, Undo2, Lock, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   closeStuckCallAction,
+  deleteUnverifiedAccountsAction,
   markTicketHandledAction,
   queueOrderPrintAction,
   refundPaidAfterVoidAction,
@@ -144,6 +145,38 @@ export function SealTokensButton() {
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
         Encrypt now
       </Button>
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+/** Deletes unverified, restaurant-less accounts. Asks once more first. */
+export function DeleteUnverifiedButton() {
+  const { pending, result, run } = useAction();
+  const [asking, setAsking] = useState(false);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        size="sm"
+        variant={asking ? "danger" : "outline"}
+        disabled={pending}
+        onClick={() => {
+          if (!asking) {
+            setAsking(true);
+            return;
+          }
+          setAsking(false);
+          run(deleteUnverifiedAccountsAction);
+        }}
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+        {asking ? "Delete them all?" : "Delete"}
+      </Button>
+      {asking && (
+        <Button size="sm" variant="ghost" onClick={() => setAsking(false)}>
+          Cancel
+        </Button>
+      )}
       <Feedback result={result} />
     </div>
   );

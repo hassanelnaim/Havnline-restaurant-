@@ -5,11 +5,16 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Turnstile } from "@/components/auth/turnstile";
+import { CAPTCHA_MISSING, captchaEnabled, isCaptchaError } from "@/lib/security/captcha";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState("");
+  // A token works once; a new widget gets a new one after each try.
+  const [attempt, setAttempt] = useState(0);
 
   // An expired reset link sends people back here with a message.
   useEffect(() => {
@@ -19,10 +24,19 @@ export default function ForgotPasswordPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (captchaEnabled() && !captchaToken) {
+      setError(CAPTCHA_MISSING);
+      return;
+    }
     const supabase = createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/confirm?next=/reset-password` });
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/confirm?next=/reset-password`,
+      captchaToken: captchaToken || undefined,
+    });
     if (error) {
-      setError(error.message);
+      setError(isCaptchaError(error.message) ? CAPTCHA_MISSING : error.message);
+      setCaptchaToken("");
+      setAttempt((n) => n + 1);
       return;
     }
     setSent(true);
@@ -40,6 +54,7 @@ export default function ForgotPasswordPage() {
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" required className="mt-1.5" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
+          <Turnstile key={attempt} onToken={setCaptchaToken} />
           <Button type="submit" variant="brand" className="w-full">Send reset link</Button>
         </form>
       )}

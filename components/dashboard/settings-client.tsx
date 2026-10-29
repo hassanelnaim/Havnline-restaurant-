@@ -20,6 +20,7 @@ import {
   removeClosureAction,
 } from "@/app/actions/business";
 import { updateProfileNameAction, updateEmailAction, updatePasswordAction } from "@/app/actions/profile";
+import { Turnstile } from "@/components/auth/turnstile";
 import { RESTAURANT_TYPES } from "@/lib/restaurant-types";
 import { upcomingHolidays } from "@/lib/business/holidays";
 
@@ -232,12 +233,24 @@ export function SettingsClient({
   const [email, setEmail] = useState(profile.email);
   const [newPassword, setNewPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
+  // The current-password check is a sign-in, so it needs the bot check too. A token works once.
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaRound, setCaptchaRound] = useState(0);
   const [accountMsg, setAccountMsg] = useState<{ field: "name" | "email" | "password"; ok: boolean; text: string } | null>(null);
 
   function saveAccount(field: "name" | "email" | "password") {
     setAccountMsg(null);
     startTransition(async () => {
-      const result = field === "name" ? await updateProfileNameAction(fullName) : field === "email" ? await updateEmailAction(email, currentPassword) : await updatePasswordAction(newPassword, currentPassword);
+      const result =
+        field === "name"
+          ? await updateProfileNameAction(fullName)
+          : field === "email"
+            ? await updateEmailAction(email, currentPassword, captchaToken)
+            : await updatePasswordAction(newPassword, currentPassword, captchaToken);
+      if (field !== "name") {
+        setCaptchaToken("");
+        setCaptchaRound((n) => n + 1);
+      }
       if (!result.success) { setAccountMsg({ field, ok: false, text: result.error || "Could not save." }); return; }
       if (field === "name") setSavedName(fullName);
       if (field === "password") setNewPassword("");
@@ -537,6 +550,7 @@ export function SettingsClient({
               <div>
                 <Label htmlFor="current-password">Current password</Label>
                 <Input id="current-password" type="password" className="mt-1.5 max-w-sm" autoComplete="current-password" placeholder="Needed to change your email or password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+                <Turnstile key={captchaRound} onToken={setCaptchaToken} className="mt-2" />
               </div>
             )}
           </div>

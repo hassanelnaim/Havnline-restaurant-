@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleSlash, ExternalLink, Loader2, XCircle } from "lucide-react";
-import { RunJobButton, SealTokensButton, StuckItemActions } from "@/components/admin/health-actions";
+import { DeleteUnverifiedButton, RunJobButton, SealTokensButton, StuckItemActions } from "@/components/admin/health-actions";
 import type { CheckState, HealthReport, JobRun, JobState, JobStatus, SetupCheck, StuckAction, StuckGroup } from "@/lib/admin/health";
 
 /**
@@ -125,7 +125,7 @@ export function needsYouRows(report: HealthReport, now: number): NeedRow[] {
       tag: "Setup",
       title: c.group === "Keys" ? `${c.label} isn't set` : c.label,
       sub: c.detail,
-      action: c.action === "seal_tokens" ? <SealTokensButton /> : undefined,
+      action: c.action === "seal_tokens" ? <SealTokensButton /> : c.action === "delete_unverified" ? <DeleteUnverifiedButton /> : undefined,
       tone: "bad",
     });
   }
@@ -314,7 +314,7 @@ function SetupRow({ checks }: { checks: SetupCheck[] }) {
   const passing = checks.filter((c) => c.state === "ok").length;
   const warnings = checks.filter((c) => c.state === "warn").length;
   const failing = checks.filter((c) => c.state === "fail").length;
-  const groups = ["Keys", "Database", "Restaurants"] as const;
+  const groups = ["Keys", "Database", "Restaurants", "Accounts"] as const;
   return (
     <Fold
       summary={
@@ -327,7 +327,7 @@ function SetupRow({ checks }: { checks: SetupCheck[] }) {
         </>
       }
     >
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         {groups.map((g) => (
           <div key={g}>
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">{g === "Keys" ? "Keys in Vercel (never shown)" : g}</div>

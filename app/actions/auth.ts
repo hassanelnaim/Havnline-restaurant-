@@ -7,15 +7,32 @@ import { checkRateLimit, getClientIp, isRateLimited, recordRateLimitHit } from "
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
 import { getSiteUrl } from "@/lib/env";
+import { CAPTCHA_MISSING, captchaEnabled, captchaTokenFrom, isCaptchaError } from "@/lib/security/captcha";
+import { canonicalEmail, emailProblem, honeypotTripped } from "@/lib/security/signupGuard";
+import { sendPlatformAlert } from "@/lib/monitoring/platformAlert";
 
 /** Where account email links land (app/auth/confirm/route.ts). */
 const confirmUrl = (next: string) => `${getSiteUrl()}/auth/confirm?next=${encodeURIComponent(next)}`;
 
+/** New sign-ups in an hour that email the platform admin (bots, or a very good day). */
+const SIGNUP_SPIKE_PER_HOUR = 8;
+
 export async function signUpAction(formData: FormData) {
-  const email = formData.get("email") as string;
+  const email = String(formData.get("email") || "").trim();
   const password = formData.get("password") as string;
-  const fullName = formData.get("fullName") as string;
+  const fullName = String(formData.get("fullName") || "").trim().slice(0, 120);
   const acceptedTerms = formData.get("acceptTerms") === "on";
+  const captchaToken = captchaTokenFrom(formData);
+  const fail = (message: string) => redirect(`/signup?error=${encodeURIComponent(message)}`);
+
+  // A hidden field only bots fill in. They get the normal "check your
+  // inbox" page, so they learn nothing, and no account or email is made.
+  if (honeypotTripped(formData)) {
+    redirect(`/login?justSignedUp=1&email=${encodeURIComponent(email)}`);
+  }
+  if (captchaEnabled() && !captchaToken) fail(CAPTCHA_MISSING);
+  const problem = emailProblem(email);
+  if (problem) fail(problem);
 
   // Real server-side enforcement, not just the browser's checkbox —
   // the client-side "required" attribute is a UX nicety, but a direct
@@ -30,7 +47,9 @@ export async function signUpAction(formData: FormData) {
   // plausibly have a few real signups in an hour, just not dozens.
   const ip = await getClientIp();
   const ipOk = await checkRateLimit(`signup_ip:${ip}`, 5, 60);
-  if (!ipOk) {
+  // Every spelling of one Gmail inbox counts as the same address.
+  const inboxOk = ipOk && (await checkRateLimit(`signup_inbox:${canonicalEmail(email)}`, 3, 24 * 60));
+  if (!ipOk || !inboxOk) {
     redirect(`/signup?error=${encodeURIComponent("Too many signup attempts from this network. Please try again in a bit.")}`);
   }
 
@@ -50,7 +69,7 @@ export async function signUpAction(formData: FormData) {
     password,
     // Without this, Supabase sends the verification link to its configured
     // "Site URL", which was never this site: the link opened a dead page.
-    options: { data: { full_name: fullName }, emailRedirectTo: confirmUrl("/onboarding") },
+    options: { data: { full_name: fullName }, emailRedirectTo: confirmUrl("/onboarding"), captchaToken },
   });
 
   if (error) {
@@ -64,7 +83,9 @@ export async function signUpAction(formData: FormData) {
     const isDuplicateEmail = /already registered|already exists|already in use/i.test(error.message);
     const message = isDuplicateEmail
       ? "If that email doesn't already have an account, check your inbox to finish signing up. Already have one? Try signing in instead."
-      : error.message;
+      : isCaptchaError(error.message)
+        ? CAPTCHA_MISSING
+        : error.message;
     redirect(`/signup?error=${encodeURIComponent(message)}`);
   }
 
@@ -86,19 +107,46 @@ export async function signUpAction(formData: FormData) {
     } catch (err) {
       console.error("[signup] could not record terms acceptance:", err);
     }
+    await alertOnSignupSpike();
   }
 
   redirect(`/login?justSignedUp=1&email=${encodeURIComponent(email)}`);
 }
 
+/** Emails the platform admin (at most hourly) when sign-ups suddenly pile up. */
+async function alertOnSignupSpike() {
+  try {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await createAdminClient().from("terms_acceptances").select("id", { count: "exact", head: true }).gte("accepted_at", since);
+    if ((count || 0) < SIGNUP_SPIKE_PER_HOUR) return;
+    await sendPlatformAlert({
+      key: "signup_spike",
+      subject: `HavnLine: ${count} new sign-ups in the last hour`,
+      heading: "Unusual number of sign-ups",
+      intro: "This many new accounts in one hour is usually bots. Check the Users list in Supabase and the Health page, which lists unverified accounts with a button to delete them.",
+      rows: [{ label: "Sign-ups in the last hour", value: String(count) }],
+      throttleMinutes: 60,
+    });
+  } catch (err) {
+    console.error("[signup] spike check failed:", err);
+  }
+}
+
 /** Sends a new verification email (from the login page). Says the same thing whether or not the account exists. */
 export async function resendVerificationAction(formData: FormData) {
   const email = String(formData.get("email") || "").trim().toLowerCase();
+  const captchaToken = captchaTokenFrom(formData);
+  if (captchaEnabled() && !captchaToken) {
+    redirect(`/login?unverified=1&email=${encodeURIComponent(email)}&error=${encodeURIComponent(CAPTCHA_MISSING)}`);
+  }
   const ip = await getClientIp();
-  const ok = email && (await checkRateLimit(`verify_resend:${ip}`, 5, 60)) && (await checkRateLimit(`verify_resend:${email}`, 3, 60));
+  const ok =
+    email &&
+    (await checkRateLimit(`verify_resend:${ip}`, 5, 60)) &&
+    (await checkRateLimit(`verify_resend:${canonicalEmail(email)}`, 3, 60));
   if (ok) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: confirmUrl("/onboarding") } });
+    const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: confirmUrl("/onboarding"), captchaToken } });
     if (error) console.error("[auth] could not resend the verification email:", error.message);
   }
   redirect(`/login?verifySent=1&email=${encodeURIComponent(email)}`);
@@ -107,6 +155,10 @@ export async function resendVerificationAction(formData: FormData) {
 export async function signInAction(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
+  const captchaToken = captchaTokenFrom(formData);
+  if (captchaEnabled() && !captchaToken) {
+    redirect(`/login?error=${encodeURIComponent(CAPTCHA_MISSING)}&email=${encodeURIComponent(email || "")}`);
+  }
 
   // Two limits, not one: an IP limit alone lets an attacker who
   // rotates IPs still hammer one victim's account, and an email limit
@@ -129,9 +181,13 @@ export async function signInAction(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabase.auth.signInWithPassword({ email, password, options: { captchaToken } });
 
   if (error) {
+    // A failed bot check isn't a wrong password; don't count it against the account.
+    if (isCaptchaError(error.message)) {
+      redirect(`/login?error=${encodeURIComponent(CAPTCHA_MISSING)}&email=${encodeURIComponent(normalizedEmail)}`);
+    }
     if (normalizedEmail) {
       await Promise.all([recordRateLimitHit(`login_fail:${normalizedEmail}:${ip}`), recordRateLimitHit(`login_fail:${normalizedEmail}`)]);
     }

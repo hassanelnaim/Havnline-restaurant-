@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runComplianceSweep } from "@/lib/compliance/checks";
 import type { CronJobOutcome } from "@/lib/monitoring/cronRuns";
+import { deleteUnverifiedAccounts, findUnverifiedAccounts, SIGNUPS_PER_DAY_ALERT, UNVERIFIED_ACCOUNT_DAYS } from "@/lib/admin/accounts";
+import { sendPlatformAlert } from "@/lib/monitoring/platformAlert";
 
 /**
  * The nightly cleanup (app/api/cron/cleanup, and "Run now" on the admin
@@ -16,7 +18,8 @@ import type { CronJobOutcome } from "@/lib/monitoring/cronRuns";
  * Call transcripts are deleted after TRANSCRIPT_RETENTION_DAYS (the call's
  * date, length and outcome, and its order, stay). Never touches orders,
  * customers or usage records. Old cron_runs and platform_alerts rows are
- * trimmed after 90 days.
+ * trimmed after 90 days. Accounts never verified and with no restaurant
+ * are deleted after a week (bot sign-ups), with an email when sign-ups spike.
  */
 export const TRANSCRIPT_RETENTION_DAYS = 90;
 // Deleted in small batches so a big backlog can't run past the job's time limit.
@@ -59,6 +62,26 @@ export async function runNightlyCleanup(): Promise<CronJobOutcome> {
       } catch (err) {
         return { error: { message: err instanceof Error ? err.message : String(err) }, count: null };
       }
+    }],
+    // Bot sign-ups and abandoned sign-ups: never verified, no restaurant.
+    [`unverified accounts older than ${UNVERIFIED_ACCOUNT_DAYS} days`, async () => {
+      const r = await deleteUnverifiedAccounts(UNVERIFIED_ACCOUNT_DAYS * 24);
+      return { error: r.error ? { message: r.error } : r.failed ? { message: `${r.failed} couldn't be deleted` } : null, count: r.deleted };
+    }],
+    ["new accounts in the last 24 hours", async () => {
+      const r = await findUnverifiedAccounts(UNVERIFIED_ACCOUNT_DAYS * 24);
+      if (r.error) return { error: { message: r.error }, count: null };
+      if (r.recent24h >= SIGNUPS_PER_DAY_ALERT) {
+        await sendPlatformAlert({
+          key: "signup_spike_daily",
+          subject: `HavnLine: ${r.recent24h} new accounts in the last 24 hours`,
+          heading: "Unusual number of sign-ups",
+          intro: "This many new accounts in a day is usually bots. The Health page lists unverified accounts with a button to delete them.",
+          rows: [{ label: "New accounts (24 hours)", value: String(r.recent24h) }],
+          throttleMinutes: 12 * 60,
+        });
+      }
+      return { error: null, count: r.recent24h };
     }],
     ["texting consent records older than 4 years", () => admin.from("sms_consents").delete({ count: "exact" }).lt("consented_at", daysAgo(4 * 365 + 1))],
   ];

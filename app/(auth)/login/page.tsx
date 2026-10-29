@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
+import { Turnstile } from "@/components/auth/turnstile";
 
 export default async function LoginPage(
   props: { searchParams: Promise<{ error?: string; justSignedUp?: string; unverified?: string; verifySent?: string; email?: string }> }
@@ -29,6 +30,7 @@ export default async function LoginPage(
           Please verify your email first: open the link we sent when you signed up.
           <form action={resendVerificationAction} className="mt-2">
             <input type="hidden" name="email" value={searchParams.email || ""} />
+            <Turnstile key={`resend:${searchParams.error || ""}`} className="mb-2" />
             <button type="submit" className="font-semibold underline">Send a new verification link</button>
           </form>
         </div>
@@ -48,6 +50,7 @@ export default async function LoginPage(
           <Label htmlFor="password">Password</Label>
           <PasswordInput id="password" name="password" required className="mt-1.5" />
         </div>
+        <Turnstile key={`login:${searchParams.error || ""}`} />
         <Button type="submit" variant="brand" className="w-full">Log in</Button>
       </form>
 

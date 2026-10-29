@@ -13,6 +13,7 @@ import { returnApplicationFee } from "@/lib/billing/stripeConnect";
 import { encryptionConfigured, isSealed, sealSecret } from "@/lib/security/secretBox";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import type { OrderWithItems } from "@/lib/database/types";
+import { deleteUnverifiedAccounts, UNVERIFIED_GRACE_HOURS } from "@/lib/admin/accounts";
 
 /**
  * The fix buttons on the admin Health page. Every action re-checks that
@@ -216,4 +217,14 @@ export async function dismissFlagAction(flagId: string): Promise<HealthActionRes
   const { error } = await createAdminClient().from("compliance_flags").update({ dismissed_at: new Date().toISOString() }).eq("id", flagId).is("dismissed_at", null);
   if (error) return { success: false, error: error.message };
   return done();
+}
+
+/** Deletes accounts that never verified their email and have no restaurant (older than an hour). */
+export async function deleteUnverifiedAccountsAction(): Promise<HealthActionResult> {
+  const denied = await guard();
+  if (denied) return denied;
+  const r = await deleteUnverifiedAccounts(UNVERIFIED_GRACE_HOURS);
+  if (r.error) return { success: false, error: r.error };
+  if (r.failed) return { success: false, error: `Deleted ${r.deleted}; ${r.failed} couldn't be deleted. Try again or delete them in Supabase.` };
+  return done(`Deleted ${r.deleted} account${r.deleted === 1 ? "" : "s"}.`);
 }
