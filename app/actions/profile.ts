@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { isRateLimited, recordRateLimitHit } from "@/lib/security/rateLimit";
+import { getSiteUrl } from "@/lib/env";
 import type { ActionResult } from "./business";
 
 export async function updateProfileNameAction(fullName: string): Promise<ActionResult> {
@@ -55,7 +56,7 @@ export async function updateEmailAction(newEmail: string, currentPassword: strin
   const check = await verifyCurrentPassword(currentPassword);
   if (!check.ok) return { success: false, error: check.error };
   const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ email: newEmail });
+  const { error } = await supabase.auth.updateUser({ email: newEmail }, { emailRedirectTo: `${getSiteUrl()}/auth/confirm?next=${encodeURIComponent("/dashboard/settings?tab=account")}` });
   if (error) return { success: false, error: error.message };
   return { success: true };
 }

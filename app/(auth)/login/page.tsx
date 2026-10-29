@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { signInAction } from "@/app/actions/auth";
+import { resendVerificationAction, signInAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 
 export default async function LoginPage(
-  props: { searchParams: Promise<{ error?: string; justSignedUp?: string }> }
+  props: { searchParams: Promise<{ error?: string; justSignedUp?: string; unverified?: string; verifySent?: string; email?: string }> }
 ) {
   const searchParams = await props.searchParams;
   return (
@@ -16,7 +16,21 @@ export default async function LoginPage(
 
       {searchParams.justSignedUp && (
         <div className="mt-4 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success">
-          Account created — log in to continue.
+          Account created. We sent a verification link to {searchParams.email || "your email"}. Open it to finish setting up; it brings you straight to setting up your restaurant.
+        </div>
+      )}
+      {searchParams.verifySent && (
+        <div className="mt-4 rounded-lg border border-success/20 bg-success-soft px-3.5 py-2.5 text-[12.5px] text-success">
+          If that account still needs verifying, a new link is on its way. Check your spam folder too.
+        </div>
+      )}
+      {searchParams.unverified && (
+        <div className="mt-4 rounded-lg border border-amber-300/60 bg-amber-50 px-3.5 py-3 text-[12.5px] text-amber-800">
+          Please verify your email first: open the link we sent when you signed up.
+          <form action={resendVerificationAction} className="mt-2">
+            <input type="hidden" name="email" value={searchParams.email || ""} />
+            <button type="submit" className="font-semibold underline">Send a new verification link</button>
+          </form>
         </div>
       )}
       {searchParams.error && (
@@ -28,7 +42,7 @@ export default async function LoginPage(
       <form action={signInAction} className="mt-6 space-y-4">
         <div>
           <Label htmlFor="email">Email</Label>
-          <Input id="email" name="email" type="email" required className="mt-1.5" />
+          <Input id="email" name="email" type="email" required className="mt-1.5" defaultValue={searchParams.email || ""} />
         </div>
         <div>
           <Label htmlFor="password">Password</Label>

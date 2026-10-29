@@ -6,6 +6,10 @@ import { headers } from "next/headers";
 import { checkRateLimit, getClientIp, isRateLimited, recordRateLimitHit } from "@/lib/security/rateLimit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
+import { getSiteUrl } from "@/lib/env";
+
+/** Where account email links land (app/auth/confirm/route.ts). */
+const confirmUrl = (next: string) => `${getSiteUrl()}/auth/confirm?next=${encodeURIComponent(next)}`;
 
 export async function signUpAction(formData: FormData) {
   const email = formData.get("email") as string;
@@ -44,7 +48,9 @@ export async function signUpAction(formData: FormData) {
   const { data: signUpData, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName } },
+    // Without this, Supabase sends the verification link to its configured
+    // "Site URL", which was never this site: the link opened a dead page.
+    options: { data: { full_name: fullName }, emailRedirectTo: confirmUrl("/onboarding") },
   });
 
   if (error) {
@@ -82,7 +88,20 @@ export async function signUpAction(formData: FormData) {
     }
   }
 
-  redirect("/login?justSignedUp=1");
+  redirect(`/login?justSignedUp=1&email=${encodeURIComponent(email)}`);
+}
+
+/** Sends a new verification email (from the login page). Says the same thing whether or not the account exists. */
+export async function resendVerificationAction(formData: FormData) {
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const ip = await getClientIp();
+  const ok = email && (await checkRateLimit(`verify_resend:${ip}`, 5, 60)) && (await checkRateLimit(`verify_resend:${email}`, 3, 60));
+  if (ok) {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: confirmUrl("/onboarding") } });
+    if (error) console.error("[auth] could not resend the verification email:", error.message);
+  }
+  redirect(`/login?verifySent=1&email=${encodeURIComponent(email)}`);
 }
 
 export async function signInAction(formData: FormData) {
@@ -115,6 +134,10 @@ export async function signInAction(formData: FormData) {
   if (error) {
     if (normalizedEmail) {
       await Promise.all([recordRateLimitHit(`login_fail:${normalizedEmail}:${ip}`), recordRateLimitHit(`login_fail:${normalizedEmail}`)]);
+    }
+    // An unverified account gets its own message and a resend button.
+    if (/email not confirmed/i.test(error.message)) {
+      redirect(`/login?unverified=1&email=${encodeURIComponent(normalizedEmail)}`);
     }
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
