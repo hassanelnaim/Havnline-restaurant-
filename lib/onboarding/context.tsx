@@ -44,6 +44,8 @@ export interface OnboardingDraft {
   website: string;
   legalBusinessName: string;
   ein: string;
+  /** "business" (has an EIN) or "sole_proprietor" (no EIN). Empty until chosen. */
+  entityType: "" | "business" | "sole_proprietor";
   description: string;
   timezone: string;
 
@@ -94,6 +96,7 @@ const defaultDraft: OnboardingDraft = {
   website: "",
   legalBusinessName: "",
   ein: "",
+  entityType: "",
   description: "",
   timezone: "America/New_York",
   hours: WEEKDAYS.map((weekday, i) => ({

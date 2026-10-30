@@ -6,6 +6,8 @@ import { setTextingApprovedAction } from "@/app/actions/platform-admin";
 
 export interface TextingRegistrationInfo {
   legalBusinessName: string | null;
+  /** "sole_proprietor" registers as a Sole Proprietor brand (owner's name, no EIN, OTP to a mobile). Null: asked before migration 043. */
+  entityType: "business" | "sole_proprietor" | null;
   /** Nine digits, no dash. Shown only on this admin page, for registration. */
   ein: string | null;
   address: string | null;
@@ -44,7 +46,8 @@ export function TextingRegistration({ businessId, info }: { businessId: string; 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const ein = info.ein ? `${info.ein.slice(0, 2)}-${info.ein.slice(2)}` : null;
-  const ready = Boolean(info.legalBusinessName && info.ein && info.havnlineNumber);
+  const sole = info.entityType === "sole_proprietor" && !info.ein;
+  const ready = Boolean(info.legalBusinessName && (info.ein || sole) && info.havnlineNumber);
 
   function toggle() {
     setError(null);
@@ -67,12 +70,13 @@ export function TextingRegistration({ businessId, info }: { businessId: string; 
         </span>
       </div>
       <p className="mt-1 text-[12px] text-text-faint">
-        Register this business&apos;s brand and campaign in Twilio, under its sub-account, with the details below. Once Twilio approves the campaign, mark it approved so the restaurant&apos;s Integrations page shows texting as active.
+        Register this business&apos;s brand and campaign in Twilio, under its sub-account, with the details below. A Sole Proprietor brand needs the owner&apos;s mobile number for Twilio&apos;s one-time code: contact the owner for it. Once Twilio approves the campaign, mark it approved so the restaurant&apos;s Integrations page shows texting as active.
       </p>
 
       <div className="mt-3 divide-y divide-border-soft">
-        <Row label="Legal business name" value={info.legalBusinessName} />
-        <Row label="EIN" value={ein} copyValue={info.ein} />
+        <Row label="Registration type" value={sole ? "Sole Proprietor brand (no EIN)" : "Standard brand (EIN)"} />
+        <Row label={sole ? "Owner's legal name" : "Legal business name"} value={info.legalBusinessName} />
+        {!sole && <Row label="EIN" value={ein} copyValue={info.ein} />}
         <Row label="Address" value={info.address} />
         <Row label="Website" value={info.website} optional />
         <Row label="Contact phone" value={info.contactPhone} />
@@ -88,7 +92,7 @@ export function TextingRegistration({ businessId, info }: { businessId: string; 
         >
           {isPending ? "Saving…" : info.approved ? "Mark as not approved" : "Mark texting approved"}
         </button>
-        {!info.approved && !ready && <span className="text-[12px] text-text-faint">Needs the legal name, EIN, and a HavnLine number first.</span>}
+        {!info.approved && !ready && <span className="text-[12px] text-text-faint">Needs the legal name, EIN (or sole proprietor), and a HavnLine number first.</span>}
         {error && <span className="text-[12px] text-danger">{error}</span>}
       </div>
     </div>

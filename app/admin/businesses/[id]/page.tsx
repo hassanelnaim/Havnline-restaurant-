@@ -49,6 +49,7 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
   const twilioMeta = (twilioRow?.metadata || null) as Record<string, unknown> | null;
   const texting: TextingRegistrationInfo = {
     legalBusinessName: business.legal_business_name ?? null,
+    entityType: business.texting_entity_type ?? null,
     // Stored encrypted; only the admin page opens it, for the texting registration.
     ein: openSecret(business.ein) ?? null,
     address: [business.address, business.address_city, [business.address_state, business.address_zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,

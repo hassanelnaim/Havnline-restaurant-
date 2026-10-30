@@ -101,7 +101,7 @@ export function IntegrationsClient({
   stripeConnectAccountId: string | null;
   stripeConnectChargesEnabled: boolean;
   platformFeeBps: number | null;
-  textingIdentity: { legalBusinessName: string | null; hasEin: boolean };
+  textingIdentity: { legalBusinessName: string | null; hasEin: boolean; soleProprietor?: boolean };
 }) {
   const feePercent = platformFeeBps ? platformFeeBps / 100 : 0;
   const [integrations, setIntegrations] = useState(initialIntegrations);
@@ -147,7 +147,9 @@ export function IntegrationsClient({
   // from the admin business page (setTextingApprovedAction), which sets the
   // "sms" row to connected.
   const textingApproved = integrations.find((i) => i.provider === "sms")?.status === "connected";
-  const identityOnFile = Boolean(textingIdentity.legalBusinessName) && textingIdentity.hasEin;
+  // A sole proprietor without an EIN registers under the owner's name.
+  const identityOnFile = Boolean(textingIdentity.legalBusinessName) && (textingIdentity.hasEin || Boolean(textingIdentity.soleProprietor));
+  const [soleProprietor, setSoleProprietor] = useState(Boolean(textingIdentity.soleProprietor) && !textingIdentity.hasEin);
   const [identity, setIdentity] = useState({ legalBusinessName: textingIdentity.legalBusinessName || "", ein: "" });
   const [identitySaved, setIdentitySaved] = useState(identityOnFile);
   const [savedName, setSavedName] = useState(textingIdentity.legalBusinessName);
@@ -164,6 +166,7 @@ export function IntegrationsClient({
       if (!result.success) { setIdentityError(result.error || "Could not save."); return; }
       setIdentitySaved(true);
       setSavedName(identity.legalBusinessName.trim());
+      setSoleProprietor(false);
       setEditingIdentity(false);
       setIdentity((s) => ({ ...s, ein: "" }));
     });
@@ -485,9 +488,9 @@ export function IntegrationsClient({
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-paper px-4 py-3">
                       <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink">
                         <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-                        <span className="truncate">{savedName} · EIN on file</span>
+                        <span className="truncate">{savedName} · {soleProprietor ? "Sole proprietor, no EIN" : "EIN on file"}</span>
                       </span>
-                      <button type="button" onClick={() => setEditingIdentity(true)} className="text-[12.5px] font-medium text-brand-dark hover:text-brand">Edit</button>
+                      <button type="button" onClick={() => setEditingIdentity(true)} className="text-[12.5px] font-medium text-brand-dark hover:text-brand">{soleProprietor ? "Add an EIN" : "Edit"}</button>
                     </div>
                     <p className="mt-3 text-[12px] leading-relaxed text-text-muted">
                       We&apos;ve got what we need. Carrier approval usually takes 2 to 3 weeks, and this card switches to Active when it&apos;s done. Until then, payment-link texts may not reach your customers.

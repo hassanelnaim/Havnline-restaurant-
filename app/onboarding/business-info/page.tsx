@@ -33,13 +33,15 @@ export default function BusinessInfoStep() {
     draft.phone.trim().length > 0 &&
     draft.addressCity.trim().length > 0 &&
     /^[A-Za-z]{2}$/.test(draft.addressState.trim()) &&
-    draft.addressZip.trim().length > 0;
+    draft.addressZip.trim().length > 0 &&
+    draft.entityType !== "" &&
+    draft.legalBusinessName.trim().length > 0;
 
   async function handleContinue() {
     setSaving(true);
     setError(null);
     const result = await createBusinessDraftAction({
-      businessName: draft.businessName, businessType: draft.businessType, address: draft.address, addressCity: draft.addressCity, addressState: draft.addressState, addressZip: draft.addressZip, phone: draft.phone, description: draft.description, timezone: draft.timezone, legalBusinessName: draft.legalBusinessName, ein: draft.ein,
+      businessName: draft.businessName, businessType: draft.businessType, address: draft.address, addressCity: draft.addressCity, addressState: draft.addressState, addressZip: draft.addressZip, phone: draft.phone, description: draft.description, timezone: draft.timezone, legalBusinessName: draft.legalBusinessName, ein: draft.ein, entityType: draft.entityType,
     });
     setSaving(false);
 
@@ -89,15 +91,50 @@ export default function BusinessInfoStep() {
           <Label htmlFor="phone">Restaurant phone</Label>
           <Input id="phone" className="mt-1.5" placeholder="(845) 555-0142" value={draft.phone} onChange={(e) => update({ phone: e.target.value })} />
         </div>
-        <div>
-          <Label htmlFor="legalBusinessName">Legal business name <span className="text-text-faint">(optional)</span></Label>
-          <Input id="legalBusinessName" className="mt-1.5" placeholder="Riverside Pizza Co. LLC" value={draft.legalBusinessName} onChange={(e) => update({ legalBusinessName: e.target.value })} />
-        </div>
-        <div>
-          <Label htmlFor="ein">EIN <span className="text-text-faint">(optional)</span></Label>
-          <Input id="ein" className="mt-1.5" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="12-3456789" value={draft.ein} onChange={(e) => update({ ein: e.target.value })} />
-          <p className="mt-1.5 text-[12px] text-text-faint">Your federal tax ID, exactly as it appears on IRS paperwork. Carriers require it to approve text messages (order confirmations and payment links) from your number. It is never shown to customers.</p>
-        </div>
+        <fieldset className="rounded-xl border border-border p-4">
+          <legend className="px-1 text-[13px] font-medium text-ink">Business registration</legend>
+          <p className="text-[12px] text-text-faint">
+            Phone carriers only deliver texts (like your customers&apos; payment links) from registered businesses. HavnLine registers you; we need these exactly as the IRS has them. They&apos;re stored encrypted and never shown to customers.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Does your restaurant have an EIN?">
+            {([
+              { value: "business", title: "We have an EIN", sub: "LLC, corporation, partnership, or a sole proprietor with an EIN" },
+              { value: "sole_proprietor", title: "No EIN", sub: "Sole proprietor using your Social Security number" },
+            ] as const).map((o) => (
+              <label key={o.value} className={`flex cursor-pointer gap-2.5 rounded-lg border px-3 py-2.5 ${draft.entityType === o.value ? "border-brand bg-brand-soft" : "border-border hover:border-text-faint"}`}>
+                <input type="radio" name="entityType" value={o.value} className="mt-0.5 h-4 w-4 shrink-0 accent-brand" checked={draft.entityType === o.value} onChange={() => update({ entityType: o.value })} />
+                <span>
+                  <span className="block text-[13px] font-medium text-ink">{o.title}</span>
+                  <span className="block text-[11.5px] text-text-muted">{o.sub}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {draft.entityType === "business" && (
+            <div className="mt-4 space-y-4">
+              <div>
+                <Label htmlFor="legalBusinessName">Legal business name</Label>
+                <Input id="legalBusinessName" className="mt-1.5" placeholder="Riverside Pizza Co. LLC" value={draft.legalBusinessName} onChange={(e) => update({ legalBusinessName: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="ein">EIN</Label>
+                <Input id="ein" className="mt-1.5" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="12-3456789" value={draft.ein} onChange={(e) => update({ ein: e.target.value })} />
+                <p className="mt-1.5 text-[12px] text-text-faint">Your federal tax ID, on your IRS letter (CP 575) or last tax return. Already entered it before? You can leave this blank.</p>
+              </div>
+            </div>
+          )}
+
+          {draft.entityType === "sole_proprietor" && (
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="legalBusinessName">Your full legal name</Label>
+              <Input id="legalBusinessName" className="mt-1.5" placeholder="Maria Lopez" autoComplete="name" value={draft.legalBusinessName} onChange={(e) => update({ legalBusinessName: e.target.value })} />
+              <p className="text-[12px] text-text-faint">
+                Carriers register businesses without an EIN under the owner&apos;s name and send a one-time code to the owner&apos;s mobile phone to confirm it; we&apos;ll reach out when it&apos;s time. If you get an EIN later (free at irs.gov), you can add it under Integrations.
+              </p>
+            </div>
+          )}
+        </fieldset>
         <div>
           <Label htmlFor="timezone">Timezone</Label>
           <select id="timezone" className="mt-1.5 flex h-9 w-full rounded-lg border border-border bg-card px-3 text-[13.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30" value={draft.timezone} onChange={(e) => update({ timezone: e.target.value })}>

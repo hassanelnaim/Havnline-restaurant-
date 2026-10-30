@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LEGAL_NAME, MAILING_ADDRESS, SUPPORT_EMAIL } from "@/lib/legal/company";
 import { Logo } from "@/components/brand/logo";
 import { PRIVACY_VERSION } from "@/lib/legal/versions";
 
@@ -28,7 +29,7 @@ export default function PrivacyPage() {
 
 
         <section className="mt-8 space-y-5 text-[14px] leading-relaxed text-text">
-          <p>HavnLine runs AI order lines that answer phone calls for restaurants. This policy explains what information HavnLine collects, how it&apos;s used, who it&apos;s shared with, and how long it&apos;s kept, both for restaurants that use HavnLine and for people who call them.</p>
+          <p>HavnLine ({LEGAL_NAME}, &quot;HavnLine,&quot; &quot;we,&quot; &quot;us&quot;) runs AI order lines that answer phone calls for restaurants. This policy explains what information HavnLine collects, how it&apos;s used, who it&apos;s shared with, and how long it&apos;s kept, both for restaurants that use HavnLine and for people who call them.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">1. If you called a restaurant that uses HavnLine</h2>
           <p>When you call, you&apos;re told at the start that you&apos;ve reached an automated (AI) ordering assistant provided by HavnLine and that calls are transcribed. HavnLine answers on behalf of that restaurant. To take your order or answer your question, we process:</p>
@@ -45,7 +46,7 @@ export default function PrivacyPage() {
           <ul className="ml-5 list-disc space-y-1.5">
             <li><strong>Account information:</strong> name, email, and login details.</li>
             <li><strong>Business information:</strong> name, address, phone, hours, menu, prices, and the knowledge you give the AI.</li>
-            <li><strong>Legal business name and EIN:</strong> needed to register your restaurant&apos;s phone number with the mobile carriers so it&apos;s allowed to send payment-link texts. They&apos;re shared only with Twilio for that registration (Twilio passes them to the carriers&apos; registry), are stored encrypted, and aren&apos;t shown to anyone else.</li>
+            <li><strong>Legal business name and EIN</strong> (or, for a sole proprietor without an EIN, the owner&apos;s legal name)<strong>:</strong> needed to register your restaurant&apos;s phone number with the mobile carriers so it&apos;s allowed to send payment-link texts. They&apos;re shared only with Twilio for that registration (Twilio passes them to the carriers&apos; registry), are stored encrypted, and aren&apos;t shown to anyone else.</li>
             <li><strong>Payments and payouts:</strong> Stripe collects and verifies the details it needs to pay you (such as your bank account and identity) directly; HavnLine never sees your bank details. We keep your Stripe account ID and subscription status.</li>
             <li><strong>Agreement records:</strong> when you sign up, the version of these terms you accepted, the time, your IP address, and your browser, as proof of what was agreed.</li>
             <li><strong>Usage:</strong> calls, orders, and how much of each service your account uses, to run the Service, bill correctly, and keep it working well.</li>
@@ -103,7 +104,8 @@ export default function PrivacyPage() {
           <p>We&apos;ll update the date above when this policy changes, and email restaurants about material changes.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">12. Contact us</h2>
-          <p><a href="mailto:havnlinesupport@gmail.com" className="font-medium text-brand hover:underline">havnlinesupport@gmail.com</a></p>
+          <p><a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-brand hover:underline">{SUPPORT_EMAIL}</a></p>
+          <p>{LEGAL_NAME}<br />{MAILING_ADDRESS}</p>
         </section>
       </main>
     </div>

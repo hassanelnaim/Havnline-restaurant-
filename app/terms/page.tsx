@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { TERMS_VERSION } from "@/lib/legal/versions";
+import { FORMATION_STATE, LEGAL_NAME, MAILING_ADDRESS, SUPPORT_EMAIL } from "@/lib/legal/company";
 import { MONTHLY_PRICE_DISPLAY, DEFAULT_PLATFORM_FEE_PERCENT_DISPLAY } from "@/lib/billing/constants";
 
 export const metadata = { title: "Terms of Service — HavnLine" };
@@ -8,8 +9,8 @@ export const metadata = { title: "Terms of Service — HavnLine" };
 // Fixed on purpose: it must say when the terms last changed, not today's
 // date. Change it in lib/legal/versions.ts whenever this page changes.
 const LAST_UPDATED = TERMS_VERSION;
-// Where HavnLine is organized. Confirm with your lawyer.
-const GOVERNING_STATE = "Michigan";
+// Where the LLC is organized (lib/legal/company.ts).
+const GOVERNING_STATE = FORMATION_STATE;
 
 export default function TermsPage() {
   return (
@@ -31,7 +32,7 @@ export default function TermsPage() {
 
 
         <section className="mt-8 space-y-5 text-[14px] leading-relaxed text-text">
-          <p>These Terms of Service (&quot;Terms&quot;) are an agreement between HavnLine (&quot;HavnLine,&quot; &quot;we,&quot; &quot;us&quot;) and the business that signs up for it (&quot;you,&quot; the &quot;Restaurant&quot;). They govern your use of HavnLine (the &quot;Service&quot;), an AI order line that answers your restaurant&apos;s phone calls, answers questions, and takes orders on your behalf. By creating an account or using the Service, you agree to these Terms. <strong>Section 13 requires disputes to be resolved by individual arbitration and waives class actions; please read it.</strong></p>
+          <p>These Terms of Service (&quot;Terms&quot;) are an agreement between {LEGAL_NAME}, a {FORMATION_STATE} limited liability company (&quot;HavnLine,&quot; &quot;we,&quot; &quot;us&quot;) and the business that signs up for it (&quot;you,&quot; the &quot;Restaurant&quot;). They govern your use of HavnLine (the &quot;Service&quot;), an AI order line that answers your restaurant&apos;s phone calls, answers questions, and takes orders on your behalf. By creating an account or using the Service, you agree to these Terms. <strong>Section 13 requires disputes to be resolved by individual arbitration and waives class actions; please read it.</strong></p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">1. Your account</h2>
           <p>You must provide accurate information when creating an account and keep your login credentials secure. You&apos;re responsible for all activity under your account, including by anyone you give access to.</p>
@@ -97,7 +98,8 @@ export default function TermsPage() {
           <p>We may update these Terms. For material changes we&apos;ll email you before they take effect; continuing to use the Service after that means you accept them.</p>
 
           <h2 className="font-display text-[18px] font-semibold text-ink">17. Contact us</h2>
-          <p>Questions? <a href="mailto:havnlinesupport@gmail.com" className="font-medium text-brand hover:underline">havnlinesupport@gmail.com</a></p>
+          <p>Questions? <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-brand hover:underline">{SUPPORT_EMAIL}</a></p>
+          <p>{LEGAL_NAME}<br />{MAILING_ADDRESS}</p>
         </section>
       </main>
     </div>

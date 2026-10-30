@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LEGAL_NAME, MAILING_ADDRESS, SUPPORT_EMAIL } from "@/lib/legal/company";
 import { SMS_TERMS_VERSION } from "@/lib/legal/versions";
 import { Logo } from "@/components/brand/logo";
 
@@ -24,7 +25,7 @@ export default function SmsTermsPage() {
         <section className="mt-8 space-y-6 text-[14px] leading-relaxed text-text">
           <p>
             This page describes exactly how and when HavnLine sends text messages, and exactly how a customer
-            agrees (opts in) to receive them. HavnLine is an AI phone order-taking platform used by
+            agrees (opts in) to receive them. HavnLine, operated by {LEGAL_NAME}, is an AI phone order-taking platform used by
             restaurants — all opt-in happens verbally, during a live phone call, as described in full below.
           </p>
 
@@ -86,7 +87,7 @@ export default function SmsTermsPage() {
           <p>
             See the full <Link href="/terms" className="font-medium text-brand hover:underline">Terms of Service</Link> and{" "}
             <Link href="/privacy" className="font-medium text-brand hover:underline">Privacy Policy</Link> for
-            complete details. Questions: <a href="mailto:havnlinesupport@gmail.com" className="font-medium text-brand hover:underline">havnlinesupport@gmail.com</a>.
+            complete details. Questions: <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-brand hover:underline">{SUPPORT_EMAIL}</a>. {LEGAL_NAME}, {MAILING_ADDRESS}.
           </p>
         </section>
       </main>

@@ -43,6 +43,7 @@ export const mockBusiness: DbBusiness = {
   website: null,
   legal_business_name: null,
   ein: null,
+  texting_entity_type: null,
   timezone: "America/New_York",
   onboarding_step: "complete",
   onboarding_completed_at: new Date().toISOString(),

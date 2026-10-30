@@ -404,6 +404,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m040", label: "040 consent records" },
   { key: "m041", label: "041 platform fee returns" },
   { key: "m042", label: "042 compliance checks" },
+  { key: "m043", label: "043 texting registration type" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {

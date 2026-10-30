@@ -135,7 +135,7 @@ export async function updateBusinessProfileAction(input: {
 
 /**
  * The legal name and EIN carriers check before they let a business text
- * customers (A2P 10DLC registration). Collected at signup as optional; this
+ * customers (A2P 10DLC registration). Collected at signup; this
  * lets the owner add or fix them later from the Integrations page. The EIN
  * is never logged and never sent back to the browser.
  */
@@ -153,7 +153,11 @@ export async function saveTextingIdentityAction(input: { legalBusinessName: stri
   if (einDigits.length !== 9) return { success: false, error: "An EIN is 9 digits, like 12-3456789." };
 
   const admin = createAdminClient();
-  const { error } = await admin.from("businesses").update({ legal_business_name: legalName, ein: sealSecret(einDigits) }).eq("id", businessId);
+  // Adding an EIN means registering as a business, not a sole proprietor.
+  let { error } = await admin.from("businesses").update({ legal_business_name: legalName, ein: sealSecret(einDigits), texting_entity_type: "business" }).eq("id", businessId);
+  if (error && /texting_entity_type/.test(error.message)) {
+    ({ error } = await admin.from("businesses").update({ legal_business_name: legalName, ein: sealSecret(einDigits) }).eq("id", businessId));
+  }
   if (error) return dbErrorResult(error, "saveTextingIdentityAction", "Could not save your business details.");
   revalidatePath("/dashboard/integrations");
   return { success: true };

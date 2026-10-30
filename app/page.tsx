@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LEGAL_NAME } from "@/lib/legal/company";
 import {
   ArrowRight, Phone, PhoneIncoming, MessageSquareText, DoorOpen, ChefHat, UserRound,
   Mic2, ClipboardList, Check, Globe, UtensilsCrossed, Pizza, Coffee, Beef, Soup, Star, Printer, PhoneOutgoing,
@@ -350,7 +351,7 @@ export default async function LandingPage() {
 
       <footer className="border-t border-border pb-28 pt-8 sm:pb-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 text-[11.5px] text-text-faint sm:flex-row">
-          <span>© {new Date().getFullYear()} HavnLine</span>
+          <span>© {new Date().getFullYear()} {LEGAL_NAME}</span>
           <div className="flex items-center gap-4">
             <Link href="/terms" className="hover:text-text">Terms</Link>
             <Link href="/privacy" className="hover:text-text">Privacy</Link>

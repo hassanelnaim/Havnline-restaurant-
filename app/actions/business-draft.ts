@@ -27,6 +27,7 @@ export async function createBusinessDraftAction(input: {
   timezone: string;
   legalBusinessName?: string;
   ein?: string;
+  entityType?: "business" | "sole_proprietor" | "";
 }): Promise<CreateBusinessDraftResult> {
   if (!isSupabaseConfigured()) return { success: true, demoMode: true };
 
@@ -44,11 +45,20 @@ export async function createBusinessDraftAction(input: {
     return { success: false, error: "That timezone isn't recognized — please pick one from the list." };
   }
 
-  // Optional. Stored as nine digits only; anything else is rejected here
-  // rather than saved and later bounced by the carrier registration.
+  // The carriers won't approve texts (payment links) without knowing who
+  // the business is: a business registers with its legal name and EIN, a
+  // sole proprietor without an EIN with the owner's legal name. Stored as
+  // nine digits only; anything else is rejected here rather than saved and
+  // later bounced by the carrier registration.
+  const entityType = input.entityType === "business" || input.entityType === "sole_proprietor" ? input.entityType : null;
+  const legalName = (input.legalBusinessName || "").trim();
   const einDigits = (input.ein || "").replace(/\D/g, "");
-  if (input.ein?.trim() && einDigits.length !== 9) {
-    return { success: false, error: "An EIN has 9 digits (for example 12-3456789). Leave it blank if you don't have one yet." };
+  if (!entityType) return { success: false, error: "Choose whether your restaurant has an EIN." };
+  if (!legalName) {
+    return { success: false, error: entityType === "business" ? "Enter your legal business name, exactly as the IRS has it." : "Enter your full legal name." };
+  }
+  if (entityType === "business" && input.ein?.trim() && einDigits.length !== 9) {
+    return { success: false, error: "An EIN has 9 digits (for example 12-3456789)." };
   }
 
   const admin = createAdminClient();
@@ -69,6 +79,16 @@ export async function createBusinessDraftAction(input: {
   // a second one whenever this user already has one.
   const existingBusinessId = await getCurrentBusinessId();
 
+  // Revisiting this step starts with an empty EIN box; one already saved counts.
+  if (entityType === "business" && !einDigits) {
+    let onFile = false;
+    if (existingBusinessId) {
+      const { data: existing } = await admin.from("businesses").select("ein").eq("id", existingBusinessId).maybeSingle();
+      onFile = Boolean(existing?.ein);
+    }
+    if (!onFile) return { success: false, error: "Enter your EIN (9 digits, for example 12-3456789)." };
+  }
+
   const businessFields = {
     name: input.businessName,
     business_type: input.businessType || null,
@@ -81,18 +101,20 @@ export async function createBusinessDraftAction(input: {
     timezone: input.timezone || "America/New_York",
     // Only written when filled in: the onboarding form can be revisited
     // with an empty draft, and that must not erase an EIN already saved.
-    ...(input.legalBusinessName?.trim() ? { legal_business_name: input.legalBusinessName.trim() } : {}),
-    // Encrypted like other secrets (lib/security/secretBox.ts).
-    ...(einDigits ? { ein: sealSecret(einDigits) } : {}),
+    legal_business_name: legalName,
+    texting_entity_type: entityType,
+    // Encrypted like other secrets (lib/security/secretBox.ts). A sole
+    // proprietor has none, so any EIN typed earlier is cleared.
+    ...(entityType === "sole_proprietor" ? { ein: null } : einDigits ? { ein: sealSecret(einDigits) } : {}),
   };
 
   if (existingBusinessId) {
-    const { data: business, error: businessError } = await admin
+    const { data: business, error: businessError } = await withoutMissingColumn(businessFields, (fields) => admin
       .from("businesses")
-      .update(businessFields)
+      .update(fields)
       .eq("id", existingBusinessId)
       .select()
-      .single();
+      .single());
     if (businessError || !business) return dbErrorResult(businessError, "createBusinessDraftAction:update", "Could not update business.");
     return { success: true, businessId: business.id };
   }
@@ -101,11 +123,11 @@ export async function createBusinessDraftAction(input: {
   // intentionally left out of businessFields above so re-saving the
   // draft (an update) never overwrites a fee a platform admin already
   // customized for this business.
-  const { data: business, error: businessError } = await admin
+  const { data: business, error: businessError } = await withoutMissingColumn(businessFields, (fields) => admin
     .from("businesses")
-    .insert({ ...businessFields, onboarding_step: "hours", platform_fee_bps: DEFAULT_PLATFORM_FEE_BPS })
+    .insert({ ...fields, onboarding_step: "hours", platform_fee_bps: DEFAULT_PLATFORM_FEE_BPS })
     .select()
-    .single();
+    .single());
 
   if (businessError || !business) return dbErrorResult(businessError, "createBusinessDraftAction:insert", "Could not create business.");
 
@@ -113,4 +135,17 @@ export async function createBusinessDraftAction(input: {
   if (memberError) return dbErrorResult(memberError, "createBusinessDraftAction:member", "Could not finish setting up your account.");
 
   return { success: true, businessId: business.id };
+}
+/** Until migration 043 runs there's no texting_entity_type column; save everything else rather than block sign-up. */
+async function withoutMissingColumn<T extends { error: { message: string } | null }>(
+  fields: Record<string, unknown>,
+  run: (fields: Record<string, unknown>) => PromiseLike<T>
+): Promise<T> {
+  const result = await run(fields);
+  if (result.error && /texting_entity_type/.test(result.error.message)) {
+    console.error("[onboarding] run migration 043: texting_entity_type is missing");
+    const { texting_entity_type: _skip, ...rest } = fields;
+    return run(rest);
+  }
+  return result;
 }

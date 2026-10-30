@@ -23,6 +23,8 @@ export interface DbBusiness {
   // 027). ein is nine digits, no dash. Sensitive: never log it.
   legal_business_name: string | null;
   ein: string | null;
+  /** Migration 043: how the restaurant registers for texting. Null if signed up before it was asked. */
+  texting_entity_type?: "business" | "sole_proprietor" | null;
   timezone: string;
   onboarding_step: OnboardingStep;
   onboarding_completed_at: ISODateTime | null;

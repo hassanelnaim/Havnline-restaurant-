@@ -18,7 +18,7 @@ export default async function IntegrationsPage() {
         stripeConnectChargesEnabled={business.stripe_connect_charges_enabled}
         platformFeeBps={business.platform_fee_bps}
         // Only whether the EIN is on file is sent to the browser, never the number.
-        textingIdentity={{ legalBusinessName: business.legal_business_name, hasEin: Boolean(business.ein) }}
+        textingIdentity={{ legalBusinessName: business.legal_business_name, hasEin: Boolean(business.ein), soleProprietor: business.texting_entity_type === "sole_proprietor" }}
       />
     </div>
   );
