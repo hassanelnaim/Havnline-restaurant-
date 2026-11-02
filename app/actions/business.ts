@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
 import { openSecret, sealSecret } from "@/lib/security/secretBox";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -53,13 +54,9 @@ async function requireNotSuspended(businessId: string): Promise<string | null> {
 // a business using the AI purely to answer questions doesn't need
 // payments set up at all.
 async function requirePaymentsReadyIfTakingOrders(businessId: string): Promise<string | null> {
+  // Every order-taker takes orders now (lib/ai/responsibilities.ts), so this always applies.
   const admin = createAdminClient();
-  const [{ data: business }, { data: receptionist }] = await Promise.all([
-    admin.from("businesses").select("stripe_connect_charges_enabled").eq("id", businessId).single(),
-    admin.from("ai_receptionists").select("responsibilities").eq("business_id", businessId).maybeSingle(),
-  ]);
-  const takesOrders = (receptionist?.responsibilities as AiResponsibilities | undefined)?.take_orders;
-  if (!takesOrders) return null;
+  const { data: business } = await admin.from("businesses").select("stripe_connect_charges_enabled").eq("id", businessId).single();
   return business?.stripe_connect_charges_enabled ? null : "Finish connecting Stripe in Integrations before going online — every phone order requires payment up front, so your AI can't take orders until that's set up.";
 }
 
@@ -282,7 +279,6 @@ export interface UpdateAiEmployeeResult extends ActionResult {
 
 export async function updateAiEmployeeAction(input: {
   personality: Personality;
-  responsibilities: AiResponsibilities;
   voiceId: VoiceId;
   orderingRules: string;
   escalationRules: string;
@@ -310,7 +306,7 @@ export async function updateAiEmployeeAction(input: {
   const generatedInstructions = generateInstructions({
     business: { name: businessRes.data?.name || "your restaurant", description: businessRes.data?.description || "" },
     personality: input.personality,
-    responsibilities: input.responsibilities,
+    responsibilities: ALL_RESPONSIBILITIES,
     menuItemCount: menuCountRes.count || 0,
     hours: hoursRes.data || [],
   });
@@ -319,7 +315,7 @@ export async function updateAiEmployeeAction(input: {
     .from("ai_receptionists")
     .update({
       personality: input.personality,
-      responsibilities: input.responsibilities,
+      responsibilities: ALL_RESPONSIBILITIES,
       ordering_rules: input.orderingRules || null,
       escalation_rules: input.escalationRules || null,
       generated_instructions: generatedInstructions,

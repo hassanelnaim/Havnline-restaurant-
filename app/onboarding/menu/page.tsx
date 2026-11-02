@@ -32,7 +32,7 @@ export default function MenuStep() {
 
   function handleContinue() {
     update({ menuItems: items.filter((i) => i.name.trim()) });
-    router.push("/onboarding/ai-receptionist");
+    router.push("/onboarding/voice");
   }
 
   return (

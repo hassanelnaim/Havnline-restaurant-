@@ -29,8 +29,8 @@ function capitalize(s: string) {
 export function buildSystemPrompt(ctx: BusinessContext, channel: "test" | "phone"): string {
   const { business, hours, menu, ai, knowledge, activePromotions } = ctx;
 
-  const enabledResponsibilities = (Object.keys(ai.responsibilities) as (keyof AiResponsibilities)[])
-    .filter((key) => ai.responsibilities[key])
+  // Always all of them (lib/ai/responsibilities.ts); a stored "off" from before is ignored.
+  const enabledResponsibilities = (Object.keys(RESPONSIBILITY_COPY) as (keyof AiResponsibilities)[])
     .map((key) => `- ${RESPONSIBILITY_COPY[key]}`)
     .join("\n");
 

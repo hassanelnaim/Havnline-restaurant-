@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { AiResponsibilities, Personality, VoiceId, Weekday } from "@/lib/database/types";
+import type { Personality, VoiceId, Weekday } from "@/lib/database/types";
 
 export interface OnboardingHoursDraft {
   weekday: Weekday;
@@ -55,7 +55,6 @@ export interface OnboardingDraft {
 
   receptionistName: string;
   personality: Personality;
-  responsibilities: AiResponsibilities;
 
   voiceId: VoiceId;
   customVoiceRef: string | null;
@@ -63,14 +62,6 @@ export interface OnboardingDraft {
 }
 
 const WEEKDAYS: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-
-export const DEFAULT_RESPONSIBILITIES: AiResponsibilities = {
-  answer_questions: true,
-  take_orders: true,
-  modify_orders: true,
-  collect_customer_info: true,
-  escalate_to_human: true,
-};
 
 // Best-effort guess at the signer-upper's own timezone, used only to
 // pre-select a sensible default in the dropdown — never trusted as the
@@ -108,7 +99,6 @@ const defaultDraft: OnboardingDraft = {
   menuItems: [],
   receptionistName: "Alex",
   personality: "professional",
-  responsibilities: DEFAULT_RESPONSIBILITIES,
   voiceId: "alex_professional",
   customVoiceRef: null,
   customVoiceName: null,

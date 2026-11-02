@@ -11,7 +11,6 @@ const STEPS = [
   { path: "/onboarding/business-info", label: "Business" },
   { path: "/onboarding/hours", label: "Hours" },
   { path: "/onboarding/menu", label: "Menu" },
-  { path: "/onboarding/ai-receptionist", label: "AI" },
   { path: "/onboarding/voice", label: "Voice" },
   { path: "/onboarding/complete", label: "Go live" },
 ];

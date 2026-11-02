@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
@@ -178,13 +179,13 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
   const generatedInstructions = generateInstructions({
     business: { name: draft.businessName, description: draft.description },
     personality,
-    responsibilities: draft.responsibilities,
+    responsibilities: ALL_RESPONSIBILITIES,
     menuItemCount: draft.menuItems.filter((m) => m.name.trim()).length,
     hours: draft.hours.map((h) => ({ weekday: h.weekday, is_open: h.isOpen, open_time: h.isOpen ? h.openTime : null, close_time: h.isOpen ? h.closeTime : null })),
   });
 
   const { error: aiError } = await admin.from("ai_receptionists").upsert(
-    { business_id: businessId, name: receptionistName, personality, responsibilities: draft.responsibilities, status: "offline", generated_instructions: generatedInstructions },
+    { business_id: businessId, name: receptionistName, personality, responsibilities: ALL_RESPONSIBILITIES, status: "offline", generated_instructions: generatedInstructions },
     { onConflict: "business_id" }
   );
   if (aiError) return dbErrorResult(aiError, "completeOnboardingAction:ai", "Could not set up your AI receptionist.");

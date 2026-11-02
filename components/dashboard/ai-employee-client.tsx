@@ -1,12 +1,11 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Check, Loader2, Mic, MessageSquare, Play, Plus, Sliders, Square, X } from "lucide-react";
-import type { AiResponsibilities, DbAiReceptionist, DbAiVoiceConfig, DbBusinessHours, Personality } from "@/lib/database/types";
+import { ArrowRight, Check, Loader2, Mic, MessageSquare, Play, Plus, Sliders, Square, X } from "lucide-react";
+import type { DbAiReceptionist, DbAiVoiceConfig, DbBusinessHours, Personality } from "@/lib/database/types";
 import { updateAiEmployeeAction } from "@/app/actions/business";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -19,14 +18,6 @@ const PERSONALITIES: { id: Personality; label: string; line: string }[] = [
   { id: "warm", label: "Warm", line: "Caring and reassuring" },
   { id: "energetic", label: "Energetic", line: "Upbeat, extra pep" },
   { id: "calm", label: "Calm", line: "Steady, never rushed" },
-];
-
-const RESPONSIBILITY_ITEMS: { key: keyof AiResponsibilities; label: string; line: string }[] = [
-  { key: "answer_questions", label: "Answer questions", line: "Hours, menu, prices, specials and anything in Knowledge." },
-  { key: "take_orders", label: "Take phone orders", line: "Builds the order item by item and places it." },
-  { key: "modify_orders", label: "Change items mid-call", line: "Add, remove or adjust items before the order is placed." },
-  { key: "collect_customer_info", label: "Collect name and number", line: "Needed to place an order and text the payment link." },
-  { key: "escalate_to_human", label: "Hand off to a person", line: "Rings you (or logs a callback) for refunds, complaints and anything unclear." },
 ];
 
 const ORDERING_SUGGESTIONS = [
@@ -43,26 +34,15 @@ const ESCALATION_SUGGESTIONS = [
   "If a caller asks for the owner by name, hand off.",
 ];
 
-/** Things that won't work as switched, so the owner hears about it before a caller does. */
-function responsibilityWarnings(r: AiResponsibilities): string[] {
-  const w: string[] = [];
-  if (r.take_orders && !r.collect_customer_info) w.push("Orders can't be placed without the caller's name and number — turn on “Collect name and number”.");
-  if (r.modify_orders && !r.take_orders) w.push("“Change items mid-call” does nothing while taking orders is off.");
-  if (!r.escalate_to_human) w.push("With hand-offs off, a caller who asks for a person can only be told to call back.");
-  if (!r.answer_questions && !r.take_orders) w.push("With questions and orders both off, your AI can't help callers with anything.");
-  return w;
-}
-
 function addLine(existing: string, line: string): string {
   if (existing.includes(line)) return existing;
   return existing.trim() ? `${existing.trim()}\n${line}` : line;
 }
 
-type Snapshot = { personality: Personality; responsibilities: AiResponsibilities; orderingRules: string; escalationRules: string; voiceRef: string | null };
+type Snapshot = { personality: Personality; orderingRules: string; escalationRules: string; voiceRef: string | null };
 
 export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: DbAiVoiceConfig; hours: DbBusinessHours[] }) {
   const [personality, setPersonality] = useState(ai.personality);
-  const [responsibilities, setResponsibilities] = useState(ai.responsibilities);
   const [orderingRules, setOrderingRules] = useState(ai.ordering_rules || "");
   const [escalationRules, setEscalationRules] = useState(ai.escalation_rules || "");
   const [voiceId] = useState(voice.voice_id);
@@ -93,21 +73,18 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
   // What was last saved, so the save bar only shows when something changed.
   const [baseline, setBaseline] = useState<Snapshot>({
     personality: ai.personality,
-    responsibilities: ai.responsibilities,
     orderingRules: ai.ordering_rules || "",
     escalationRules: ai.escalation_rules || "",
     voiceRef: voice.voice_id === "custom" ? voice.provider_voice_ref : null,
   });
-  const current: Snapshot = { personality, responsibilities, orderingRules, escalationRules, voiceRef: customVoiceRef };
+  const current: Snapshot = { personality, orderingRules, escalationRules, voiceRef: customVoiceRef };
   const dirty = JSON.stringify(current) !== JSON.stringify(baseline);
-  const warnings = useMemo(() => responsibilityWarnings(responsibilities), [responsibilities]);
-  const enabledCount = Object.values(responsibilities).filter(Boolean).length;
 
   function handleSave() {
     setError(null);
     startTransition(async () => {
       const result = await updateAiEmployeeAction({
-        personality, responsibilities, voiceId: customVoiceRef ? "custom" : voiceId, orderingRules, escalationRules,
+        personality, voiceId: customVoiceRef ? "custom" : voiceId, orderingRules, escalationRules,
         customVoice: customVoiceRef && customVoiceName ? { providerVoiceRef: customVoiceRef, providerVoiceName: customVoiceName } : null,
       });
       if (!result.success) { setError(result.error || "Could not save changes."); return; }
@@ -120,7 +97,6 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
 
   function discard() {
     setPersonality(baseline.personality);
-    setResponsibilities(baseline.responsibilities);
     setOrderingRules(baseline.orderingRules);
     setEscalationRules(baseline.escalationRules);
     setCustomVoiceRef(baseline.voiceRef);
@@ -153,7 +129,6 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
         </div>
         <div className="text-[13px] text-text-muted"><Mic className="mr-1 inline h-3.5 w-3.5 text-brand" />Voice: <span className="font-semibold text-ink">{customVoiceName?.split(" - ")[0] || "Default"}</span></div>
         <div className="text-[13px] text-text-muted">Tone: <span className="font-semibold text-ink">{toneLabel}</span></div>
-        <div className="text-[13px] text-text-muted"><Sliders className="mr-1 inline h-3.5 w-3.5 text-brand" />{enabledCount} of {RESPONSIBILITY_ITEMS.length} jobs on</div>
         <Link href="/dashboard/test-receptionist" className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-[12.5px] font-medium text-white shadow-sm hover:bg-brand-dark">
           <MessageSquare className="h-3.5 w-3.5" /> Try it <ArrowRight className="h-3.5 w-3.5" />
         </Link>
@@ -219,28 +194,6 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
 
         <TabsContent value="behavior">
           <div className="space-y-4">
-            <Card>
-              <CardHeader><CardTitle>What it&apos;s allowed to do</CardTitle><CardDescription className="mt-1">Turn a job off and your AI won&apos;t attempt it.</CardDescription></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="divide-y divide-border-soft">
-                  {RESPONSIBILITY_ITEMS.map((item) => (
-                    <label key={item.key} className="flex cursor-pointer items-center justify-between gap-4 py-3">
-                      <span>
-                        <span className="block text-[13.5px] font-semibold text-ink">{item.label}</span>
-                        <span className="mt-0.5 block text-[12px] text-text-muted">{item.line}</span>
-                      </span>
-                      <Switch checked={responsibilities[item.key]} onCheckedChange={(checked) => setResponsibilities((prev) => ({ ...prev, [item.key]: checked }))} />
-                    </label>
-                  ))}
-                </div>
-                {warnings.map((w) => (
-                  <div key={w} className="flex items-start gap-2 rounded-lg border border-yellow-300/60 bg-yellow-50 px-3.5 py-2.5 text-[12.5px] text-yellow-900">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {w}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
             <Card>
               <CardHeader><CardTitle>House rules</CardTitle><CardDescription className="mt-1">Anything specific to your restaurant, in plain English. Tap a suggestion to add it.</CardDescription></CardHeader>
               <CardContent className="space-y-5">
