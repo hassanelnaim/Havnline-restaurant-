@@ -21,9 +21,12 @@
 //   California's wiretapping law by callers who weren't told an outside
 //   company was on the line; telling them up front is the main defense.
 // - they can ask for a person at any point, which the assistant handles.
-// Kept short: every second here is a second the caller waits to talk.
-const GREETING_START = "Thank you for calling ";
-export const GREETING_BODY = ". You've reached our automated ordering assistant, provided by HavnLine. Calls are transcribed for accuracy. I can take your order or answer any questions, and you're welcome to ask for a team member at any time. How can I help you today?";
+// Kept short: every second here is a second the caller waits to talk
+// (about 8 seconds; it was 15). The Terms and Privacy Policy promise it
+// names HavnLine and says calls are transcribed, and the approved texting
+// registration says the same: keep all three if it's ever reworded.
+const GREETING_START = "Thanks for calling ";
+export const GREETING_BODY = ". I'm the HavnLine automated assistant, and calls are transcribed. I can take your order, or get you a team member. What would you like?";
 
 export function buildGreeting(businessName: string): string {
   return `${GREETING_START}${businessName}${GREETING_BODY}`;
