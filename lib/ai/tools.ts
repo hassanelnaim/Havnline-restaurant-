@@ -3,7 +3,7 @@ import { withCallKey } from "@/lib/ai/callUrlKey";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
-import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
+import { createOrderCheckoutSession, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
 import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
@@ -840,6 +840,7 @@ async function confirm_and_place_order(
         .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId, payment_link_url: checkout.url })
         .eq("id", order.id)
     );
+    await recordCheckoutAccount("orders", order.id, business.stripe_connect_account_id);
 
     return await textPaymentLink(ctx, { orderId: order.id, url: checkout.url, totalCents, phone: textTo });
   } catch (err) {

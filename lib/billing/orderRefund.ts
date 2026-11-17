@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
-import { refundOrderPayment } from "@/lib/billing/stripeConnect";
+import { accountForPayment, refundOrderPayment } from "@/lib/billing/stripeConnect";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendOrderRefundedEmail } from "@/lib/notifications/account-email";
 import { dbErrorResult } from "@/lib/errors";
@@ -51,7 +51,9 @@ export async function processOrderRefund(
   if (!order.stripe_payment_intent_id) return { success: false, error: "No payment on file for this order." };
 
   const { data: business } = await admin.from("businesses").select("name, stripe_connect_account_id").eq("id", businessId).single();
-  if (!business?.stripe_connect_account_id) return { success: false, error: "Stripe isn't connected for this business." };
+  // Refunded on the account it was paid on, which may be an older one.
+  const accountId = accountForPayment(order, business?.stripe_connect_account_id);
+  if (!business || !accountId) return { success: false, error: "Stripe isn't connected for this business." };
 
   // Keyed on the exact pre-refund state just read: two near-
   // simultaneous submissions of the SAME click/tap (a double-tap, a
@@ -62,7 +64,7 @@ export async function processOrderRefund(
   // amount already on file has since changed) gets its own distinct
   // key and goes through normally.
   const idempotencyKey = `refund:${orderId}:${order.amount_refunded_cents}:${amountCents ?? "full"}`;
-  const result = await refundOrderPayment(business.stripe_connect_account_id, order.stripe_payment_intent_id, amountCents, idempotencyKey);
+  const result = await refundOrderPayment(accountId, order.stripe_payment_intent_id, amountCents, idempotencyKey);
   if (!result.success) return { success: false, error: result.error };
 
   const newAmountRefunded = order.amount_refunded_cents + (result.refundedCents || 0);

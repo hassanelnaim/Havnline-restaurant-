@@ -94,12 +94,15 @@ export function IntegrationsClient({
   initialIntegrations,
   stripeConnectAccountId,
   stripeConnectChargesEnabled,
+  stripeNeedsReconnect = false,
   platformFeeBps,
   textingIdentity,
 }: {
   initialIntegrations: DbIntegration[];
   stripeConnectAccountId: string | null;
   stripeConnectChargesEnabled: boolean;
+  /** The Stripe account is the old Express kind, or was disconnected: it has to be reconnected. */
+  stripeNeedsReconnect?: boolean;
   platformFeeBps: number | null;
   textingIdentity: { legalBusinessName: string | null; hasEin: boolean; soleProprietor?: boolean };
 }) {
@@ -178,6 +181,11 @@ export function IntegrationsClient({
   const stripeStarted = Boolean(stripeConnectAccountId);
 
   function startStripe() {
+    // Already set up: Stripe's own dashboard, where the owner signs in.
+    if (stripeConnectChargesEnabled && !stripeNeedsReconnect) {
+      window.open("https://dashboard.stripe.com", "_blank", "noopener,noreferrer");
+      return;
+    }
     setOnboarding(true);
     setPaymentsError(null);
     startTransition(async () => {
@@ -249,7 +257,7 @@ export function IntegrationsClient({
       done: stripeConnectChargesEnabled,
       blocking: true,
       detail: stripeConnectChargesEnabled ? "Customers pay by card on every order" : "Needed before your AI can take orders",
-      action: { label: stripeStarted ? "Finish Stripe setup" : "Connect Stripe", onClick: startStripe },
+      action: { label: stripeNeedsReconnect ? "Reconnect Stripe" : stripeStarted ? "Finish Stripe setup" : "Connect Stripe", onClick: startStripe },
     },
     {
       key: "tablet",
@@ -363,6 +371,7 @@ export function IntegrationsClient({
             subtitle="Stripe Connect"
             status={
               stripeConnectChargesEnabled ? <StatusPill tone="success">Connected</StatusPill>
+              : stripeNeedsReconnect ? <StatusPill tone="warning">Reconnect needed</StatusPill>
               : stripeStarted ? <StatusPill tone="warning">Setup unfinished</StatusPill>
               : <StatusPill tone="warning">Required</StatusPill>
             }
@@ -370,19 +379,21 @@ export function IntegrationsClient({
             <p className="text-[12.5px] leading-relaxed text-text-muted">
               {stripeConnectChargesEnabled
                 ? "After confirming an order, your AI texts the customer a payment link. The ticket prints once it's paid, and the money goes to your own bank account."
+                : stripeNeedsReconnect
+                ? "Stripe changed how payment accounts work, so your Stripe connection needs to be set up again. It takes a few minutes. Until then, your AI can't take phone orders. Orders you were already paid for aren't affected."
                 : stripeStarted
                 ? "Stripe still needs a few more details from you. Until it's finished, your AI can't take orders, because every phone order is paid up front."
                 : "Every phone order is paid up front by card, so your AI can't take orders until Stripe is connected. Money goes straight to your own bank account."}
             </p>
             {feePercent > 0 && (
               <p className="mt-3 rounded-lg bg-paper px-3 py-2 text-[12px] text-text-muted">
-                HavnLine keeps {feePercent}% of each phone payment, taken out automatically. A $50 order pays you ${(50 - 50 * (feePercent / 100)).toFixed(2)}.
+                HavnLine keeps {feePercent}% of each phone payment, and Stripe charges its card fee (2.9% + 30¢), both taken out automatically. A $50 order pays you about ${(50 - 50 * (feePercent / 100) - (50 * 0.029 + 0.3)).toFixed(2)}.
               </p>
             )}
             {paymentsError && <p className="mt-2 text-[12.5px] text-danger">{paymentsError}</p>}
             <div className="mt-auto pt-4">
               <Button size="sm" variant={stripeConnectChargesEnabled ? "outline" : "brand"} onClick={startStripe} disabled={onboarding}>
-                {onboarding ? "Opening Stripe…" : stripeConnectChargesEnabled ? "Manage on Stripe" : stripeStarted ? "Finish setup" : "Connect Stripe"}
+                {onboarding ? "Opening Stripe…" : stripeConnectChargesEnabled ? "Open Stripe dashboard" : stripeNeedsReconnect ? "Reconnect Stripe" : stripeStarted ? "Finish setup" : "Connect Stripe"}
               </Button>
             </div>
           </CardShell>

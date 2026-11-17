@@ -5,7 +5,7 @@ import { authenticateDevice, queueAddendumPrintJob } from "@/lib/integrations/pr
 import { loadPricedMenu } from "@/lib/menu/pricedMenu";
 import { insertOrderItems, recomputeRealOrderTotals } from "@/lib/billing/orderItemAddition";
 import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
-import { createOrderCheckoutSession } from "@/lib/billing/stripeConnect";
+import { createOrderCheckoutSession, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
 import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { getSiteUrl } from "@/lib/env";
 import { dbErrorResult } from "@/lib/errors";
@@ -321,6 +321,7 @@ async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: str
   }
 
   await admin.from("order_addendum_charges").update({ stripe_checkout_session_id: checkout.sessionId }).eq("id", addendum.id);
+  await recordCheckoutAccount("order_addendum_charges", addendum.id, business.stripe_connect_account_id);
 
   const qrDataUrl = await QRCode.toDataURL(checkout.url, { margin: 1, width: 400 });
 

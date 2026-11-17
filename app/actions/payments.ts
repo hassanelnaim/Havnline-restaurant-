@@ -10,6 +10,7 @@ import {
   createOnboardingLink,
   syncConnectAccountStatus,
   voidOrderCheckout,
+  accountForPayment,
 } from "@/lib/billing/stripeConnect";
 import { processOrderRefund } from "@/lib/billing/orderRefund";
 import { dbErrorResult } from "@/lib/errors";
@@ -42,7 +43,9 @@ export async function startStripeConnectOnboardingAction(): Promise<{ url: strin
   const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
   if (!business) return { url: null, error: "Business not found." };
 
-  const account = await getOrCreateConnectAccount(businessId, business.name, null);
+  // The owner's login email pre-fills Stripe's form.
+  const { data: { user } } = await (await createClient()).auth.getUser();
+  const account = await getOrCreateConnectAccount(businessId, business.name, user?.email ?? null);
   if (!account.accountId) return { url: null, error: account.error || "Could not start Stripe onboarding." };
 
   const siteUrl = getSiteUrl();
@@ -81,8 +84,10 @@ export async function voidOrderAction(orderId: string): Promise<ActionResult> {
 
   if (order.stripe_checkout_session_id) {
     const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", businessId).single();
-    if (business?.stripe_connect_account_id) {
-      const result = await voidOrderCheckout(business.stripe_connect_account_id, order.stripe_checkout_session_id);
+    // The account the link was made on, which may be an older one.
+    const accountId = accountForPayment(order, business?.stripe_connect_account_id);
+    if (accountId) {
+      const result = await voidOrderCheckout(accountId, order.stripe_checkout_session_id);
       if (!result.success) return { success: false, error: result.error };
     }
   }

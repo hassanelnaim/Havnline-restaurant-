@@ -6,7 +6,7 @@ import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendOrderAttentionEmail, sendOrderRefundedEmail } from "@/lib/notifications/account-email";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
-import { feeOwedForRefund, getApplicationFee } from "@/lib/billing/stripeConnect";
+import { feeOwedForRefund, getApplicationFee, accountForPayment } from "@/lib/billing/stripeConnect";
 import type { OrderWithItems } from "@/lib/database/types";
 
 /**
@@ -91,7 +91,7 @@ export async function handleOrderPaid(eventId: string, eventAccount: string | nu
   const { data: business, error: businessError } = await admin.from("businesses").select("*").eq("id", order.business_id).maybeSingle();
   if (businessError || !business) throw new Error(`could not read business ${order.business_id}: ${businessError?.message || "missing"}`);
 
-  const mismatch = mismatchReason(eventAccount, business.stripe_connect_account_id, session, {
+  const mismatch = mismatchReason(eventAccount, accountForPayment(order, business.stripe_connect_account_id), session, {
     sessionId: order.stripe_checkout_session_id,
     amountCents: order.total_cents,
   });
@@ -204,7 +204,7 @@ export async function handleAddendumPaid(eventId: string, eventAccount: string |
   const { data: business, error: businessError } = await admin.from("businesses").select("*").eq("id", addendum.business_id).maybeSingle();
   if (businessError || !business) throw new Error(`could not read business ${addendum.business_id}: ${businessError?.message || "missing"}`);
 
-  const mismatch = mismatchReason(eventAccount, business.stripe_connect_account_id, session, {
+  const mismatch = mismatchReason(eventAccount, accountForPayment(addendum, business.stripe_connect_account_id), session, {
     sessionId: addendum.stripe_checkout_session_id,
     amountCents: addendum.amount_cents,
   });
@@ -268,7 +268,8 @@ async function findOrderForPayment(eventAccount: string | null | undefined, paym
   if (error) throw new Error(`could not find the order for payment ${intentId}: ${error.message}`);
   if (!order) return null; // a tablet add-on charge, or not a HavnLine order
   const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", order.business_id).maybeSingle();
-  if (!business?.stripe_connect_account_id || business.stripe_connect_account_id !== eventAccount) {
+  const expectedAccount = accountForPayment(order, business?.stripe_connect_account_id);
+  if (!expectedAccount || expectedAccount !== eventAccount) {
     console.error(`[stripe-connect] ignored a charge event for order ${order.id}: it came from ${eventAccount || "(none)"}, not the restaurant's account.`);
     return null;
   }

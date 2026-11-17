@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isLegacyConnectAccount } from "@/lib/billing/stripeConnect";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -98,6 +99,8 @@ export async function POST(request: NextRequest) {
 
       case "account.updated": {
         const account = event.data.object as Stripe.Account;
+        // A legacy Express account can't take HavnLine's payments any more.
+        const ready = Boolean(account.charges_enabled) && !isLegacyConnectAccount(account);
 
         const { data: before } = await admin
           .from("businesses")
@@ -108,8 +111,8 @@ export async function POST(request: NextRequest) {
         await admin
           .from("businesses")
           .update({
-            stripe_connect_charges_enabled: Boolean(account.charges_enabled),
-            stripe_connect_onboarded_at: account.charges_enabled ? new Date().toISOString() : null,
+            stripe_connect_charges_enabled: ready,
+            stripe_connect_onboarded_at: ready ? new Date().toISOString() : null,
           })
           .eq("stripe_connect_account_id", account.id);
 
@@ -117,7 +120,7 @@ export async function POST(request: NextRequest) {
         // later account.updated (Stripe fires these often, for all
         // kinds of minor account changes) would otherwise re-send this
         // same email over and over.
-        if (before && !before.stripe_connect_charges_enabled && account.charges_enabled) {
+        if (before && !before.stripe_connect_charges_enabled && ready) {
           await sendPaymentsLiveEmail(before.id).catch((err) => console.error("Payments-live email failed:", err));
         }
         break;

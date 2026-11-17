@@ -234,6 +234,8 @@ export interface DbOrder {
   payment_status: OrderPaymentStatus;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
+  /** Migration 046: the Stripe account this was paid on (null before 046, or not paid by link). */
+  stripe_connect_account_id?: string | null;
   amount_refunded_cents: number;
   refund_reason: string | null;
   refunded_by: UUID | null;

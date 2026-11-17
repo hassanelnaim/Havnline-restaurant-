@@ -1,4 +1,5 @@
 import { captchaEnabled } from "@/lib/security/captcha";
+import { connectAccountNeedsReconnect } from "@/lib/billing/stripeConnect";
 import { findUnverifiedAccounts, SIGNUPS_PER_DAY_ALERT, UNVERIFIED_ACCOUNT_DAYS, UNVERIFIED_GRACE_HOURS } from "@/lib/admin/accounts";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
@@ -407,6 +408,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m043", label: "043 texting registration type" },
   { key: "m044", label: "044 encrypted EIN check" },
   { key: "m045", label: "045 call outcome values" },
+  { key: "m046", label: "046 Stripe account per payment" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {
@@ -532,7 +534,42 @@ export async function getSetupChecks(): Promise<SetupCheck[]> {
   }
 
   checks.push(...(await accountChecks()));
+  checks.push(...(await stripeAccountChecks()));
   return checks;
+}
+
+/**
+ * Restaurants whose Stripe account is the old Express kind (or was
+ * disconnected): Stripe refuses HavnLine's payments on them, so they
+ * must reconnect from Integrations. Checks up to 50 connected restaurants.
+ */
+async function stripeAccountChecks(): Promise<SetupCheck[]> {
+  const admin = createAdminClient();
+  const { data: businesses, error } = await admin
+    .from("businesses")
+    .select("id, name, stripe_connect_account_id")
+    .not("stripe_connect_account_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) return [{ id: "stripe:accounts", group: "Restaurants", label: "Restaurant Stripe accounts", state: "unknown", detail: `Couldn't check: ${error.message}` }];
+  const results = await Promise.all(
+    (businesses || []).map(async (b) => ({ name: b.name as string, needs: await connectAccountNeedsReconnect(b.id, b.stripe_connect_account_id as string) }))
+  );
+  const stale = results.filter((r) => r.needs === true).map((r) => r.name);
+  const unknown = results.filter((r) => r.needs === null).length;
+  return [
+    {
+      id: "stripe:accounts",
+      group: "Restaurants",
+      label: stale.length ? `${stale.length} restaurant${stale.length === 1 ? "" : "s"} must reconnect Stripe` : "Restaurant Stripe accounts",
+      state: stale.length ? "fail" : unknown ? "unknown" : "ok",
+      detail: stale.length
+        ? `On the old Express account type or disconnected, so phone orders can't be paid: ${stale.slice(0, 5).join(", ")}${stale.length > 5 ? "…" : ""}. They reconnect from Integrations → Card payments.`
+        : unknown
+          ? `Couldn't reach Stripe for ${unknown} restaurant${unknown === 1 ? "" : "s"}.`
+          : "Every connected restaurant can take payments.",
+    },
+  ];
 }
 
 /** Bot protection on sign-up, and accounts that never verified. */

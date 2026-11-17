@@ -10,7 +10,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * you end up accidentally charging a customer's order into HavnLine's
  * own balance instead of the restaurant's.
  *
- * Uses Stripe's "direct charge" pattern: the Checkout Session is
+ * Uses Stripe's "direct charge" pattern, on accounts with the full Stripe
+ * Dashboard (see ACCOUNT_CONTROLLER below): the Checkout Session is
  * created ON the connected account (via the `stripeAccount` request
  * option), so the restaurant is the actual merchant of record for the
  * charge — correct, since they're the one actually selling the food
@@ -29,42 +30,136 @@ function requireStripe(): Stripe {
 
 export interface ConnectAccountResult {
   accountId: string | null;
+  /** True when an old Express account was just replaced with a new one. */
+  replaced?: boolean;
   error?: string;
 }
 
 /**
- * Gets this business's existing connected account, or creates a new
- * Express account for it. Express (not Standard or Custom) because it
- * gives Stripe's own hosted onboarding UI — Stripe collects and
- * verifies the restaurant's identity and bank details directly, so
- * HavnLine never touches that data or takes on that compliance
- * burden.
+ * How a restaurant's Stripe account is set up. Since August 2026 Stripe
+ * refuses direct charges on legacy Express/Custom accounts for new
+ * platforms like HavnLine, so every restaurant gets the setup Stripe
+ * recommends for direct charges: the full Stripe Dashboard, the
+ * restaurant pays its own Stripe fees, and Stripe (not HavnLine) covers
+ * a negative balance. The restaurant handles its own refunds and
+ * disputes in its dashboard; HavnLine still takes its application fee.
+ */
+const ACCOUNT_CONTROLLER = {
+  stripe_dashboard: { type: "full" as const },
+  fees: { payer: "account" as const },
+  losses: { payments: "stripe" as const },
+  requirement_collection: "stripe" as const,
+};
+
+/** True for an account HavnLine can't charge on: a legacy Express/Custom account, or anything without the full dashboard. */
+export function isLegacyConnectAccount(account: Pick<Stripe.Account, "type" | "controller">): boolean {
+  if (account.type === "express" || account.type === "custom") return true;
+  return account.controller?.stripe_dashboard?.type !== "full";
+}
+
+/**
+ * Gets this business's connected account, or creates one. An account set
+ * up the old way (Express) can't take payments any more, so it's replaced
+ * with a new one; orders already paid on the old account remember it
+ * (orders.stripe_connect_account_id), so their refunds still work.
+ * Stripe's hosted onboarding collects the owner's identity and bank
+ * details directly; HavnLine never sees them.
  */
 export async function getOrCreateConnectAccount(businessId: string, businessName: string, businessEmail: string | null): Promise<ConnectAccountResult> {
   const stripe = requireStripe();
   const admin = createAdminClient();
 
   const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", businessId).single();
-  if (business?.stripe_connect_account_id) {
-    return { accountId: business.stripe_connect_account_id };
+  const existingId = business?.stripe_connect_account_id || null;
+  if (existingId) {
+    try {
+      const existing = await stripe.accounts.retrieve(existingId);
+      if (!isLegacyConnectAccount(existing)) return { accountId: existingId, replaced: false };
+    } catch (err) {
+      // Disconnected or deleted: HavnLine can't use it, so start a new one.
+      console.warn(`[stripe-connect] account ${existingId} can't be used any more, creating a new one:`, err instanceof Error ? err.message : err);
+    }
   }
 
   try {
     const account = await stripe.accounts.create({
-      type: "express",
+      controller: ACCOUNT_CONTROLLER,
+      country: "US",
       email: businessEmail || undefined,
-      business_type: "company",
       business_profile: { name: businessName, mcc: "5812" }, // 5812 = eating places/restaurants
-      metadata: { business_id: businessId },
+      metadata: { business_id: businessId, ...(existingId ? { replaces_account: existingId } : {}) },
     });
 
-    await admin.from("businesses").update({ stripe_connect_account_id: account.id }).eq("id", businessId);
-    return { accountId: account.id };
+    if (existingId) await rememberAccountOnOldPayments(businessId, existingId);
+    await admin
+      .from("businesses")
+      .update({ stripe_connect_account_id: account.id, stripe_connect_charges_enabled: false, stripe_connect_onboarded_at: null })
+      .eq("id", businessId);
+    return { accountId: account.id, replaced: Boolean(existingId) };
   } catch (err) {
     console.error("Stripe Connect account creation failed:", err);
     const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not create a Stripe account.";
     return { accountId: null, error: message };
   }
+}
+
+/**
+ * Before a business switches Stripe accounts, stamps the old account on
+ * every order and add-on charge that went through it, so refunds, voids
+ * and Stripe's events for those payments still go to the right account.
+ */
+async function rememberAccountOnOldPayments(businessId: string, oldAccountId: string): Promise<void> {
+  const admin = createAdminClient();
+  for (const table of ["orders", "order_addendum_charges"] as const) {
+    const { error } = await admin
+      .from(table)
+      .update({ stripe_connect_account_id: oldAccountId })
+      .eq("business_id", businessId)
+      .is("stripe_connect_account_id", null)
+      .not("stripe_checkout_session_id", "is", null);
+    if (error) console.error(`[stripe-connect] could not record the old account on ${table} (run migration 046):`, error.message);
+  }
+}
+
+/**
+ * Whether this business has to reconnect Stripe: its account is a legacy
+ * Express account, or was disconnected or deleted. Turns off phone
+ * payments when so (the AI then tells callers it can't take phone orders
+ * rather than failing mid-call). Null when Stripe can't be reached.
+ */
+export async function connectAccountNeedsReconnect(businessId: string, accountId: string): Promise<boolean | null> {
+  const stripe = getStripeClient();
+  if (!stripe) return null;
+  let needs: boolean;
+  try {
+    needs = isLegacyConnectAccount(await stripe.accounts.retrieve(accountId));
+  } catch (err) {
+    if (!(err instanceof Stripe.errors.StripeError) || (err.statusCode !== 403 && err.statusCode !== 404 && err.code !== "account_invalid")) {
+      console.error(`[stripe-connect] couldn't check account ${accountId}:`, err);
+      return null;
+    }
+    needs = true;
+  }
+  if (needs) {
+    await createAdminClient()
+      .from("businesses")
+      .update({ stripe_connect_charges_enabled: false })
+      .eq("id", businessId)
+      .eq("stripe_connect_account_id", accountId)
+      .eq("stripe_connect_charges_enabled", true);
+  }
+  return needs;
+}
+
+/** The Stripe account a payment was made on: the one recorded on it, else the business's current one. */
+export function accountForPayment(row: { stripe_connect_account_id?: string | null } | null | undefined, businessAccountId: string | null | undefined): string | null {
+  return row?.stripe_connect_account_id || businessAccountId || null;
+}
+
+/** Records which Stripe account a checkout was created on. Its own write, so a missing column (before migration 046) can't stop the session id being saved. */
+export async function recordCheckoutAccount(table: "orders" | "order_addendum_charges", id: string, accountId: string): Promise<void> {
+  const { error } = await createAdminClient().from(table).update({ stripe_connect_account_id: accountId }).eq("id", id);
+  if (error) console.error(`[stripe-connect] could not record the Stripe account on ${table} ${id} (run migration 046):`, error.message);
 }
 
 /**
@@ -105,8 +200,10 @@ export async function syncConnectAccountStatus(businessId: string, accountId: st
   const account = await stripe.accounts.retrieve(accountId);
   const admin = createAdminClient();
 
+  // A legacy Express account reports charges_enabled, but Stripe refuses
+  // HavnLine's direct charges on it, so it counts as not ready.
   const status: ConnectAccountStatus = {
-    chargesEnabled: Boolean(account.charges_enabled),
+    chargesEnabled: Boolean(account.charges_enabled) && !isLegacyConnectAccount(account),
     payoutsEnabled: Boolean(account.payouts_enabled),
     detailsSubmitted: Boolean(account.details_submitted),
   };
