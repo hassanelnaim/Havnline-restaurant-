@@ -5,6 +5,7 @@ import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
 import { cancelOrderPayment, createOrderPayment, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
 import { newPayToken, payLinkExpiry, payUrl } from "@/lib/billing/payLink";
+import { checkTextConsent } from "@/lib/ai/textConsent";
 import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
@@ -627,6 +628,15 @@ async function confirm_and_place_order(
   if (ctx.channel === "phone" && input.text_consent !== true) {
     return { success: false, reason: TEXT_CONSENT_REASON };
   }
+  // ...and the flag alone isn't trusted: the conversation must show the
+  // question and the caller's yes (lib/ai/textConsent.ts).
+  if (ctx.channel === "phone" && ctx.recentWords) {
+    const consent = checkTextConsent(ctx.recentWords.lastAssistant, ctx.recentWords.customer[0]);
+    if (!consent.ok) {
+      console.warn(`[tools] call ${ctx.callId}: text consent not shown in the conversation (${consent.why}); asking the caller first.`);
+      return { success: false, reason: consent.why === "not_asked" ? TEXT_CONSENT_NOT_ASKED_REASON : TEXT_CONSENT_NO_YES_REASON };
+    }
+  }
 
   let customerId = existingCustomer?.id;
   if (!customerId) {
@@ -686,7 +696,8 @@ async function confirm_and_place_order(
         call_id: ctx.callId,
         phone: textTo,
         method: "verbal_on_call",
-        evidence: (ctx.recentWords?.customer?.[0] || "").slice(0, 300) || null,
+        // The question asked and the caller's answer, as proof.
+        evidence: (`Asked: "${(ctx.recentWords?.lastAssistant || "").slice(0, 200)}" Caller: "${(ctx.recentWords?.customer?.[0] || "").slice(0, 200)}"`).slice(0, 500),
       })
     );
   }
@@ -864,6 +875,10 @@ async function confirm_and_place_order(
   }
 }
 
+const TEXT_CONSENT_NOT_ASKED_REASON =
+  "You haven't asked the caller yet whether you can text them, so nothing was sent and the order isn't placed. Ask them now, in these words: \"Your order won't go through until it's paid. Is it okay to text you a payment link at the number you're calling from?\" Wait for a clear yes, then call confirm_and_place_order again with text_consent: true. If they say no, explain that paying by the texted link is the only way to place a phone order here, and offer to have someone from the restaurant call them back (escalate_to_human).";
+const TEXT_CONSENT_NO_YES_REASON =
+  "The caller hasn't clearly said yes to being texted, so nothing was sent and the order isn't placed. If they're unsure, ask again: \"Is it okay to text you a payment link at the number you're calling from?\" Only with a clear yes, call confirm_and_place_order again with text_consent: true. If they said no, explain that paying by the texted link is the only way to place a phone order here, and offer a callback from the restaurant (escalate_to_human).";
 const TEXT_CONSENT_REASON =
   "Before placing the order, ask the caller if it's okay to text the payment link to the number they're calling from (or the number they gave), and wait for a clear yes. Then call confirm_and_place_order again with text_consent: true. If they say no, explain that paying by the texted link is the only way to place a phone order here, and offer to have someone from the restaurant call them back (escalate_to_human).";
 
