@@ -1,5 +1,7 @@
 import { getBusiness } from "@/lib/data/business";
 import { getOrdersForDate } from "@/lib/data/orders";
+import { closeExpiredPayLinksQuietly } from "@/lib/billing/payExpiry";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
 import { localDateKey } from "@/lib/format";
 import { countsTowardSales } from "@/lib/orders/sales";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -14,6 +16,8 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage() {
   const business = await getBusiness();
   const today = localDateKey(new Date().toISOString(), business.timezone);
+  // Payment links that ran out unpaid show as cancelled, not "awaiting payment".
+  if (isSupabaseConfigured()) await closeExpiredPayLinksQuietly(business.id);
   const orders = await getOrdersForDate(business.id, today, business.timezone);
   const salesOrders = orders.filter(countsTowardSales);
 

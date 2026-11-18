@@ -53,6 +53,6 @@ export async function retrySubmitOrderAction(orderId: string): Promise<ActionRes
 
 // Cancelling an order now goes through voidOrderAction (see
 // app/actions/payments.ts) instead of living here — voiding needs to
-// also expire the order's Stripe Checkout Session when one exists, so
+// also cancel the order's payment (or an older Stripe Checkout link), so
 // a customer's payment link can't still be used after the business
 // has already called the order off.

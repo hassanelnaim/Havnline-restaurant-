@@ -33,3 +33,13 @@ export function setStoredCookieConsent(value: CookieConsent): void {
   }
   window.dispatchEvent(new CustomEvent<CookieConsent>(COOKIE_CONSENT_EVENT, { detail: value }));
 }
+
+/**
+ * Pages a restaurant's customer lands on to pay (the texted link, the
+ * tablet QR code). They use only Stripe, set no optional cookies, and
+ * must work at a glance, so no cookie popup or live chat shows there.
+ */
+export function isCustomerPaymentPage(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return pathname.startsWith("/pay/") || pathname.startsWith("/order-confirmation") || pathname.startsWith("/order-addendum-confirmation");
+}

@@ -64,6 +64,8 @@ export interface DbBusiness {
   stripe_connect_account_id: string | null;
   stripe_connect_charges_enabled: boolean;
   stripe_connect_onboarded_at: ISODateTime | null;
+  /** Migration 047: the Stripe account havnline.com is registered on for Apple Pay / Google Pay. */
+  stripe_pm_domain_account?: string | null;
   // Explicit opt-in, separate from having connected an account at
   // all — connecting is not itself consent to start charging
   // customers. Until this is true, phone orders stay pay-at-pickup
@@ -236,6 +238,9 @@ export interface DbOrder {
   stripe_payment_intent_id: string | null;
   /** Migration 046: the Stripe account this was paid on (null before 046, or not paid by link). */
   stripe_connect_account_id?: string | null;
+  /** Migration 047: the secret part of the havnline.com/pay link, and when it stops working. */
+  pay_token?: string | null;
+  payment_expires_at?: ISODateTime | null;
   amount_refunded_cents: number;
   refund_reason: string | null;
   refunded_by: UUID | null;

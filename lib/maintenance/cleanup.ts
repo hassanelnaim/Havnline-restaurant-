@@ -3,6 +3,7 @@ import { runComplianceSweep } from "@/lib/compliance/checks";
 import type { CronJobOutcome } from "@/lib/monitoring/cronRuns";
 import { deleteUnverifiedAccounts, findUnverifiedAccounts, SIGNUPS_PER_DAY_ALERT, UNVERIFIED_ACCOUNT_DAYS } from "@/lib/admin/accounts";
 import { sendPlatformAlert } from "@/lib/monitoring/platformAlert";
+import { sweepExpiredPayLinks } from "@/lib/billing/payExpiry";
 
 /**
  * The nightly cleanup (app/api/cron/cleanup, and "Run now" on the admin
@@ -82,6 +83,15 @@ export async function runNightlyCleanup(): Promise<CronJobOutcome> {
         });
       }
       return { error: null, count: r.recent24h };
+    }],
+    // HavnLine's payment page links that ran out unpaid (anyone opening one
+    // closes it on the spot; this catches the rest).
+    ["payment links that ran out unpaid", async () => {
+      try {
+        return { error: null, count: await sweepExpiredPayLinks() };
+      } catch (err) {
+        return { error: { message: err instanceof Error ? err.message : String(err) }, count: null };
+      }
     }],
     ["texting consent records older than 4 years", () => admin.from("sms_consents").delete({ count: "exact" }).lt("consented_at", daysAgo(4 * 365 + 1))],
   ];

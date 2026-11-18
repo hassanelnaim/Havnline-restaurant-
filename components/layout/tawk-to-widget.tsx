@@ -2,7 +2,8 @@
 
 import Script from "next/script";
 import { useEffect, useState } from "react";
-import { COOKIE_CONSENT_EVENT, getStoredCookieConsent, type CookieConsent } from "@/lib/cookies";
+import { COOKIE_CONSENT_EVENT, getStoredCookieConsent, type CookieConsent, isCustomerPaymentPage } from "@/lib/cookies";
+import { usePathname } from "next/navigation";
 
 /**
  * Live-chat help bubble (bottom-right corner) powered by Tawk.to — free,
@@ -38,6 +39,8 @@ export function TawkToWidget() {
   const propertyId = process.env.NEXT_PUBLIC_TAWK_PROPERTY_ID;
   const widgetId = process.env.NEXT_PUBLIC_TAWK_WIDGET_ID;
   const [consented, setConsented] = useState(false);
+  // No live chat on the customer payment pages (lib/cookies.ts).
+  const paymentPage = isCustomerPaymentPage(usePathname());
 
   useEffect(() => {
     setConsented(getStoredCookieConsent() === "accepted");
@@ -49,7 +52,7 @@ export function TawkToWidget() {
     return () => window.removeEventListener(COOKIE_CONSENT_EVENT, handleChange);
   }, []);
 
-  if (!propertyId || !widgetId || !consented) return null;
+  if (!propertyId || !widgetId || !consented || paymentPage) return null;
 
   return (
     <Script

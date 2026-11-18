@@ -118,6 +118,14 @@ async function rememberAccountOnOldPayments(businessId: string, oldAccountId: st
       .is("stripe_connect_account_id", null)
       .not("stripe_checkout_session_id", "is", null);
     if (error) console.error(`[stripe-connect] could not record the old account on ${table} (run migration 046):`, error.message);
+    // Payments made on HavnLine's own payment page have no checkout session.
+    const { error: intentError } = await admin
+      .from(table)
+      .update({ stripe_connect_account_id: oldAccountId })
+      .eq("business_id", businessId)
+      .is("stripe_connect_account_id", null)
+      .not("stripe_payment_intent_id", "is", null);
+    if (intentError) console.error(`[stripe-connect] could not record the old account on ${table} payments:`, intentError.message);
   }
 }
 
@@ -219,70 +227,117 @@ export async function syncConnectAccountStatus(businessId: string, accountId: st
   return status;
 }
 
-export interface OrderCheckoutInput {
+/**
+ * Starts a payment for HavnLine's own payment page (lib/billing/payLink.ts):
+ * a PaymentIntent created directly on the restaurant's account, with
+ * HavnLine's fee as the application fee. Card only (Apple Pay and Google
+ * Pay are card wallets and still show): that leaves out Link, which would
+ * ask for an email. Nothing is charged until the customer pays on the page.
+ */
+export async function createOrderPayment(input: {
   connectedAccountId: string;
   orderId: string;
   businessId: string;
   businessName: string;
   totalCents: number;
-  platformFeeBps: number | null;
-  customerPhone?: string;
-  successUrl: string;
-  cancelUrl: string;
-  /** Stripe idempotency key — must be unique per real charge attempt, stable across retries of the SAME attempt, so a Twilio/webhook retry can never create two Checkout Sessions (and two charges) for one order. */
+  platformFeeBps?: number | null;
+  description?: string;
   idempotencyKey: string;
-  /** Overrides the default "{businessName} — phone order" line item name — used by Phase 4's addendum charges ("Additional item"), which aren't phone orders at all. */
-  productName?: string;
-  /**
-   * Extra metadata merged onto the Checkout Session alongside the
-   * usual order_id/business_id — used by Phase 4's addendum charges to
-   * carry addendum_id, which the Connect webhook checks FIRST to
-   * decide whether a completed session means "mark this whole order
-   * paid" or "insert these specific pending items."
-   */
   extraMetadata?: Record<string, string>;
-}
-
-export async function createOrderCheckoutSession(input: OrderCheckoutInput): Promise<{ sessionId: string | null; url: string | null; error?: string }> {
+}): Promise<{ paymentIntentId: string | null; error?: string }> {
   const stripe = requireStripe();
-
-  const applicationFeeAmount = input.platformFeeBps
-    ? Math.round((input.totalCents * input.platformFeeBps) / 10000)
-    : undefined;
-
+  const applicationFeeAmount = input.platformFeeBps ? Math.round((input.totalCents * input.platformFeeBps) / 10000) : undefined;
   try {
-    const session = await stripe.checkout.sessions.create(
+    const intent = await stripe.paymentIntents.create(
       {
-        mode: "payment",
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: { name: input.productName || `${input.businessName} — phone order` },
-              unit_amount: input.totalCents,
-            },
-            quantity: 1,
-          },
-        ],
-        payment_intent_data: applicationFeeAmount ? { application_fee_amount: applicationFeeAmount } : undefined,
-        success_url: input.successUrl,
-        cancel_url: input.cancelUrl,
-        // Checkout Sessions expire on their own (default 24h); we also
-        // set a tighter window since a pickup order abandoned for a
-        // day is worthless to the kitchen either way.
-        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-        metadata: { order_id: input.orderId, business_id: input.businessId, ...input.extraMetadata },
+        amount: input.totalCents,
+        currency: "usd",
+        payment_method_types: ["card"],
+        ...(applicationFeeAmount ? { application_fee_amount: applicationFeeAmount } : {}),
+        description: (input.description || `${input.businessName} — phone order`).slice(0, 1000),
+        metadata: { order_id: input.orderId, business_id: input.businessId, havnline_pay_page: "1", ...input.extraMetadata },
       },
-      // Created while the caller waits on the phone: one short try, never
-      // Stripe's 80-second default. The idempotency key makes a later
-      // retry return this same session if this one did go through.
+      // Created while the caller waits on the phone: one short try. The
+      // idempotency key makes a retry return this same payment.
       { stripeAccount: input.connectedAccountId, idempotencyKey: input.idempotencyKey, timeout: 5000, maxNetworkRetries: 0 }
     );
-    return { sessionId: session.id, url: session.url };
+    return { paymentIntentId: intent.id };
   } catch (err) {
-    console.error(`Stripe order Checkout Session failed for order ${input.orderId}:`, err);
-    const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not start checkout for this order.";
-    return { sessionId: null, url: null, error: message };
+    console.error(`Stripe payment for order ${input.orderId} failed:`, err);
+    const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not start payment for this order.";
+    return { paymentIntentId: null, error: message };
+  }
+}
+
+/** What the payment page needs: the secret its card form uses, and where the payment stands. */
+export async function getPaymentForPage(connectedAccountId: string, paymentIntentId: string): Promise<{ clientSecret: string | null; status: Stripe.PaymentIntent.Status | null }> {
+  const stripe = requireStripe();
+  try {
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, { stripeAccount: connectedAccountId });
+    return { clientSecret: intent.client_secret, status: intent.status };
+  } catch (err) {
+    console.error(`[pay] could not load payment ${paymentIntentId}:`, err);
+    return { clientSecret: null, status: null };
+  }
+}
+
+/**
+ * Cancels a payment that hasn't happened (voided order, or the link ran
+ * out), so the page can no longer take it. alreadyPaid means it went
+ * through first: nothing was cancelled.
+ */
+export async function cancelOrderPayment(connectedAccountId: string, paymentIntentId: string): Promise<{ success: boolean; alreadyPaid?: boolean; error?: string }> {
+  const stripe = requireStripe();
+  try {
+    await stripe.paymentIntents.cancel(paymentIntentId, {}, { stripeAccount: connectedAccountId });
+    return { success: true };
+  } catch (err) {
+    try {
+      const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, { stripeAccount: connectedAccountId });
+      if (intent.status === "canceled") return { success: true };
+      if (intent.status === "succeeded" || intent.status === "processing") return { success: false, alreadyPaid: true, error: "The customer has already paid." };
+    } catch {
+      // fall through to the original error
+    }
+    console.error(`Stripe payment cancel failed for ${paymentIntentId}:`, err);
+    const message = err instanceof Stripe.errors.StripeError ? err.message : "Could not cancel this payment.";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Apple Pay and Google Pay only show on a domain registered with the
+ * account taking the payment. For direct charges that's each restaurant's
+ * own account, so havnline.com is registered on it once (remembered in
+ * businesses.stripe_pm_domain_account). Cards work either way.
+ */
+export async function ensurePaymentDomain(businessId: string, connectedAccountId: string, registeredFor: string | null | undefined, siteUrl: string): Promise<void> {
+  if (registeredFor === connectedAccountId) return;
+  const stripe = getStripeClient();
+  if (!stripe) return;
+  let host: string;
+  try {
+    host = new URL(siteUrl).hostname;
+  } catch {
+    return;
+  }
+  if (host === "localhost" || /^[0-9.]+$/.test(host)) return;
+  const hosts = host.startsWith("www.") ? [host, host.slice(4)] : [host];
+  let ok = true;
+  for (const domain_name of hosts) {
+    try {
+      await stripe.paymentMethodDomains.create({ domain_name }, { stripeAccount: connectedAccountId, timeout: 4000, maxNetworkRetries: 0 });
+    } catch (err) {
+      // Already registered counts as done.
+      if (!(err instanceof Stripe.errors.StripeError && /already/i.test(err.message))) {
+        ok = false;
+        console.error(`[pay] could not register ${domain_name} for Apple Pay on ${connectedAccountId}:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  if (ok) {
+    const { error } = await createAdminClient().from("businesses").update({ stripe_pm_domain_account: connectedAccountId }).eq("id", businessId);
+    if (error) console.error("[pay] could not record the Apple Pay domain (run migration 047):", error.message);
   }
 }
 

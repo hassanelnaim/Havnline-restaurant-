@@ -58,7 +58,7 @@ export default function SmsTermsPage() {
           <h2 className="font-display text-[18px] font-semibold text-ink">Sample messages</h2>
           <div className="space-y-2">
             <div className="rounded-lg border border-border bg-card px-4 py-3 font-mono text-[13px] text-text">
-              Riverside Pizza Co.: your order total is $24.50. Pay here to send it to the kitchen: https://checkout.stripe.com/… (link expires in 30 min). Msg&amp;data rates may apply. Reply STOP to opt out.
+              Riverside Pizza Co.: your order total is $24.50. Pay here to send it to the kitchen: https://www.havnline.com/pay/… (link expires in 30 min). Msg&amp;data rates may apply. Reply STOP to opt out.
             </div>
             <div className="rounded-lg border border-border bg-card px-4 py-3 font-mono text-[13px] text-text">
               Payment received at Riverside Pizza Co.! Total: $24.50. We&apos;ll have it ready for pickup soon. Msg&amp;data rates may apply. Reply HELP for help, STOP to cancel.

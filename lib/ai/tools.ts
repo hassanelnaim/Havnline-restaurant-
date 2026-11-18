@@ -3,7 +3,8 @@ import { withCallKey } from "@/lib/ai/callUrlKey";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { smsClient } from "@/lib/integrations/sms";
 import { sendEscalationEmail } from "@/lib/notifications/escalation-email";
-import { createOrderCheckoutSession, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
+import { cancelOrderPayment, createOrderPayment, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
+import { newPayToken, payLinkExpiry, payUrl } from "@/lib/billing/payLink";
 import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
 import { queuePrintJob } from "@/lib/integrations/printer-app";
 import { getSiteUrl } from "@/lib/env";
@@ -808,41 +809,52 @@ async function confirm_and_place_order(
     // customer actually pays the texted link, and only the Connect
     // webhook (lib/billing/connectPayments.ts) triggers the kitchen print
     // and the "payment received" text.
-    const siteUrl = getSiteUrl();
-    const checkout = await createOrderCheckoutSession({
+    // The customer pays on HavnLine's own page (app/pay/[token]): a
+    // payment started on the restaurant's Stripe account, behind a long
+    // random link. Stable idempotency key: a retry of this same turn must
+    // never start a second payment.
+    const payment = await createOrderPayment({
       connectedAccountId: business.stripe_connect_account_id,
       orderId: order.id,
       businessId: ctx.businessId,
       businessName: business.name,
       totalCents,
       platformFeeBps: effectivePlatformFeeBps(business),
-      customerPhone: textTo,
-      successUrl: `${siteUrl}/order-confirmation?order_id=${order.id}`,
-      cancelUrl: `${siteUrl}/order-confirmation?order_id=${order.id}&cancelled=1`,
-      // Stable per order — a retry of this same turn must never create a
-      // second Checkout Session, which would be a second real charge attempt.
-      idempotencyKey: `order-checkout:${order.id}`,
+      idempotencyKey: `order-payment:${order.id}`,
     });
 
-    if (!checkout.url || !checkout.sessionId) {
+    if (!payment.paymentIntentId) {
       await saveTax;
       await releaseClaim();
       return { success: false, reason: PAYMENT_NOT_STARTED_REASON };
     }
 
     await saveTax;
-    // The session id is what the payment webhook checks a payment against,
-    // so it is saved before the link goes out.
-    await soft(
-      "save checkout session",
-      admin
-        .from("orders")
-        .update({ payment_status: "awaiting_payment", stripe_checkout_session_id: checkout.sessionId, payment_link_url: checkout.url })
-        .eq("id", order.id)
-    );
+    // The payment id and link must be saved before the link goes out: the
+    // page finds the order by its token, and the webhook checks the
+    // payment against this id. If the save fails, the payment is cancelled
+    // and no link is sent, rather than texting a link that can't work.
+    const token = newPayToken();
+    const url = payUrl(token);
+    const { error: saveError } = await admin
+      .from("orders")
+      .update({
+        payment_status: "awaiting_payment",
+        stripe_payment_intent_id: payment.paymentIntentId,
+        pay_token: token,
+        payment_expires_at: payLinkExpiry(),
+        payment_link_url: url,
+      })
+      .eq("id", order.id);
+    if (saveError) {
+      console.error(`[tools] could not save the payment link for order ${order.id} (run migration 047):`, saveError.message);
+      await cancelOrderPayment(business.stripe_connect_account_id, payment.paymentIntentId);
+      await releaseClaim();
+      return { success: false, reason: PAYMENT_NOT_STARTED_REASON };
+    }
     await recordCheckoutAccount("orders", order.id, business.stripe_connect_account_id);
 
-    return await textPaymentLink(ctx, { orderId: order.id, url: checkout.url, totalCents, phone: textTo });
+    return await textPaymentLink(ctx, { orderId: order.id, url, totalCents, phone: textTo });
   } catch (err) {
     // An unexpected failure (a database or network error): undo the claim
     // so the order can be retried, and tell the AI honestly.

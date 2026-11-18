@@ -38,7 +38,7 @@ export default function PrivacyPage() {
             <li><strong>Your phone number,</strong> from caller ID, and the name you give for the order.</li>
             <li><strong>Your order</strong> and any notes, such as an allergy you mention.</li>
           </ul>
-          <p>This information is used only to serve that restaurant: to take and deliver your order to its kitchen, text you the payment link you agreed to, and let the restaurant see its calls and orders. It is never shared with other restaurants. Your card details go straight to Stripe on its secure payment page; HavnLine and the restaurant never see them.</p>
+          <p>This information is used only to serve that restaurant: to take and deliver your order to its kitchen, text you the payment link you agreed to, and let the restaurant see its calls and orders. It is never shared with other restaurants. Your card details go straight to Stripe through its secure card form on HavnLine&apos;s payment page; HavnLine and the restaurant never see them, and you aren&apos;t asked for an email address.</p>
 
           <p>The restaurant you called sees your name, number, and order so it can make your order and contact you about it (for example, to call you back about a question you asked). Under its agreement with HavnLine, it may not use your information for marketing or anything unrelated to your call. If you think a restaurant has misused it, email us at the address below.</p>
 

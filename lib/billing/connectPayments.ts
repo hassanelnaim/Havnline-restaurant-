@@ -10,8 +10,9 @@ import { feeOwedForRefund, getApplicationFee, accountForPayment } from "@/lib/bi
 import type { OrderWithItems } from "@/lib/database/types";
 
 /**
- * What happens when a customer pays a phone order (or a tablet add-on)
- * through its Stripe Checkout link. Called from the Stripe Connect webhook.
+ * What happens when a customer pays a phone order (or a tablet add-on) on
+ * HavnLine's payment page (or an older Stripe Checkout link). Called from
+ * the Stripe Connect webhook.
  *
  * Stripe delivers each event AT LEAST once: the same payment can arrive
  * twice at the same moment, or again after this code crashed halfway. And
@@ -32,25 +33,59 @@ import type { OrderWithItems } from "@/lib/database/types";
  * Throwing means "try again": the webhook answers 500 and Stripe retries.
  */
 
-function paymentIntentIdOf(session: Stripe.Checkout.Session): string | null {
-  return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+/**
+ * A completed payment, from either path: HavnLine's own payment page (a
+ * PaymentIntent) or an older Stripe Checkout link still in flight.
+ */
+export interface CompletedPayment {
+  /** "intent" = HavnLine's payment page; "session" = Stripe Checkout. */
+  kind: "intent" | "session";
+  /** The PaymentIntent or Checkout Session id. */
+  id: string;
+  paymentIntentId: string | null;
+  amountCents: number | null;
+  paid: boolean;
+  metadata: Record<string, string>;
+}
+
+export function paymentFromSession(session: Stripe.Checkout.Session): CompletedPayment {
+  return {
+    kind: "session",
+    id: session.id,
+    paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+    amountCents: typeof session.amount_total === "number" ? session.amount_total : null,
+    paid: session.payment_status === "paid",
+    metadata: (session.metadata || {}) as Record<string, string>,
+  };
+}
+
+export function paymentFromIntent(intent: Stripe.PaymentIntent): CompletedPayment {
+  return {
+    kind: "intent",
+    id: intent.id,
+    paymentIntentId: intent.id,
+    amountCents: typeof intent.amount_received === "number" && intent.amount_received > 0 ? intent.amount_received : intent.amount,
+    paid: intent.status === "succeeded",
+    metadata: (intent.metadata || {}) as Record<string, string>,
+  };
 }
 
 /** Why this event can't be for this order/charge, or null if it checks out. */
 function mismatchReason(
   eventAccount: string | null | undefined,
   businessAccount: string | null | undefined,
-  session: Stripe.Checkout.Session,
-  expected: { sessionId: string | null | undefined; amountCents: number | null | undefined }
+  payment: CompletedPayment,
+  expected: { sessionId: string | null | undefined; paymentIntentId: string | null | undefined; amountCents: number | null | undefined }
 ): string | null {
   if (!businessAccount) return "the restaurant has no Stripe account connected";
   if (!eventAccount || eventAccount !== businessAccount) return `it came from Stripe account ${eventAccount || "(none)"}, not the restaurant's own`;
-  if (expected.sessionId) {
-    if (expected.sessionId !== session.id) return `it is for checkout session ${session.id}, not the order's own`;
-  } else if (typeof session.amount_total !== "number" || session.amount_total !== expected.amountCents) {
-    // No session id was saved (that write can fail without stopping the
+  const savedId = payment.kind === "session" ? expected.sessionId : expected.paymentIntentId;
+  if (savedId) {
+    if (savedId !== payment.id) return `it is for payment ${payment.id}, not the order's own`;
+  } else if (payment.amountCents === null || payment.amountCents !== expected.amountCents) {
+    // No payment id was saved (that write can fail without stopping the
     // call), so the exact amount has to match instead.
-    return `the amount (${session.amount_total ?? "unknown"} cents) doesn't match the order (${expected.amountCents ?? "unknown"} cents)`;
+    return `the amount (${payment.amountCents ?? "unknown"} cents) doesn't match the order (${expected.amountCents ?? "unknown"} cents)`;
   }
   return null;
 }
@@ -74,9 +109,9 @@ async function alertMismatch(kind: string, id: string, eventId: string, reason: 
   );
 }
 
-export async function handleOrderPaid(eventId: string, eventAccount: string | null | undefined, session: Stripe.Checkout.Session): Promise<void> {
+export async function handleOrderPaid(eventId: string, eventAccount: string | null | undefined, payment: CompletedPayment): Promise<void> {
   const admin = createAdminClient();
-  const orderId = session.metadata?.order_id;
+  const orderId = payment.metadata.order_id;
   if (!orderId) {
     console.warn(`[stripe-connect] ${eventId}: no order_id in metadata, ignoring.`);
     return;
@@ -91,22 +126,27 @@ export async function handleOrderPaid(eventId: string, eventAccount: string | nu
   const { data: business, error: businessError } = await admin.from("businesses").select("*").eq("id", order.business_id).maybeSingle();
   if (businessError || !business) throw new Error(`could not read business ${order.business_id}: ${businessError?.message || "missing"}`);
 
-  const mismatch = mismatchReason(eventAccount, accountForPayment(order, business.stripe_connect_account_id), session, {
+  const mismatch = mismatchReason(eventAccount, accountForPayment(order, business.stripe_connect_account_id), payment, {
     sessionId: order.stripe_checkout_session_id,
+    paymentIntentId: order.stripe_payment_intent_id,
     amountCents: order.total_cents,
   });
   if (mismatch) return alertMismatch("order", orderId, eventId, mismatch);
-  if (session.payment_status !== "paid") {
+  if (!payment.paid) {
     // Delayed payment methods report "completed" before the money arrives;
     // checkout.session.async_payment_succeeded follows when it does.
-    console.log(`[stripe-connect] ${eventId}: order ${orderId} checkout completed but not paid yet (${session.payment_status}).`);
+    console.log(`[stripe-connect] ${eventId}: order ${orderId} payment completed but not paid yet.`);
     return;
   }
 
   // Only one delivery can flip the order to paid.
   const { data: claimed, error: claimError } = await admin
     .from("orders")
-    .update({ payment_status: "paid", stripe_payment_intent_id: paymentIntentIdOf(session), stripe_checkout_session_id: order.stripe_checkout_session_id || session.id })
+    .update({
+      payment_status: "paid",
+      stripe_payment_intent_id: payment.paymentIntentId,
+      ...(payment.kind === "session" ? { stripe_checkout_session_id: order.stripe_checkout_session_id || payment.id } : {}),
+    })
     .eq("id", orderId)
     .in("payment_status", ["awaiting_payment", "not_required", "failed"])
     .select("*")
@@ -191,9 +231,9 @@ export async function handleOrderPaid(eventId: string, eventAccount: string | nu
   }
 }
 
-export async function handleAddendumPaid(eventId: string, eventAccount: string | null | undefined, session: Stripe.Checkout.Session): Promise<void> {
+export async function handleAddendumPaid(eventId: string, eventAccount: string | null | undefined, payment: CompletedPayment): Promise<void> {
   const admin = createAdminClient();
-  const addendumId = session.metadata?.addendum_id as string;
+  const addendumId = payment.metadata.addendum_id as string;
 
   const { data: addendum, error: addendumError } = await admin.from("order_addendum_charges").select("*").eq("id", addendumId).maybeSingle();
   if (addendumError) throw new Error(`could not read add-on ${addendumId}: ${addendumError.message}`);
@@ -204,16 +244,17 @@ export async function handleAddendumPaid(eventId: string, eventAccount: string |
   const { data: business, error: businessError } = await admin.from("businesses").select("*").eq("id", addendum.business_id).maybeSingle();
   if (businessError || !business) throw new Error(`could not read business ${addendum.business_id}: ${businessError?.message || "missing"}`);
 
-  const mismatch = mismatchReason(eventAccount, accountForPayment(addendum, business.stripe_connect_account_id), session, {
+  const mismatch = mismatchReason(eventAccount, accountForPayment(addendum, business.stripe_connect_account_id), payment, {
     sessionId: addendum.stripe_checkout_session_id,
+    paymentIntentId: addendum.stripe_payment_intent_id,
     amountCents: addendum.amount_cents,
   });
   if (mismatch) return alertMismatch("add-on", addendumId, eventId, mismatch);
-  if (session.payment_status !== "paid") return;
+  if (!payment.paid) return;
 
   const { data: claimed, error: claimError } = await admin
     .from("order_addendum_charges")
-    .update({ status: "paid", stripe_payment_intent_id: paymentIntentIdOf(session), paid_at: new Date().toISOString() })
+    .update({ status: "paid", stripe_payment_intent_id: payment.paymentIntentId, paid_at: new Date().toISOString() })
     .eq("id", addendumId)
     .in("status", ["awaiting_payment", "expired"])
     .select("id")

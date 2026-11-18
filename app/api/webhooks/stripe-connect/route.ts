@@ -3,7 +3,7 @@ import { isLegacyConnectAccount } from "@/lib/billing/stripeConnect";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { handleOrderPaid, handleAddendumPaid, handleChargeRefunded, handleDispute } from "@/lib/billing/connectPayments";
+import { handleOrderPaid, handleAddendumPaid, handleChargeRefunded, handleDispute, paymentFromIntent, paymentFromSession } from "@/lib/billing/connectPayments";
 import { sendPaymentsLiveEmail, sendPaymentsDisconnectedEmail } from "@/lib/notifications/account-email";
 
 export const maxDuration = 60;
@@ -54,9 +54,23 @@ export async function POST(request: NextRequest) {
       // moment for delayed payment methods.
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded": {
+        // Older Stripe Checkout links still in flight.
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.metadata?.addendum_id) await handleAddendumPaid(event.id, event.account, session);
-        else await handleOrderPaid(event.id, event.account, session);
+        const payment = paymentFromSession(session);
+        if (payment.metadata.addendum_id) await handleAddendumPaid(event.id, event.account, payment);
+        else await handleOrderPaid(event.id, event.account, payment);
+        break;
+      }
+
+      // Paid on HavnLine's own payment page (app/pay/[token]). Only
+      // payments HavnLine started carry havnline_pay_page; the payment
+      // behind an old Checkout link is handled by its session event above.
+      case "payment_intent.succeeded": {
+        const intent = event.data.object as Stripe.PaymentIntent;
+        if (intent.metadata?.havnline_pay_page !== "1") break;
+        const payment = paymentFromIntent(intent);
+        if (payment.metadata.addendum_id) await handleAddendumPaid(event.id, event.account, payment);
+        else if (payment.metadata.order_id) await handleOrderPaid(event.id, event.account, payment);
         break;
       }
 

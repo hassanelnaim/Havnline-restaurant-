@@ -4,5 +4,5 @@
  * value whenever that page's text changes.
  */
 export const TERMS_VERSION = "October 30, 2026";
-export const PRIVACY_VERSION = "October 30, 2026";
-export const SMS_TERMS_VERSION = "October 30, 2026";
+export const PRIVACY_VERSION = "November 17, 2026";
+export const SMS_TERMS_VERSION = "November 17, 2026";

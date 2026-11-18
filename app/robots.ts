@@ -5,7 +5,7 @@ import { getSiteUrl } from "@/lib/env";
 export default function robots(): MetadataRoute.Robots {
   const site = getSiteUrl();
   return {
-    rules: [{ userAgent: "*", allow: "/", disallow: ["/dashboard", "/admin", "/api", "/onboarding", "/order-confirmation", "/order-addendum-confirmation"] }],
+    rules: [{ userAgent: "*", allow: "/", disallow: ["/dashboard", "/admin", "/api", "/onboarding", "/order-confirmation", "/order-addendum-confirmation", "/pay"] }],
     sitemap: `${site}/sitemap.xml`,
   };
 }

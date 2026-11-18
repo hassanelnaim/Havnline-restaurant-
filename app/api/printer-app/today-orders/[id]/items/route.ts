@@ -5,9 +5,9 @@ import { authenticateDevice, queueAddendumPrintJob } from "@/lib/integrations/pr
 import { loadPricedMenu } from "@/lib/menu/pricedMenu";
 import { insertOrderItems, recomputeRealOrderTotals } from "@/lib/billing/orderItemAddition";
 import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
-import { createOrderCheckoutSession, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
+import { cancelOrderPayment, createOrderPayment, recordCheckoutAccount } from "@/lib/billing/stripeConnect";
+import { newPayToken, payLinkExpiry, payUrl } from "@/lib/billing/payLink";
 import { effectivePlatformFeeBps } from "@/lib/billing/platformFee";
-import { getSiteUrl } from "@/lib/env";
 import { dbErrorResult } from "@/lib/errors";
 import type { DbModifier, MenuItemWithModifiers } from "@/lib/database/types";
 import QRCode from "qrcode";
@@ -294,36 +294,45 @@ async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: str
     return NextResponse.json(dbErrorResult(addendumError, "printer-app/today-orders/[id]/items POST", "Could not start the charge."), { status: 500 });
   }
 
-  const siteUrl = getSiteUrl();
-  const checkout = await createOrderCheckoutSession({
+  // Paid on HavnLine's own page (app/pay/[token]), like phone orders.
+  // Unique per charge attempt (each addendum row is its own attempt): a
+  // retried items POST creates a fresh addendum + QR rather than risk
+  // reusing a stale, possibly-already-scanned one.
+  const payment = await createOrderPayment({
     connectedAccountId: business.stripe_connect_account_id,
     orderId: order.id,
     businessId: device.businessId,
     businessName: business.name,
     totalCents: realAmountCents,
     platformFeeBps: effectivePlatformFeeBps(business),
-    productName: `${business.name} — ${resolved.checkoutLabel}`,
-    successUrl: `${siteUrl}/order-addendum-confirmation?addendum_id=${addendum.id}`,
-    cancelUrl: `${siteUrl}/order-addendum-confirmation?addendum_id=${addendum.id}&cancelled=1`,
-    // Unique per charge attempt (each addendum row is its own attempt)
-    // — a retried items POST creates a fresh addendum + QR rather than
-    // risk reusing a stale, possibly-already-scanned one.
-    idempotencyKey: `addendum-checkout:${addendum.id}`,
+    description: `${business.name} — ${resolved.checkoutLabel}`,
+    idempotencyKey: `addendum-payment:${addendum.id}`,
     extraMetadata: { addendum_id: addendum.id },
   });
 
-  if (!checkout.url || !checkout.sessionId) {
+  if (!payment.paymentIntentId) {
     // Nothing was ever charged and nothing real was added to the order
     // — safe to just delete the pending row rather than leave a
     // permanently-dead "awaiting_payment" addendum behind.
     await admin.from("order_addendum_charges").delete().eq("id", addendum.id);
-    return NextResponse.json({ success: false, error: checkout.error || "Could not start payment for this item." }, { status: 500 });
+    return NextResponse.json({ success: false, error: payment.error || "Could not start payment for this item." }, { status: 500 });
   }
 
-  await admin.from("order_addendum_charges").update({ stripe_checkout_session_id: checkout.sessionId }).eq("id", addendum.id);
+  const token = newPayToken();
+  const checkoutUrl = payUrl(token);
+  const { error: saveError } = await admin
+    .from("order_addendum_charges")
+    .update({ stripe_payment_intent_id: payment.paymentIntentId, pay_token: token, payment_expires_at: payLinkExpiry() })
+    .eq("id", addendum.id);
+  if (saveError) {
+    console.error(`[printer-app] could not save the add-on payment link (run migration 047):`, saveError.message);
+    await cancelOrderPayment(business.stripe_connect_account_id, payment.paymentIntentId);
+    await admin.from("order_addendum_charges").delete().eq("id", addendum.id);
+    return NextResponse.json({ success: false, error: "Could not start payment for this item." }, { status: 500 });
+  }
   await recordCheckoutAccount("order_addendum_charges", addendum.id, business.stripe_connect_account_id);
 
-  const qrDataUrl = await QRCode.toDataURL(checkout.url, { margin: 1, width: 400 });
+  const qrDataUrl = await QRCode.toDataURL(checkoutUrl, { margin: 1, width: 400 });
 
   return NextResponse.json({
     success: true,
@@ -331,7 +340,7 @@ async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: str
     addendumId: addendum.id,
     amountCents: realAmountCents,
     qrDataUrl,
-    checkoutUrl: checkout.url,
+    checkoutUrl,
   });
 }
 

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { getStoredCookieConsent, setStoredCookieConsent } from "@/lib/cookies";
+import { usePathname } from "next/navigation";
+import { getStoredCookieConsent, isCustomerPaymentPage, setStoredCookieConsent } from "@/lib/cookies";
 
 /**
  * Full-screen cookie consent modal — a dimmed backdrop over the entire
@@ -21,10 +22,12 @@ import { getStoredCookieConsent, setStoredCookieConsent } from "@/lib/cookies";
  */
 export function CookieConsentBanner() {
   const [visible, setVisible] = useState(false);
+  const pathname = usePathname();
+  const paymentPage = isCustomerPaymentPage(pathname);
 
   useEffect(() => {
-    setVisible(getStoredCookieConsent() === null);
-  }, []);
+    setVisible(!paymentPage && getStoredCookieConsent() === null);
+  }, [paymentPage]);
 
   useEffect(() => {
     if (!visible) return;

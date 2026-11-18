@@ -10,6 +10,7 @@ import {
   createOnboardingLink,
   syncConnectAccountStatus,
   voidOrderCheckout,
+  cancelOrderPayment,
   accountForPayment,
 } from "@/lib/billing/stripeConnect";
 import { processOrderRefund } from "@/lib/billing/orderRefund";
@@ -82,13 +83,20 @@ export async function voidOrderAction(orderId: string): Promise<ActionResult> {
   if (!order) return { success: false, error: "Order not found." };
   if (order.payment_status === "paid" || order.payment_status === "partially_refunded") return { success: false, error: "This order has already been paid — use Refund instead." };
 
-  if (order.stripe_checkout_session_id) {
+  if (order.stripe_checkout_session_id || order.stripe_payment_intent_id) {
     const { data: business } = await admin.from("businesses").select("stripe_connect_account_id").eq("id", businessId).single();
     // The account the link was made on, which may be an older one.
     const accountId = accountForPayment(order, business?.stripe_connect_account_id);
     if (accountId) {
-      const result = await voidOrderCheckout(accountId, order.stripe_checkout_session_id);
-      if (!result.success) return { success: false, error: result.error };
+      // An older Stripe Checkout link, or a payment on HavnLine's own page:
+      // either way the link stops working before the order is voided.
+      const result = order.stripe_checkout_session_id
+        ? await voidOrderCheckout(accountId, order.stripe_checkout_session_id)
+        : await cancelOrderPayment(accountId, order.stripe_payment_intent_id as string);
+      if (!result.success) {
+        if ("alreadyPaid" in result && result.alreadyPaid) return { success: false, error: "The customer just paid this order — use Refund instead." };
+        return { success: false, error: result.error };
+      }
     }
   }
 
