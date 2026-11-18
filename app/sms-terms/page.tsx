@@ -37,7 +37,7 @@ export default function SmsTermsPage() {
               <li>
                 The AI then <strong>asks for permission, out loud, on the call</strong> before any text is sent. This is a real question the customer can decline:
                 <div className="mt-2 rounded-lg border border-border bg-card px-4 py-3 font-mono text-[13px] text-text">
-                  &quot;Is it okay if I text a secure payment link to the number you&apos;re calling from? Your order goes to the kitchen as soon as it&apos;s paid.&quot;
+                  &quot;Your order won&apos;t go through until it&apos;s paid. Is it okay to text you a payment link at the number you&apos;re calling from?&quot;
                 </div>
               </li>
               <li>The customer verbally agrees (&quot;yes,&quot; &quot;sure,&quot; &quot;go ahead&quot;) before any message is sent. HavnLine&apos;s system refuses to place the order or send any text until the AI records that yes, and keeps a record of it (the time, the number, and the customer&apos;s words). If the customer declines, no text is sent; the AI offers to have the restaurant call them back instead. There is no web form or checkbox in this flow: consent is requested and given verbally, in real time, on the call the customer made.</li>
