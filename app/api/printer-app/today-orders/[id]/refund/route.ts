@@ -48,8 +48,15 @@ async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: str
   const body = await request.json().catch(() => null);
   const actionType: "refund" | "discount" = body?.actionType === "discount" ? "discount" : "refund";
   const reasonInput = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+  // No amount means "refund the rest". An amount that IS sent but isn't a
+  // positive number (0, negative, text) used to be read the same way, so a
+  // malformed request refunded the whole order. It's refused instead.
+  const sentAmount = body?.amountCents !== undefined && body?.amountCents !== null;
   const amountCents =
-    typeof body?.amountCents === "number" && Number.isFinite(body.amountCents) && body.amountCents > 0 ? Math.round(body.amountCents) : undefined;
+    typeof body?.amountCents === "number" && Number.isFinite(body.amountCents) && body.amountCents >= 1 ? Math.round(body.amountCents) : undefined;
+  if (sentAmount && amountCents === undefined) {
+    return NextResponse.json({ success: false, error: "Enter an amount greater than $0." }, { status: 400 });
+  }
 
   if (actionType === "discount" && amountCents === undefined) {
     return NextResponse.json({ success: false, error: "Enter a discount amount." }, { status: 400 });

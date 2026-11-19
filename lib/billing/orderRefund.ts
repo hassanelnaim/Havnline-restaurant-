@@ -41,6 +41,12 @@ export async function processOrderRefund(
   reason: string,
   actor: ProcessOrderRefundActor
 ): Promise<ProcessOrderRefundResult> {
+  // undefined = refund the rest. Anything else must be a whole number of
+  // cents above zero, whichever screen sent it.
+  if (amountCents !== undefined && (typeof amountCents !== "number" || !Number.isInteger(amountCents) || amountCents < 1)) {
+    return { success: false, error: "Enter an amount greater than $0." };
+  }
+
   const admin = createAdminClient();
 
   const { data: order } = await admin.from("orders").select("*").eq("id", orderId).eq("business_id", businessId).single();
