@@ -58,7 +58,7 @@ export function validateSizes(input: { name: string; price: string }[]): { ok: t
     const name = r.name.trim().slice(0, 40);
     if (!name) return { ok: false, error: "Every size needs a name, like Small or Large." };
     const price = parseFloat(r.price);
-    if (!r.price.trim() || !Number.isFinite(price) || price < 0) return { ok: false, error: `Enter a price for ${name}, like 3.49.` };
+    if (!r.price.trim() || !Number.isFinite(price) || price < 0 || price > 1000) return { ok: false, error: `Enter a price for ${name}, like 3.49.` };
     if (sizes.some((s) => s.name.toLowerCase() === name.toLowerCase())) return { ok: false, error: `"${name}" is listed twice.` };
     sizes.push({ name, priceCents: Math.round(price * 100) });
   }

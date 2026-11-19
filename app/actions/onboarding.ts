@@ -1,4 +1,5 @@
 "use server";
+import { itemPriceCents, addonDeltaCents } from "@/lib/menu/price";
 
 import { redirect } from "next/navigation";
 import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
@@ -135,7 +136,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
         category_id: categoryId,
         name: item.name,
         description: item.description || null,
-        price_cents: Math.round((parseFloat(item.price) || 0) * 100),
+        price_cents: itemPriceCents(item.price) ?? 0,
         source: "manual",
       })
       .select("id")
@@ -164,7 +165,7 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
           business_id: businessId,
           modifier_group_id: modifierGroup.id,
           name: o.name,
-          price_delta_cents: Math.round((parseFloat(o.priceDelta) || 0) * 100),
+          price_delta_cents: addonDeltaCents(o.priceDelta) ?? 0,
         }));
       if (optionRows.length > 0) {
         const { error: optionsError } = await admin.from("modifiers").insert(optionRows);

@@ -1,4 +1,5 @@
 "use server";
+import { itemPriceCents, addonDeltaCents, PRICE_ERROR, ADDON_PRICE_ERROR, MAX_PRICE_CENTS } from "@/lib/menu/price";
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -74,6 +75,8 @@ export async function addMenuItemAction(input: MenuItemInput & { newCategoryName
   const admin = createAdminClient();
 
   if (!input.name.trim()) return { success: false, error: "Give the item a name." };
+  const priceCents = itemPriceCents(input.price);
+  if (priceCents === null) return { success: false, error: PRICE_ERROR };
   const sameNamed = await findSameNamedItem(admin, businessId, input.name);
   if (sameNamed) return { success: false, error: alreadyOnMenu(sameNamed) };
 
@@ -101,7 +104,7 @@ export async function addMenuItemAction(input: MenuItemInput & { newCategoryName
     category_id: categoryId,
     name: input.name,
     description: input.description || null,
-    price_cents: Math.round((parseFloat(input.price) || 0) * 100),
+    price_cents: priceCents,
     source: "manual",
   }).select("id").single();
   if (error || !created) return dbErrorResult(error, "addMenuItemAction", "Could not add that item.");
@@ -201,6 +204,8 @@ export async function updateMenuItemAction(itemId: string, input: MenuItemInput)
 
   const sameNamed = await findSameNamedItem(admin, businessId, input.name, itemId);
   if (sameNamed) return { success: false, error: `"${sameNamed}" is already on your menu, so this item can't have the same name.` };
+  const priceCents = itemPriceCents(input.price);
+  if (priceCents === null) return { success: false, error: PRICE_ERROR };
 
   const { error } = await admin
     .from("menu_items")
@@ -208,7 +213,7 @@ export async function updateMenuItemAction(itemId: string, input: MenuItemInput)
       category_id: input.categoryId,
       name: input.name,
       description: input.description || null,
-      price_cents: Math.round((parseFloat(input.price) || 0) * 100),
+      price_cents: priceCents,
     })
     .eq("id", itemId)
     .eq("business_id", businessId); // IDOR-safe: scoped to this business, never trusted from the client alone
@@ -241,7 +246,7 @@ export async function updateMenuItemTimePricingAction(itemId: string, input: Tim
 
   const specialPriceCents = input.specialPrice.trim() ? Math.round(parseFloat(input.specialPrice) * 100) : null;
   const wantsSpecial = specialPriceCents != null;
-  if (wantsSpecial && (!Number.isFinite(specialPriceCents) || specialPriceCents < 0)) {
+  if (wantsSpecial && (!Number.isFinite(specialPriceCents) || specialPriceCents < 0 || specialPriceCents > MAX_PRICE_CENTS)) {
     return { success: false, error: "Enter the special price as a dollar amount, like 9.99." };
   }
 
@@ -308,6 +313,7 @@ export async function addModifierGroupAction(menuItemId: string, input: Modifier
   // same check attachAddonTemplateAction already does below.
   const { data: item } = await admin.from("menu_items").select("id").eq("id", menuItemId).eq("business_id", businessId).maybeSingle();
   if (!item) return { success: false, error: "Could not find that item." };
+  if (input.options.some((o) => o.name.trim() && addonDeltaCents(o.priceDelta) === null)) return { success: false, error: ADDON_PRICE_ERROR };
 
   const { data: group, error: groupError } = await admin
     .from("modifier_groups")
@@ -320,7 +326,7 @@ export async function addModifierGroupAction(menuItemId: string, input: Modifier
     business_id: businessId,
     modifier_group_id: group.id,
     name: o.name,
-    price_delta_cents: Math.round((parseFloat(o.priceDelta) || 0) * 100),
+    price_delta_cents: addonDeltaCents(o.priceDelta) ?? 0,
   }));
   if (optionRows.length > 0) {
     const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
@@ -354,6 +360,7 @@ export async function createAddonTemplateAction(input: ModifierGroupInput): Prom
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
+  if (input.options.some((o) => o.name.trim() && addonDeltaCents(o.priceDelta) === null)) return { success: false, error: ADDON_PRICE_ERROR };
 
   const { data: group, error: groupError } = await admin
     .from("modifier_groups")
@@ -366,7 +373,7 @@ export async function createAddonTemplateAction(input: ModifierGroupInput): Prom
     business_id: businessId,
     modifier_group_id: group.id,
     name: o.name,
-    price_delta_cents: Math.round((parseFloat(o.priceDelta) || 0) * 100),
+    price_delta_cents: addonDeltaCents(o.priceDelta) ?? 0,
   }));
   if (optionRows.length > 0) {
     const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
@@ -392,6 +399,8 @@ export async function addAddonTemplateOptionAction(templateId: string, name: str
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
   if (!name.trim()) return { success: false, error: "Option name is required." };
+  const deltaCents = addonDeltaCents(priceDelta);
+  if (deltaCents === null) return { success: false, error: ADDON_PRICE_ERROR };
 
   // Confirm this template actually belongs to this business before
   // attaching an option to it — modifiers rows aren't otherwise scoped
@@ -403,7 +412,7 @@ export async function addAddonTemplateOptionAction(templateId: string, name: str
     business_id: businessId,
     modifier_group_id: templateId,
     name,
-    price_delta_cents: Math.round((parseFloat(priceDelta) || 0) * 100),
+    price_delta_cents: deltaCents,
   });
   if (error) return dbErrorResult(error, "addAddonTemplateOptionAction", "Could not add that option.");
   revalidatePath("/dashboard/menu");
@@ -675,7 +684,7 @@ export async function importMenuItemsAction(incoming: ExtractedMenuItem[]): Prom
         category_id: categoryId,
         name: item.name,
         description: item.description || null,
-        price_cents: Math.round((parseFloat(item.priceDollars) || 0) * 100),
+        price_cents: itemPriceCents(item.priceDollars) ?? 0,
         source: "import",
       })
       .select("id")
@@ -706,7 +715,7 @@ export async function importMenuItemsAction(incoming: ExtractedMenuItem[]): Prom
             business_id: businessId,
             modifier_group_id: templateId,
             name: o.name,
-            price_delta_cents: Math.round((parseFloat(o.priceDeltaDollars) || 0) * 100),
+            price_delta_cents: addonDeltaCents(o.priceDeltaDollars) ?? 0,
           }));
           if (optionRows.length > 0) {
             const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
@@ -733,7 +742,7 @@ export async function importMenuItemsAction(incoming: ExtractedMenuItem[]): Prom
         business_id: businessId,
         modifier_group_id: modifierGroup.id,
         name: o.name,
-        price_delta_cents: Math.round((parseFloat(o.priceDeltaDollars) || 0) * 100),
+        price_delta_cents: addonDeltaCents(o.priceDeltaDollars) ?? 0,
       }));
       if (optionRows.length > 0) {
         const { error: optionsError } = await admin.from("modifiers").insert(optionRows);
