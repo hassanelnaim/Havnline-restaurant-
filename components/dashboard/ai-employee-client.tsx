@@ -220,7 +220,7 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
       </Tabs>
 
       {/* One save bar for everything; only when something changed. */}
-      <div className={cn("fixed inset-x-0 bottom-0 z-30 transition-transform duration-300 lg:left-64", dirty || saved || error ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0")}>
+      <div inert={!(dirty || saved || error)} className={cn("fixed inset-x-0 bottom-0 z-30 transition-transform duration-300 lg:left-64", dirty || saved || error ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0")}>
         <div className="mx-auto mb-4 flex max-w-3xl items-center gap-3 rounded-2xl border border-border bg-ink px-4 py-3 text-white shadow-popover">
           {saved && !dirty ? (
             <span className="flex items-center gap-2 text-[13px] font-medium"><Check className="h-4 w-4 text-success" /> Saved. Your AI uses this on the next call.</span>
