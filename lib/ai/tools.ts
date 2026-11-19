@@ -304,7 +304,9 @@ async function add_item_to_order(
     }
   }
 
-  const quantity = Math.max(1, input.quantity || 1);
+  const q = readQuantity(input.quantity, false);
+  if (!q.ok) return { success: false, reason: q.reason };
+  const quantity = q.value;
   const requestedModifierNames = (input.modifier_names || []).map((n) => normalizeForMatch(n));
   const allModifiers = menuItem.modifier_groups.flatMap((g) => g.modifiers);
   const matchedModifiers = allModifiers.filter((m) => requestedModifierNames.includes(normalizeForMatch(m.name)));
@@ -440,6 +442,38 @@ async function add_item_to_order(
 // model actually completing BOTH steps; a model that says "I'll fix
 // that" and only completes (or only attempts) one of them leaves the
 // order silently wrong — exactly the real-world failure this closes.
+/**
+ * The most of one item a phone order takes. Real orders are a handful of
+ * each; a bigger number is nearly always a mishearing ("fifty" for "fifteen",
+ * "a hundred"), and a large catering order is better handled by a person.
+ */
+export const MAX_ITEM_QUANTITY = 50;
+
+/**
+ * Checks a quantity the model sent. A negative number used to be read as
+ * zero (removing the item without saying so) and a fraction reached the
+ * database as an error; both now come back as a reason to ask the caller.
+ * Missing means 1 when adding. Zero is allowed only when changing a
+ * quantity, where it means "take it off".
+ */
+function readQuantity(raw: unknown, allowZero: boolean): { ok: true; value: number } | { ok: false; reason: string } {
+  if (raw === undefined || raw === null) return allowZero ? { ok: false, reason: "Say how many they want now (the new total)." } : { ok: true, value: 1 };
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isFinite(n) || !Number.isInteger(n) || n < (allowZero ? 0 : 1)) {
+    return {
+      ok: false,
+      reason: `Nothing changed: ${JSON.stringify(raw)} isn't a valid amount. Use a whole number${allowZero ? " for the new total (0 takes it off the order)" : " of at least 1"}. Ask the caller how many they want if you're not sure.`,
+    };
+  }
+  if (n > MAX_ITEM_QUANTITY) {
+    return {
+      ok: false,
+      reason: `Nothing changed: ${n} is more than ${MAX_ITEM_QUANTITY} of one item, which this phone line doesn't take in one order. Read the number back to the caller to make sure you heard it right. If they really want that many, offer to connect them to the restaurant for a large order (escalate_to_human).`,
+    };
+  }
+  return { ok: true, value: n };
+}
+
 async function update_item_quantity(input: { item_name: string; quantity: number }, ctx: ToolContext): Promise<ToolResult> {
   const admin = createAdminClient();
   const { data: order } = await admin.from("orders").select("id").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
@@ -455,7 +489,9 @@ async function update_item_quantity(input: { item_name: string; quantity: number
 
   if (!matches || matches.length === 0) return { success: false, reason: `"${input.item_name}" isn't in the current order.` };
 
-  const newQuantity = Math.round(input.quantity);
+  const q = readQuantity(input.quantity, true);
+  if (!q.ok) return { success: false, reason: q.reason };
+  const newQuantity = q.value;
   if (newQuantity <= 0) {
     // Same end state as remove_item_from_order — "change it to 0" means
     // take it off the order entirely.

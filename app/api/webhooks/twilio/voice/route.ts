@@ -219,6 +219,33 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   timer.mark("start_call");
   timer.set("call", shortId(callId));
 
+  // The count above can't see calls arriving at the same instant: three at
+  // once all counted zero and were all answered. Now that this call is
+  // recorded, it checks its place in line; past the limit, it ends here.
+  if (normalizedCallerNumber.length >= 10) {
+    const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data: open } = await admin
+      .from("calls")
+      .select("id")
+      .eq("business_id", businessId)
+      .eq("phone", callerNumber)
+      .eq("status", "in_progress")
+      .gte("started_at", since)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(MAX_OPEN_CALLS_PER_CALLER + 1);
+    const ahead = (open || []).map((c) => c.id);
+    if (ahead.length > MAX_OPEN_CALLS_PER_CALLER && !ahead.slice(0, MAX_OPEN_CALLS_PER_CALLER).includes(callId)) {
+      timer.set("path", "caller_limit");
+      await admin.from("calls").update({ status: "completed" }).eq("id", callId);
+      const capVoice = { voiceId: context.voice?.voice_id, providerVoiceRef: context.voice?.provider_voice_ref, ttsDegraded };
+      return twiml(`<Response>
+  ${sayLine(capVoice, ALREADY_ON_LINE_LINE, businessId)}
+  <Hangup/>
+</Response>`);
+    }
+  }
+
   await admin.from("call_messages").insert({ call_id: callId, role: "system", content: `Inbound call from ${callerNumber} to ${dialedNumber}` });
   timer.mark("log_call");
 
