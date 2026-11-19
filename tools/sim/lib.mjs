@@ -145,7 +145,7 @@ export async function runCall({ to, from, token, say = [], callSid, playAudio = 
         if (isContinue) continue;
         // A real caller repeats themselves when asked to.
         const lastAi = [...transcript].reverse().find((t) => t.who === "ai")?.text || "";
-        const asked = /say (that|it) (one more time|again)|missed that|could you repeat|didn.t catch/i.test(lastAi) && utter > 0 && repeats < 3;
+        const asked = /say (that|it) (one more time|again)|missed that|could you repeat|didn.t catch/i.test(lastAi) && utter > 0 && say[utter - 1] !== null && repeats < 3;
         if (asked) repeats++;
         else repeats = 0;
         const line = asked ? say[utter - 1] : utter < say.length ? say[utter] : undefined;
