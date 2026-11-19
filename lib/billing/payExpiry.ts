@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { accountForPayment, cancelOrderPayment } from "@/lib/billing/stripeConnect";
+import { recordPaymentIfWebhookMissed } from "@/lib/billing/connectPayments";
 
 /**
  * Payment links run out after 30 minutes (lib/billing/payLink.ts). Stripe
@@ -24,7 +25,11 @@ export async function expireOrderPayLink(order: ExpirableOrder, businessAccountI
   const account = accountForPayment(order, businessAccountId);
   if (order.stripe_payment_intent_id && account) {
     const cancelled = await cancelOrderPayment(account, order.stripe_payment_intent_id);
-    if (!cancelled.success) return false;
+    if (!cancelled.success) {
+      // Paid in time: make sure it's recorded even if its webhook never came.
+      if (cancelled.alreadyPaid) await recordPaymentIfWebhookMissed(account, order.stripe_payment_intent_id);
+      return false;
+    }
   }
   await admin.from("orders").update({ status: "cancelled", payment_status: "failed" }).eq("id", order.id).eq("payment_status", "awaiting_payment");
   return true;
@@ -35,7 +40,10 @@ export async function expireAddendumPayLink(addendum: ExpirableOrder, businessAc
   const account = accountForPayment(addendum, businessAccountId);
   if (addendum.stripe_payment_intent_id && account) {
     const cancelled = await cancelOrderPayment(account, addendum.stripe_payment_intent_id);
-    if (!cancelled.success) return false;
+    if (!cancelled.success) {
+      if (cancelled.alreadyPaid) await recordPaymentIfWebhookMissed(account, addendum.stripe_payment_intent_id);
+      return false;
+    }
   }
   await admin.from("order_addendum_charges").update({ status: "expired" }).eq("id", addendum.id).eq("status", "awaiting_payment");
   return true;

@@ -9,6 +9,8 @@ import { PayForm } from "@/components/pay/pay-form";
 import { looksLikePayToken } from "@/lib/billing/payLink";
 import { accountForPayment, ensurePaymentDomain, getPaymentForPage } from "@/lib/billing/stripeConnect";
 import { expireAddendumPayLink, expireOrderPayLink } from "@/lib/billing/payExpiry";
+import { recordPaymentIfWebhookMissed } from "@/lib/billing/connectPayments";
+import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import type { PendingAddendumItem } from "@/lib/billing/orderItemAddition";
 
 export const dynamic = "force-dynamic";
@@ -216,7 +218,14 @@ export default async function PayPage(props: { params: Promise<{ token: string }
     // Lets Apple Pay and Google Pay show; cards work either way.
     ensurePaymentDomain(data.businessId, data.account, data.business.stripe_pm_domain_account, siteUrl),
   ]);
-  if (payment.status === "succeeded" || payment.status === "processing") return paidNotice;
+  if (payment.status === "succeeded") {
+    // The page is open but the order still waits for payment: Stripe says it
+    // was paid, so its webhook hasn't arrived (or never will). Record it now,
+    // after the page is sent, so the order still reaches the kitchen.
+    runAfterResponse("record payment the webhook missed", recordPaymentIfWebhookMissed(data.account, data.paymentIntentId));
+    return paidNotice;
+  }
+  if (payment.status === "processing") return paidNotice;
   if (payment.status === "canceled") return deadNotice;
   if (!payment.clientSecret) {
     return <Notice icon={<XCircle className="mx-auto h-10 w-10 text-danger" />} title="Payment isn't available right now" body={`Nothing was charged. Try again in a minute, or call ${name}.`} />;

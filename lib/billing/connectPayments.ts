@@ -7,6 +7,7 @@ import { smsClient } from "@/lib/integrations/sms";
 import { sendOrderAttentionEmail, sendOrderRefundedEmail } from "@/lib/notifications/account-email";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { feeOwedForRefund, getApplicationFee, accountForPayment } from "@/lib/billing/stripeConnect";
+import { getStripeClient } from "@/lib/billing/stripe";
 import type { OrderWithItems } from "@/lib/database/types";
 
 /**
@@ -68,6 +69,33 @@ export function paymentFromIntent(intent: Stripe.PaymentIntent): CompletedPaymen
     paid: intent.status === "succeeded",
     metadata: (intent.metadata || {}) as Record<string, string>,
   };
+}
+
+/**
+ * Safety net for a payment whose webhook never arrived (the event isn't
+ * subscribed on the Connect endpoint, the endpoint was down, Stripe is
+ * slow). Asks Stripe directly and, if the customer paid, records it exactly
+ * as the webhook would: paid, printed, confirmation texted. Recording twice
+ * is harmless (the paid claim is atomic). Used when the pay page sees a
+ * finished payment and when an expiring link finds it was paid.
+ */
+export async function recordPaymentIfWebhookMissed(accountId: string, paymentIntentId: string): Promise<boolean> {
+  const stripe = getStripeClient();
+  if (!stripe) return false;
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await stripe.paymentIntents.retrieve(paymentIntentId, {}, { stripeAccount: accountId });
+  } catch (err) {
+    console.error(`[pay] could not check payment ${paymentIntentId}:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+  if (intent.status !== "succeeded" || intent.metadata?.havnline_pay_page !== "1") return false;
+  const payment = paymentFromIntent(intent);
+  const eventId = `pay-check:${intent.id}`;
+  if (payment.metadata.addendum_id) await handleAddendumPaid(eventId, accountId, payment);
+  else if (payment.metadata.order_id) await handleOrderPaid(eventId, accountId, payment);
+  else return false;
+  return true;
 }
 
 /** Why this event can't be for this order/charge, or null if it checks out. */
