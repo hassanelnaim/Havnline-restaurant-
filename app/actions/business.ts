@@ -14,6 +14,8 @@ import { setMoneyPin } from "@/lib/security/moneyPin";
 import { scanInstructions } from "@/lib/compliance/checks";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { toDialableNumber } from "@/lib/ai/liveTransfer";
+import { checkRateLimit } from "@/lib/security/rateLimit";
+import { sendPlatformAlert } from "@/lib/monitoring/platformAlert";
 
 async function requireBusinessId(): Promise<string> {
   const supabase = await createClient();
@@ -398,6 +400,23 @@ function validateAreaCode(areaCode: string | undefined): string | null {
   return null;
 }
 
+/**
+ * One number request at a time per restaurant. A double click, or two tabs,
+ * used to buy two or three numbers (each in its own new Twilio sub-account),
+ * all billed monthly. The claim is one atomic database step, let go when
+ * the request finishes either way (and lapsing after 2 minutes if the
+ * server stopped mid-request), so the next request can start straight away.
+ */
+const NUMBER_REQUEST_BUSY = "A number request is already in progress. Give it a moment, then refresh the page.";
+const numberRequestKey = (businessId: string) => `number_request:${businessId}`;
+async function claimNumberRequest(businessId: string): Promise<boolean> {
+  return checkRateLimit(numberRequestKey(businessId), 1, 2);
+}
+async function releaseNumberRequest(businessId: string): Promise<void> {
+  const { error } = await createAdminClient().from("rate_limit_hits").delete().eq("rate_key", numberRequestKey(businessId));
+  if (error) console.error("[numbers] could not release the number request claim:", error.message);
+}
+
 export async function provisionPhoneNumberAction(areaCode?: string): Promise<ProvisionResult> {
   const areaCodeError = validateAreaCode(areaCode);
   if (areaCodeError) return { success: false, error: areaCodeError };
@@ -416,13 +435,33 @@ export async function provisionPhoneNumberAction(areaCode?: string): Promise<Pro
   if (subscriptionError) return { success: false, error: subscriptionError };
 
   const admin = createAdminClient();
+  // A restaurant that already has a number changes it instead (a second tab
+  // left open on "Get a number" must not buy another one).
+  const { data: current } = await admin.from("integrations").select("status, metadata").eq("business_id", businessId).eq("provider", "twilio").maybeSingle();
+  if (current?.status === "connected" && (current.metadata as Record<string, unknown> | null)?.phone_number) {
+    return { success: false, error: "You already have a number. Refresh the page to see it." };
+  }
+  if (!(await claimNumberRequest(businessId))) return { success: false, error: NUMBER_REQUEST_BUSY };
+
   const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
 
   const subAccount = await getOrCreateSubAccount(businessId, business?.name || "Business");
-  if ("error" in subAccount) return { success: false, error: subAccount.error };
+  if ("error" in subAccount) {
+    await releaseNumberRequest(businessId);
+    return { success: false, error: subAccount.error };
+  }
 
   const result = await provisionNumber({ accountSid: subAccount.accountSid, authToken: subAccount.authToken }, areaCode);
-  if (!result.success || !result.phoneNumber) return { success: false, error: result.reason || "Could not provision a number." };
+  if (!result.success || !result.phoneNumber) {
+    // The sub-account is kept (saved below with no number) so the next try
+    // reuses it instead of creating another.
+    await admin.from("integrations").upsert(
+      { business_id: businessId, provider: "twilio", status: "not_connected", metadata: { subaccount_sid: subAccount.accountSid, subaccount_auth_token: sealSecret(subAccount.authToken) } },
+      { onConflict: "business_id,provider" }
+    );
+    await releaseNumberRequest(businessId);
+    return { success: false, error: result.reason || "Could not provision a number." };
+  }
 
   await admin.from("integrations").upsert(
     {
@@ -435,6 +474,7 @@ export async function provisionPhoneNumberAction(areaCode?: string): Promise<Pro
     { onConflict: "business_id,provider" }
   );
 
+  await releaseNumberRequest(businessId);
   revalidatePath("/dashboard/integrations");
   revalidatePath("/dashboard/settings");
   return { success: true, phoneNumber: result.phoneNumber };
@@ -468,20 +508,23 @@ export async function changePhoneNumberAction(areaCode?: string): Promise<Provis
   const subAccountSid = meta?.subaccount_sid as string | undefined;
   const subAccountAuthToken = openSecret(meta?.subaccount_auth_token as string | undefined);
 
-  if (currentNumber) {
-    const releaseCreds = subAccountSid && subAccountAuthToken ? { accountSid: subAccountSid, authToken: subAccountAuthToken } : null;
-    await releaseNumber(releaseCreds, currentNumber);
-  }
+  if (!(await claimNumberRequest(businessId))) return { success: false, error: NUMBER_REQUEST_BUSY };
 
+  // The new number is bought FIRST and the old one released only once the
+  // new one is saved. It used to be the other way round: when the purchase
+  // failed (no numbers in that area code) the restaurant was left with no
+  // number at all, and calls to the old one went nowhere.
   const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
   const subAccount = await getOrCreateSubAccount(businessId, business?.name || "Business");
-  if ("error" in subAccount) return { success: false, error: subAccount.error };
+  if ("error" in subAccount) {
+    await releaseNumberRequest(businessId);
+    return { success: false, error: subAccount.error };
+  }
 
   const result = await provisionNumber({ accountSid: subAccount.accountSid, authToken: subAccount.authToken }, areaCode);
   if (!result.success || !result.phoneNumber) {
-    await admin.from("integrations").update({ status: "not_connected", metadata: null }).eq("business_id", businessId).eq("provider", "twilio");
-    revalidatePath("/dashboard/integrations");
-    return { success: false, error: result.reason || "Could not provision a new number." };
+    await releaseNumberRequest(businessId);
+    return { success: false, error: `${result.reason || "Could not get a new number."} Your current number still works.` };
   }
 
   await admin.from("integrations").upsert(
@@ -495,6 +538,32 @@ export async function changePhoneNumberAction(areaCode?: string): Promise<Provis
     { onConflict: "business_id,provider" }
   );
 
+  // Now the old number goes. If Twilio won't release it, it keeps being
+  // billed, so HavnLine is told to release it by hand.
+  if (currentNumber && currentNumber !== result.phoneNumber) {
+    const releaseCreds = subAccountSid && subAccountAuthToken ? { accountSid: subAccountSid, authToken: subAccountAuthToken } : null;
+    const released = await releaseNumber(releaseCreds, currentNumber);
+    if (!released.success) {
+      console.error(`[numbers] business ${businessId}: old number ${currentNumber} was not released: ${released.reason}`);
+      runAfterResponse(
+        "old number release alert",
+        sendPlatformAlert({
+          key: `number-release-failed:${currentNumber}`,
+          subject: "HavnLine: release an old phone number by hand",
+          heading: "A restaurant changed numbers but the old one wasn't released",
+          intro: "The new number is live. The old one is still on the Twilio sub-account and still billed. Release it in the Twilio console.",
+          rows: [
+            { label: "Business", value: businessId },
+            { label: "Old number", value: currentNumber },
+            { label: "Sub-account", value: subAccountSid || "unknown" },
+            { label: "Reason", value: (released.reason || "unknown").slice(0, 300) },
+          ],
+        })
+      );
+    }
+  }
+
+  await releaseNumberRequest(businessId);
   revalidatePath("/dashboard/integrations");
   return { success: true, phoneNumber: result.phoneNumber };
 }
