@@ -435,13 +435,15 @@ export async function provisionPhoneNumberAction(areaCode?: string): Promise<Pro
   if (subscriptionError) return { success: false, error: subscriptionError };
 
   const admin = createAdminClient();
-  // A restaurant that already has a number changes it instead (a second tab
-  // left open on "Get a number" must not buy another one).
+  if (!(await claimNumberRequest(businessId))) return { success: false, error: NUMBER_REQUEST_BUSY };
+  // Checked while holding the claim: a restaurant that already has a number
+  // changes it instead (a second tab left open on "Get a number" must not
+  // buy another one, even if it waited for the first request to finish).
   const { data: current } = await admin.from("integrations").select("status, metadata").eq("business_id", businessId).eq("provider", "twilio").maybeSingle();
   if (current?.status === "connected" && (current.metadata as Record<string, unknown> | null)?.phone_number) {
+    await releaseNumberRequest(businessId);
     return { success: false, error: "You already have a number. Refresh the page to see it." };
   }
-  if (!(await claimNumberRequest(businessId))) return { success: false, error: NUMBER_REQUEST_BUSY };
 
   const { data: business } = await admin.from("businesses").select("name").eq("id", businessId).single();
 
