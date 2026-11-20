@@ -411,6 +411,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m046", label: "046 Stripe account per payment" },
   { key: "m047", label: "047 HavnLine payment page" },
   { key: "m048", label: "048 sweep fixes" },
+  { key: "m049", label: "049 messages to restaurants" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {

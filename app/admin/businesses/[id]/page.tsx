@@ -81,6 +81,9 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
         </div>
         <div className="flex items-center gap-3">
           <StatusEditor businessId={business.id} currentStatus={business.subscription_status} />
+          <Link href={`/admin/messages?to=${business.id}`} className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-[12.5px] font-medium text-ink hover:bg-paper">
+            Send message
+          </Link>
           <BusinessActions businessId={business.id} businessName={business.name} isSuspended={business.is_suspended} />
         </div>
       </div>
