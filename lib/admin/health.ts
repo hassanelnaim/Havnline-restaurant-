@@ -412,6 +412,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m047", label: "047 HavnLine payment page" },
   { key: "m048", label: "048 sweep fixes" },
   { key: "m049", label: "049 messages to restaurants" },
+  { key: "m050", label: "050 pause AI for updates" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {

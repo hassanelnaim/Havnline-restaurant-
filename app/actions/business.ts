@@ -1,5 +1,7 @@
 "use server";
 
+import { getPauseState } from "@/lib/ai/pause";
+
 import { revalidatePath } from "next/cache";
 import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
 import { openSecret, sealSecret } from "@/lib/security/secretBox";
@@ -355,6 +357,9 @@ export async function toggleAiStatusAction(online: boolean): Promise<ActionResul
   if (online) {
     const suspendedError = await requireNotSuspended(businessId);
     if (suspendedError) return { success: false, error: suspendedError };
+
+    const pause = await getPauseState(businessId);
+    if (pause.active) return { success: false, error: "HavnLine has paused your AI for an update. It turns back on by itself when the update is done." };
 
     const subscriptionError = await requireOperationalSubscription(businessId);
     if (subscriptionError) return { success: false, error: subscriptionError };

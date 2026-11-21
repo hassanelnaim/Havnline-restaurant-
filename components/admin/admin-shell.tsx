@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, HeartPulse, Building2, Server, Star, Menu, X, ArrowLeft, Mail } from "lucide-react";
+import { LayoutGrid, HeartPulse, Building2, Server, Star, Menu, X, ArrowLeft, Mail, PauseCircle } from "lucide-react";
 import { LogoMark, LogoWordmark } from "@/components/brand/logo";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin/businesses", label: "Businesses", icon: Building2 },
   { href: "/admin/providers", label: "Providers", icon: Server },
   { href: "/admin/messages", label: "Messages", icon: Mail },
+  { href: "/admin/pause", label: "Pause AI", icon: PauseCircle },
   { href: "/admin/reviews", label: "Reviews", icon: Star },
 ];
 

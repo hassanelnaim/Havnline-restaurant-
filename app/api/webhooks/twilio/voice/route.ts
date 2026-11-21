@@ -12,7 +12,8 @@ import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
-import { isTransferLoop, escalationTargetPhone, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
+import { isTransferLoop, escalationTargetPhone, toDialableNumber, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
+import { getPauseState } from "@/lib/ai/pause";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { warmCallRoutes } from "@/lib/ai/warmup";
 
@@ -102,7 +103,7 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   // instead of one after another — the caller is listening to silence for
   // the whole of this. (The business context itself is ten queries that
   // already run in parallel.)
-  const [context, businessRes, blockedRes, ttsDegraded] = await Promise.all([
+  const [context, businessRes, blockedRes, ttsDegraded, pause] = await Promise.all([
     loadBusinessContext(businessId),
     admin.from("businesses").select("subscription_status, is_suspended").eq("id", businessId).single(),
     // Silently reject a number this business has blocked (see Callers
@@ -114,6 +115,8 @@ async function handleVoice(request: NextRequest, timer: Timer) {
     // mid-order.
     admin.from("customers").select("phone").eq("business_id", businessId).eq("is_blocked", true),
     isTtsDegraded(),
+    // HavnLine pausing the AI for an update (Admin > Pause AI).
+    getPauseState(businessId),
   ]);
   timer.mark("lookups");
 
@@ -157,6 +160,22 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   ${sayLine(closedVoice, closedLine, businessId)}
   <Hangup/>
 </Response>`);
+  }
+
+  // Paused by HavnLine for an update: the AI doesn't answer, and the call
+  // rings the restaurant's own phone so they still get the order. The
+  // fallback route handles the end of that <Dial> (hang up if it was
+  // answered, apologise if not). Built-in voice only, nothing that the
+  // update might be touching.
+  if (pause.active) {
+    timer.set("path", "paused");
+    const target = toDialableNumber(escalationTargetPhone(context.business));
+    const name = escapeXml(context.business.name);
+    if (!target || isTransferLoop({ from: callerNumber, to: params.To || "", restaurantPhone: target, recentTransfer: true })) {
+      return twiml(`<Response><Say>Thanks for calling ${name}. Our phone ordering is down for a short update. Please try again a little later.</Say><Hangup/></Response>`);
+    }
+    const action = `${SITE_URL}/api/webhooks/twilio/voice-fallback`;
+    return twiml(`<Response><Say>Thanks for calling ${name}. Please hold while I connect you to the restaurant.</Say><Dial callerId="${escapeXml(params.To || "")}" timeout="25" action="${escapeXml(action)}" method="POST">${escapeXml(target)}</Dial></Response>`);
   }
 
   // A live transfer rings the escalation number (or the main line); if that

@@ -10,10 +10,12 @@ import { LogoMark, LogoWordmark } from "@/components/brand/logo";
 import { initials } from "@/lib/format";
 
 export function DashboardShell({
-  businessName, initialStatus, userFullName, children,
+  businessName, initialStatus, pausedUntil = null, userFullName, children,
 }: {
   businessName: string;
   initialStatus: "online" | "offline";
+  /** Set while HavnLine has the AI paused: the end time, or "" for until resumed. */
+  pausedUntil?: string | null;
   userFullName: string;
   children: React.ReactNode;
 }) {
@@ -45,7 +47,7 @@ export function DashboardShell({
                 <div className="text-[10.5px] text-[#8A90A0]">Answers your phone</div>
               </div>
             </div>
-            <div className="mt-2.5"><AiStatusToggle initialStatus={initialStatus} tone="light" /></div>
+            <div className="mt-2.5"><AiStatusToggle initialStatus={initialStatus} pausedUntil={pausedUntil} tone="light" /></div>
           </div>
         </div>
       </aside>
@@ -70,7 +72,7 @@ export function DashboardShell({
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card px-4 py-3 lg:px-6 print:hidden">
           <div className="flex items-center gap-3">
             <button onClick={() => setMobileOpen(true)} className="text-text-muted lg:hidden" aria-label="Open menu"><Menu className="h-5 w-5" /></button>
-            <AiStatusToggle initialStatus={initialStatus} />
+            <AiStatusToggle initialStatus={initialStatus} pausedUntil={pausedUntil} />
           </div>
           <div className="relative">
             <button onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2">

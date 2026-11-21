@@ -1,21 +1,16 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Send, FlaskConical, Search } from "lucide-react";
+import { Send, FlaskConical } from "lucide-react";
 import { countMessageAudienceAction, sendPlatformMessageAction, sendTestMessageAction } from "@/app/actions/platform-messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AudiencePicker, estimateAudience, toAudience, type AudienceState, type ComposerRestaurant } from "@/components/admin/audience-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import type { MessageAudience } from "@/lib/admin/messages";
 
-export interface ComposerRestaurant {
-  id: string;
-  name: string;
-  status: string;
-  isSuspended: boolean;
-}
+export type { ComposerRestaurant };
 
 interface Props {
   restaurants: ComposerRestaurant[];
@@ -26,8 +21,6 @@ interface Props {
   initialSelected: string[];
 }
 
-type Mode = "all" | "status" | "selected";
-
 function newSendKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
@@ -35,10 +28,7 @@ function newSendKey(): string {
 export function MessageComposer({ restaurants, statuses, subjectMax, bodyMax, initialSelected }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [mode, setMode] = useState<Mode>(initialSelected.length ? "selected" : "all");
-  const [picked, setPicked] = useState<string[]>(["active", "trialing"]);
-  const [selected, setSelected] = useState<string[]>(initialSelected);
-  const [search, setSearch] = useState("");
+  const [aud, setAud] = useState<AudienceState>({ mode: initialSelected.length ? "selected" : "all", picked: ["active", "trialing"], selected: initialSelected });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState<null | "test" | "count" | "send">(null);
@@ -47,16 +37,9 @@ export function MessageComposer({ restaurants, statuses, subjectMax, bodyMax, in
   // One key per message: a double click, or a retry after a slow answer, can't send twice.
   const [sendKey, setSendKey] = useState(newSendKey);
 
-  const audience: MessageAudience = mode === "all" ? { kind: "all" } : mode === "status" ? { kind: "status", statuses: picked } : { kind: "selected", businessIds: selected };
+  const audience = toAudience(aud);
+  const estimate = estimateAudience(aud, restaurants);
 
-  const estimate = useMemo(() => {
-    if (mode === "all") return restaurants.length;
-    if (mode === "selected") return selected.length;
-    const want = new Set(picked);
-    return restaurants.filter((r) => (want.has("suspended") && r.isSuspended) || want.has(r.status || "none")).length;
-  }, [mode, picked, selected, restaurants]);
-
-  const shown = restaurants.filter((r) => r.name.toLowerCase().includes(search.trim().toLowerCase()));
   const textReady = subject.trim().length > 0 && body.trim().length > 0 && subject.length <= subjectMax && body.length <= bodyMax;
 
   function sendTest() {
@@ -107,61 +90,9 @@ export function MessageComposer({ restaurants, statuses, subjectMax, bodyMax, in
     });
   }
 
-  const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
-
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-      <fieldset>
-        <legend className="text-[13px] font-semibold text-ink">Who gets it</legend>
-        <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
-          {([["all", "All restaurants"], ["status", "By status"], ["selected", "Pick restaurants"]] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={mode === value}
-              onClick={() => setMode(value)}
-              className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium ${mode === value ? "border-brand bg-brand-soft text-brand" : "border-border text-text-muted hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {mode === "status" && (
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-            {statuses.map((s) => (
-              <label key={s.value} className="flex items-center gap-2 text-[13px] text-ink">
-                <input type="checkbox" id={`status-${s.value}`} checked={picked.includes(s.value)} onChange={() => setPicked((p) => toggle(p, s.value))} />
-                {s.label}
-              </label>
-            ))}
-          </div>
-        )}
-
-        {mode === "selected" && (
-          <div className="mt-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-faint" />
-              <Input id="restaurant-search" className="pl-8" placeholder="Search restaurants" value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border">
-              {shown.length === 0 ? (
-                <div className="px-3 py-2.5 text-[12.5px] text-text-muted">No restaurants match.</div>
-              ) : (
-                shown.map((r) => (
-                  <label key={r.id} className="flex items-center gap-2.5 border-b border-border px-3 py-2 text-[13px] text-ink last:border-0">
-                    <input type="checkbox" checked={selected.includes(r.id)} onChange={() => setSelected((s) => toggle(s, r.id))} />
-                    <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                    <span className="text-[11.5px] text-text-faint">{r.isSuspended ? "suspended" : r.status || "none"}</span>
-                  </label>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-        <p className="mt-2 text-[12.5px] text-text-muted">{estimate === 1 ? "1 restaurant" : `${estimate} restaurants`} will get this.</p>
-      </fieldset>
+      <AudiencePicker legend="Who gets it" verb="will get this" restaurants={restaurants} statuses={statuses} value={aud} onChange={setAud} />
 
       <div className="mt-5">
         <Label htmlFor="message-subject">Subject</Label>

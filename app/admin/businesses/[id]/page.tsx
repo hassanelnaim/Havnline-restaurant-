@@ -12,6 +12,8 @@ import { getBusinessAgreements } from "@/lib/admin/agreements";
 import { TERMS_VERSION } from "@/lib/legal/versions";
 import { formatDate } from "@/lib/format";
 import { StatusEditor } from "@/components/admin/status-editor";
+import { PauseControls } from "@/components/admin/pause-controls";
+import { getPauseState, type PauseState } from "@/lib/ai/pause";
 import { FeeEditor } from "@/components/admin/fee-editor";
 import { IssuesPanel } from "@/components/admin/issues-panel";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
@@ -61,10 +63,11 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
     approved: integrationRows.some((r) => r.provider === "sms" && r.status === "connected"),
   };
 
-  const [costs, issues, agreements] = await Promise.all([
+  const [costs, issues, agreements, pauseState] = await Promise.all([
     getBusinessCostBreakdown(params.id),
     demoMode ? Promise.resolve([]) : getBusinessIssues(params.id),
     demoMode ? Promise.resolve({ members: [], available: true }) : getBusinessAgreements(params.id),
+    demoMode ? Promise.resolve<PauseState>({ active: null, upcoming: null }) : getPauseState(params.id),
   ]);
 
   return (
@@ -84,6 +87,7 @@ export default async function PlatformBusinessDetailPage(props: { params: Promis
           <Link href={`/admin/messages?to=${business.id}`} className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-[12.5px] font-medium text-ink hover:bg-paper">
             Send message
           </Link>
+          <PauseControls businessId={business.id} state={pauseState} />
           <BusinessActions businessId={business.id} businessName={business.name} isSuspended={business.is_suspended} />
         </div>
       </div>
