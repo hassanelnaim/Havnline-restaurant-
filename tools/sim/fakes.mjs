@@ -422,6 +422,17 @@ async function handleResend(req, res, url, body) {
     emails.push(rec);
     return json(res, 200, { id: rec.id });
   }
+  if (url.pathname === "/emails/batch" && req.method === "POST") {
+    const list = JSON.parse(body);
+    if (!Array.isArray(list) || list.length > 100) return json(res, 422, { name: "validation_error", message: "batch must be 1-100 emails" });
+    if (globalThis.__failBatch) return json(res, 500, { name: "application_error", message: "sim batch failure" });
+    const data = list.map((e) => {
+      const rec = { id: rid("em_"), to: e.to, from: e.from, subject: e.subject, replyTo: e.reply_to, at: new Date().toISOString(), html: String(e.html || "").slice(0, 20000), text: e.text, batch: true };
+      emails.push(rec);
+      return { id: rec.id };
+    });
+    return json(res, 200, { data });
+  }
   return json(res, 404, { message: "sim: " + url.pathname });
 }
 async function handleTurnstile(req, res, url, body) {
@@ -524,6 +535,7 @@ http
     if (p === "/ai/scripts") return json(res, 200, ai.scripts);
     if (p === "/ai/toolResults") { const k = url.searchParams.get("key"); return json(res, 200, ai.toolResults.filter((t) => !k || t.first.includes(k))); }
     // Email
+    if (p === "/resend/fail-batch") { globalThis.__failBatch = url.searchParams.get("on") === "1"; return json(res, 200, { ok: true }); }
     if (p === "/emails") return json(res, 200, emails.slice(-Number(url.searchParams.get("n") || 200)));
     return json(res, 404, { error: "unknown " + p });
   })

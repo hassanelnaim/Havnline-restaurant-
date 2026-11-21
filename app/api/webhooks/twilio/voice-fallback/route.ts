@@ -4,7 +4,8 @@ import { resolveBusinessFromPhoneNumber } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
-import { isTransferLoop } from "@/lib/ai/liveTransfer";
+import { isTransferLoop, escalationTargetPhone, toDialableNumber } from "@/lib/ai/liveTransfer";
+import { normalizePhoneDigits } from "@/lib/phone-utils";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -106,13 +107,17 @@ export async function POST(request: NextRequest) {
     let restaurantPhone: string | null = null;
     if (resolved) {
       const admin = createAdminClient();
-      const { data } = await admin.from("businesses").select("phone").eq("id", resolved.businessId).single();
-      restaurantPhone = data?.phone || null;
+      const { data } = await admin.from("businesses").select("phone, escalation_phone").eq("id", resolved.businessId).single();
+      // Same number a live transfer rings (escalation number, else the main
+      // phone), in the +1 format <Dial> needs; free text like "(313) 555-0199"
+      // or a number too short to dial gives null.
+      restaurantPhone = data ? toDialableNumber(escalationTargetPhone(data)) : null;
     }
 
     // Never ring the restaurant from its own number (it would loop back
-    // here) or when there is nowhere to ring.
-    if (!restaurantPhone || isTransferLoop({ from, to, restaurantPhone, recentTransfer: true })) {
+    // here), never ring the HavnLine number itself, and not when there is
+    // nowhere to ring.
+    if (!restaurantPhone || normalizePhoneDigits(restaurantPhone) === normalizePhoneDigits(to) || isTransferLoop({ from, to, restaurantPhone, recentTransfer: true })) {
       return twiml(SORRY_ONLY);
     }
 

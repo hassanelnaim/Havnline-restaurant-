@@ -103,7 +103,7 @@ const unesc = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quo
  * <Play> URL like Twilio would. `say` is the list of caller utterances; null
  * means silence. Returns a transcript and any problems seen.
  */
-export async function runCall({ to, from, token, say = [], callSid, playAudio = true, statusCallbacks = true, onTurn, think = 0 }) {
+export async function runCall({ to, from, token, say = [], callSid, playAudio = true, statusCallbacks = true, onTurn, think = 0, dialStatus = "no-answer" }) {
   callSid = callSid || "CA" + crypto.randomBytes(16).toString("hex");
   const base = { AccountSid: "ACsim", CallSid: callSid, From: from, To: to, CallStatus: "ringing", Direction: "inbound", ApiVersion: "2010-04-01" };
   const transcript = [];
@@ -160,7 +160,8 @@ export async function runCall({ to, from, token, say = [], callSid, playAudio = 
       if (v.tag === "Redirect") { next = { url: v.text, params: { ...base, CallStatus: "in-progress" } }; break; }
       if (v.tag === "Dial") {
         transcript.push({ who: "system", text: `DIAL ${v.children.map((c) => c.text).join(",") || v.text}` });
-        if (v.attrs.action) next = { url: v.attrs.action, params: { ...base, CallStatus: "in-progress", DialCallStatus: "no-answer" } };
+        transcript[transcript.length - 1].attrs = v.attrs;
+        if (v.attrs.action) next = { url: v.attrs.action, params: { ...base, CallStatus: "in-progress", DialCallStatus: dialStatus, ...(dialStatus === "completed" ? { DialCallDuration: "42" } : {}) } };
         else ended = "dialed";
         break;
       }

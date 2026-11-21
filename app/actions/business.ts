@@ -1,6 +1,7 @@
 "use server";
 
 import { getPauseState } from "@/lib/ai/pause";
+import { normalizePhoneDigits } from "@/lib/phone-utils";
 
 import { revalidatePath } from "next/cache";
 import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
@@ -110,6 +111,22 @@ export async function updateBusinessProfileAction(input: {
   }
 
   const admin = createAdminClient();
+
+  // Calls are forwarded to these numbers (live transfer, Pause AI, the
+  // emergency fallback). The restaurant's own HavnLine number would just
+  // ring HavnLine again, so it can't be either one.
+  const { data: twilioRow } = await admin.from("integrations").select("metadata").eq("business_id", businessId).eq("provider", "twilio").maybeSingle();
+  const havnlineNumber = (twilioRow?.metadata as Record<string, unknown> | null)?.phone_number as string | undefined;
+  if (havnlineNumber) {
+    const own = normalizePhoneDigits(havnlineNumber);
+    if (input.phone && normalizePhoneDigits(input.phone) === own) {
+      return { success: false, error: "That's your HavnLine number. Enter the restaurant's own phone, the one staff answer." };
+    }
+    if (escalationPhone && normalizePhoneDigits(escalationPhone) === own) {
+      return { success: false, error: "The escalation phone can't be your HavnLine number. Use a phone a person answers." };
+    }
+  }
+
   const { error } = await admin
     .from("businesses")
     .update({

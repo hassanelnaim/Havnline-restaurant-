@@ -171,7 +171,10 @@ async function handleVoice(request: NextRequest, timer: Timer) {
     timer.set("path", "paused");
     const target = toDialableNumber(escalationTargetPhone(context.business));
     const name = escapeXml(context.business.name);
-    if (!target || isTransferLoop({ from: callerNumber, to: params.To || "", restaurantPhone: target, recentTransfer: true })) {
+    // No dialable number, the restaurant's phone is this HavnLine number
+    // (it would ring straight back here), or the restaurant itself is
+    // calling: nothing to forward to.
+    if (!target || normalizePhoneDigits(target) === normalizePhoneDigits(params.To || "") || isTransferLoop({ from: callerNumber, to: params.To || "", restaurantPhone: target, recentTransfer: true })) {
       return twiml(`<Response><Say>Thanks for calling ${name}. Our phone ordering is down for a short update. Please try again a little later.</Say><Hangup/></Response>`);
     }
     const action = `${SITE_URL}/api/webhooks/twilio/voice-fallback`;

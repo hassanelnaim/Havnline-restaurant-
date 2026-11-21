@@ -15,6 +15,10 @@ everything once; afterwards:
 | `node loadtest.mjs 3 10,50,100,200` | simultaneous full phone orders with realistic outside-service speeds |
 | `FAIL='{"anthropic":{"status":529,"prob":0.2}}' node loadtest.mjs 3 50` | same, with an outside service failing |
 | `node tabletload.mjs 3` | cost of tablets polling |
+| `node messages.mjs` | Admin > Messages: all / status / one restaurant, double send, email outage, dashboard notice |
+| `node pause.mjs` | Admin > Pause AI: scheduled and immediate pauses, forwarding, resume one / all, cancel, dashboard lock |
+| `node forward.mjs` | every call-forwarding path (pause, live transfer, emergency fallback) with each Twilio result; takes ~6 min (20s context cache) |
+| `node settings-phone.mjs` | Settings refuses the HavnLine number as the main or escalation phone |
 | `./sync-build.sh && ./start-app.sh` | rebuild after code changes |
 | `./reset-db.sh` | fresh database from `base-schema.sql` + all migrations |
 
