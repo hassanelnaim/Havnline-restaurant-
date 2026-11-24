@@ -163,5 +163,7 @@ export function isFarewell(text: string): boolean {
 // Fixed lines for the limits added in the audit (batch 3). Kept here with
 // the other fixed lines so their audio is cached (twimlHelpers.ts).
 export const CALL_CAP_LINE = "We've been on the line for a while, so I'm going to wrap up here. If you still need anything, please call us back. Goodbye.";
+/** After 15 seconds of silence: one check before saying goodbye. */
+export const STILL_THERE_LINE = "Are you still there?";
 export const ALREADY_ON_LINE_LINE = "It looks like you're already on another call with us. Please finish that one first. Goodbye.";
 export const TURN_RETRY_LINE = "Sorry, could you say that one more time?";

@@ -366,6 +366,7 @@ async function handleAnthropic(req, res, url, body) {
   if (url.pathname !== "/v1/messages") return json(res, 404, { type: "error", error: { type: "not_found_error", message: "sim: " + url.pathname } });
   if (!String(req.headers["x-api-key"] || "").startsWith("sk-ant-sim")) return json(res, 401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   const reqBody = JSON.parse(body);
+  if (reqBody.tools) ai.lastSystem = typeof reqBody.system === "string" ? reqBody.system : JSON.stringify(reqBody.system || "");
   ai.requests++;
   ai.byModel[reqBody.model] = (ai.byModel[reqBody.model] || 0) + 1;
   const msgs = reqBody.messages || [];
@@ -411,7 +412,10 @@ async function handleEleven(req, res, url, body) {
     res.writeHead(200, { "content-type": "audio/mpeg" });
     return res.end(Buffer.concat([Buffer.from([0xff, 0xfb, 0x90, 0x64]), crypto.randomBytes(1200)]));
   }
-  if (url.pathname === "/v1/voices") return json(res, 200, { voices: [{ voice_id: "sim-voice-1", name: "Sim Sarah", labels: { gender: "female" }, preview_url: "https://example.invalid/p.mp3" }] });
+  if (url.pathname === "/v1/voices") return json(res, 200, { voices: [
+    { voice_id: "sim-voice-1", name: "Sim Sarah", labels: { gender: "female" }, preview_url: "https://example.invalid/p.mp3" },
+    { voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah", category: "premade", labels: { accent: "american" }, preview_url: "https://example.invalid/sarah.mp3" },
+  ] });
   if (url.pathname === "/v1/user") return json(res, 200, { subscription: { character_count: 100, character_limit: 100000 } });
   return json(res, 404, { detail: "sim: " + url.pathname });
 }
@@ -533,6 +537,7 @@ http
     // AI
     if (p === "/ai/script" && req.method === "POST") { ai.scripts = ai.scripts.filter((s) => s.key !== data.key); ai.scripts.push(data); return json(res, 200, { ok: true, n: ai.scripts.length }); }
     if (p === "/ai/scripts") return json(res, 200, ai.scripts);
+    if (p === "/ai/last-system") return json(res, 200, { system: ai.lastSystem || "" });
     if (p === "/ai/toolResults") { const k = url.searchParams.get("key"); return json(res, 200, ai.toolResults.filter((t) => !k || t.first.includes(k))); }
     // Email
     if (p === "/resend/fail-batch") { globalThis.__failBatch = url.searchParams.get("on") === "1"; return json(res, 200, { ok: true }); }

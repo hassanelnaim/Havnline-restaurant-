@@ -1,5 +1,6 @@
 "use server";
 import { itemPriceCents, addonDeltaCents } from "@/lib/menu/price";
+import { catalogVoice } from "@/lib/ai/voiceCatalog";
 
 import { redirect } from "next/navigation";
 import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
@@ -191,8 +192,10 @@ export async function completeOnboardingAction(draft: OnboardingDraft): Promise<
   );
   if (aiError) return dbErrorResult(aiError, "completeOnboardingAction:ai", "Could not set up your AI receptionist.");
 
+  // A voice not in the list Twilio can speak falls back to the default.
+  const voiceOk = Boolean(draft.customVoiceRef && catalogVoice(draft.customVoiceRef));
   const { error: voiceError } = await admin.from("ai_voice_configs").upsert(
-    draft.customVoiceRef
+    voiceOk && draft.customVoiceRef
       ? { business_id: businessId, voice_id: "custom", provider: "elevenlabs", provider_voice_ref: draft.customVoiceRef, provider_voice_name: draft.customVoiceName }
       : { business_id: businessId, voice_id: draft.voiceId },
     { onConflict: "business_id" }

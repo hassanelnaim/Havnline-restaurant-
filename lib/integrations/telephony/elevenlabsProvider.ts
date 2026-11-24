@@ -1,10 +1,16 @@
 import type { VoiceId } from "@/lib/database/types";
+import { catalogVoice } from "@/lib/ai/voiceCatalog";
+import { hostedTtsDegradedCached } from "@/lib/integrations/telephony/ttsCircuit";
 
+// The four built-in choices, on ElevenLabs' current standard voices
+// (lib/ai/voiceCatalog.ts). They used to be Adam, Rachel and Arnold, which
+// ElevenLabs now lists as legacy voices; Twilio only promises its standard
+// library, and an unsupported voice is a silent line on a call.
 const DEFAULT_VOICE_MAP: Record<Exclude<VoiceId, "custom">, string> = {
-  alex_professional: process.env.ELEVENLABS_VOICE_ALEX || "pNInz6obpgDQGcFmaJgB",
-  sarah_warm: process.env.ELEVENLABS_VOICE_SARAH || "21m00Tcm4TlvDq8ikWAM",
-  james_calm: process.env.ELEVENLABS_VOICE_JAMES || "VR6AewLTigWG4xSOukaG",
-  emma_friendly: process.env.ELEVENLABS_VOICE_EMMA || "EXAVITQu4vr4xnSDxMaL",
+  alex_professional: process.env.ELEVENLABS_VOICE_ALEX || "TX3LPaxmHKxFdv7VOQHJ", // Liam
+  sarah_warm: process.env.ELEVENLABS_VOICE_SARAH || "XrExE9yKIg1WjnnlVkGX", // Matilda
+  james_calm: process.env.ELEVENLABS_VOICE_JAMES || "pqHfZKP75CvOlQylNhV4", // Bill
+  emma_friendly: process.env.ELEVENLABS_VOICE_EMMA || "EXAVITQu4vr4xnSDxMaL", // Sarah
 };
 
 // The TTS model decides two things that matter at scale: how long each
@@ -80,6 +86,9 @@ export function chooseSpeechPath(input: {
   ttsDegraded: boolean;
   elevenConfigured: boolean;
 }): SpeechPath {
+  // Twilio couldn't speak these voices a moment ago (its error webhook
+  // tripped the switch): a basic voice the caller can hear, not silence.
+  if (getTtsMode() === "twilio" && hostedTtsDegradedCached()) return "polly";
   const hosted = twilioHostedElevenLabsVoice(input.voiceId, input.providerVoiceRef) !== null;
   if (hosted && (getTtsMode() === "twilio" || input.ttsDegraded || !input.elevenConfigured)) return "twilio-hosted";
   if (input.elevenConfigured && !input.ttsDegraded) return "play";
@@ -94,7 +103,9 @@ export function resolveElevenLabsVoiceId(
   voiceId: VoiceId | null | undefined,
   providerVoiceRef?: string | null
 ): string {
-  if (voiceId === "custom" && providerVoiceRef) return providerVoiceRef;
+  // Only voices in the catalog: a restaurant still set to a voice that was
+  // removed from the list (one Twilio can't speak) gets the default instead.
+  if (voiceId === "custom" && providerVoiceRef && catalogVoice(providerVoiceRef)) return providerVoiceRef;
   if (voiceId && voiceId !== "custom") return DEFAULT_VOICE_MAP[voiceId];
   return DEFAULT_VOICE_MAP.alex_professional;
 }

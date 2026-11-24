@@ -25,6 +25,8 @@ export interface DbBusiness {
   ein: string | null;
   /** Migration 043: how the restaurant registers for texting. Null if signed up before it was asked. */
   texting_entity_type?: "business" | "sole_proprietor" | null;
+  /** Migration 051: usual ready time by order size; null = defaults (lib/ai/readyTime.ts). */
+  ready_minutes?: { small: [number, number]; medium: [number, number]; large: [number, number] } | null;
   timezone: string;
   onboarding_step: OnboardingStep;
   onboarding_completed_at: ISODateTime | null;

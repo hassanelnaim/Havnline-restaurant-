@@ -69,10 +69,10 @@ for (const status of RESULTS) {
   });
 }
 
-await scenario("forward/pause: rings the escalation number when one is set", async () => {
+await scenario("forward/pause: rings the main and escalation phones together", async () => {
   await setPhones("(313) 555-0199", ESC);
   const c = await runCall({ to: R.number, from: caller(), token: R.token });
-  check(dialOf(c)?.text === "DIAL " + ESC, "dialed " + dialOf(c)?.text);
+  check(dialOf(c)?.text === `DIAL ${MAIN},${ESC}`, "dialed " + dialOf(c)?.text);
 });
 
 for (const [typed, want] of [["313.555.0199", MAIN], ["+1 313 555 0199", MAIN], ["1-313-555-0199", MAIN], ["3135550199", MAIN], ["555-0199", null], ["", null]]) {
@@ -93,7 +93,7 @@ await scenario("forward/pause: restaurant phone saved as the HavnLine number", a
   check(!dialOf(c1), "dialed HavnLine from HavnLine (main)");
   await setPhones("(313) 555-0199", R.number);
   const c2 = await runCall({ to: R.number, from: caller(), token: R.token });
-  check(!dialOf(c2), "dialed HavnLine from HavnLine (escalation)");
+  check(dialOf(c2)?.text === "DIAL " + MAIN, "escalation = HavnLine number: dialed " + dialOf(c2)?.text);
 });
 
 await scenario("forward/pause: a forwarded leg that comes back to HavnLine is stopped", async () => {
@@ -101,6 +101,7 @@ await scenario("forward/pause: a forwarded leg that comes back to HavnLine is st
   await setPhones("(313) 555-0199", null);
   const c = await runCall({ to: R.number, from: R.number, token: R.token });
   check(!dialOf(c), "second leg dialed again (loop)");
+  check(c.ended === "rejected:busy", "returning leg should be refused as busy so the other number keeps ringing, ended " + c.ended);
 });
 
 await scenario("forward/pause: closed, blocked, or owner switched AI off", async () => {
@@ -182,8 +183,8 @@ for (const status of RESULTS) {
     const url = APP + "/api/webhooks/twilio/voice-fallback";
     const base = { AccountSid: "ACsim", CallSid: "CA" + Date.now() + seq++, From: caller(), To: R.number, CallStatus: "in-progress", ErrorCode: "11200" };
     const r1 = await twilioPost(url, base, R.token);
-    const m = r1.text.match(/<Dial[^>]*>([^<]+)<\/Dial>/);
-    check(m?.[1] === MAIN, "fallback dialed " + (m?.[1] || "nothing") + " :: " + r1.text.slice(0, 200));
+    const nums = [...r1.text.matchAll(/<Number>([^<]+)<\/Number>/g)].map((x) => x[1]);
+    check(nums.join(",") === MAIN, "fallback dialed " + (nums.join(",") || "nothing") + " :: " + r1.text.slice(0, 200));
     const r2 = await twilioPost(url, { ...base, DialCallStatus: status }, R.token);
     if (status === "completed") check(/<Hangup\/>/.test(r2.text) && !/Sorry/.test(r2.text), "after answer: " + r2.text);
     else check(/no one is available/.test(r2.text), status + ": " + r2.text);
@@ -194,7 +195,10 @@ await scenario("forward/fallback: escalation number, bad numbers, self-dial", as
   const url = APP + "/api/webhooks/twilio/voice-fallback";
   const post = async () => (await twilioPost(url, { AccountSid: "ACsim", CallSid: "CA" + Date.now() + seq++, From: caller(), To: R.number, CallStatus: "in-progress" }, R.token)).text;
   await setPhones("(313) 555-0199", ESC);
-  check((await post()).includes(`>${ESC}</Dial>`), "fallback ignored the escalation number");
+  const both = await post();
+  check(both.includes(`<Number>${MAIN}</Number><Number>${ESC}</Number>`), "fallback should ring main and escalation together: " + both.slice(0, 300));
+  const back = (await twilioPost(url, { AccountSid: "ACsim", CallSid: "CA" + Date.now() + seq++, From: R.number, To: R.number, CallStatus: "in-progress" }, R.token)).text;
+  check(/<Reject reason="busy"\/>/.test(back), "fallback answered its own returning leg: " + back.slice(0, 200));
   await setPhones("555-0199", null);
   check(!/<Dial/.test(await post()), "fallback dialed a 7-digit number");
   await setPhones(R.number, null);

@@ -65,6 +65,50 @@ export function toDialableNumber(phone: string | null | undefined): string | nul
  * the business has set one (the main phone then gets NO escalated
  * calls), otherwise the main phone.
  */
+/**
+ * The numbers a forwarded call rings when the AI isn't answering (Pause AI,
+ * or the emergency fallback when HavnLine itself is down): the restaurant's
+ * main phone, where staff pick up as normal, and its escalation phone, both
+ * at once (<Dial> with several <Number>s rings them together and the first
+ * to answer gets the call). If the main line forwards back to HavnLine,
+ * that leg is turned away (see isForwardedLegReturning) and the escalation
+ * phone keeps ringing. Never the HavnLine number itself or the caller's
+ * own number. In +1 format, without duplicates.
+ */
+export function forwardTargets(
+  business: { phone?: string | null; escalation_phone?: string | null },
+  havnlineNumber: string,
+  callerNumber: string
+): string[] {
+  const skip = new Set([normalizePhoneDigits(havnlineNumber), normalizePhoneDigits(callerNumber)].filter(Boolean));
+  const out: string[] = [];
+  for (const raw of [business.phone, business.escalation_phone]) {
+    const n = toDialableNumber(raw?.trim() || null);
+    if (!n) continue;
+    const digits = normalizePhoneDigits(n);
+    if (skip.has(digits) || out.some((o) => normalizePhoneDigits(o) === digits)) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * A call to this HavnLine number that shows this same number as the caller:
+ * one of HavnLine's own forwarded calls (they carry the HavnLine number as
+ * caller ID) coming straight back, because the phone it rang forwards to
+ * HavnLine. It is rejected as busy, not answered, so the forwarded call's
+ * other numbers keep ringing.
+ */
+export function isForwardedLegReturning(from: string, to: string): boolean {
+  const f = normalizePhoneDigits(from);
+  return Boolean(f) && f === normalizePhoneDigits(to);
+}
+
+/** <Number> nouns for forwardTargets. */
+export function dialNumbersXml(numbers: string[]): string {
+  return numbers.map((n) => `<Number>${n.replace(/[^+\d]/g, "")}</Number>`).join("");
+}
+
 export function escalationTargetPhone(business: {
   phone?: string | null;
   escalation_phone?: string | null;

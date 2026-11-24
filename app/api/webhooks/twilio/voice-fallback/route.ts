@@ -4,8 +4,7 @@ import { resolveBusinessFromPhoneNumber } from "@/lib/ai/context";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { getRequestUrl } from "@/lib/ai/twimlHelpers";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
-import { isTransferLoop, escalationTargetPhone, toDialableNumber } from "@/lib/ai/liveTransfer";
-import { normalizePhoneDigits } from "@/lib/phone-utils";
+import { forwardTargets, isForwardedLegReturning, dialNumbersXml } from "@/lib/ai/liveTransfer";
 import { getSiteUrl } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -104,27 +103,24 @@ export async function POST(request: NextRequest) {
       1500
     );
 
-    let restaurantPhone: string | null = null;
+    // One of our own forwarded calls coming back (the restaurant's line
+    // forwards to HavnLine): refuse it so the other number keeps ringing.
+    if (isForwardedLegReturning(from, to)) return twiml(`<Reject reason="busy"/>`);
+
+    // The restaurant's main phone and escalation phone, rung together, so
+    // staff pick up as they would without HavnLine (see forwardTargets).
+    let targets: string[] = [];
     if (resolved) {
       const admin = createAdminClient();
       const { data } = await admin.from("businesses").select("phone, escalation_phone").eq("id", resolved.businessId).single();
-      // Same number a live transfer rings (escalation number, else the main
-      // phone), in the +1 format <Dial> needs; free text like "(313) 555-0199"
-      // or a number too short to dial gives null.
-      restaurantPhone = data ? toDialableNumber(escalationTargetPhone(data)) : null;
+      targets = data ? forwardTargets(data, to, from) : [];
     }
-
-    // Never ring the restaurant from its own number (it would loop back
-    // here), never ring the HavnLine number itself, and not when there is
-    // nowhere to ring.
-    if (!restaurantPhone || normalizePhoneDigits(restaurantPhone) === normalizePhoneDigits(to) || isTransferLoop({ from, to, restaurantPhone, recentTransfer: true })) {
-      return twiml(SORRY_ONLY);
-    }
+    if (targets.length === 0) return twiml(SORRY_ONLY);
 
     const action = `${SITE_URL}/api/webhooks/twilio/voice-fallback`;
     return twiml(
       `<Say>Sorry, our order system is having trouble. Let me connect you to the restaurant.</Say>` +
-        `<Dial callerId="${escapeXml(to)}" timeout="25" action="${escapeXml(action)}" method="POST">${escapeXml(restaurantPhone)}</Dial>`
+        `<Dial callerId="${escapeXml(to)}" timeout="25" action="${escapeXml(action)}" method="POST">${dialNumbersXml(targets)}</Dial>`
     );
   } catch (err) {
     console.error("voice-fallback failed:", err);

@@ -1,4 +1,5 @@
 import type { BusinessContext } from "./context";
+import { readyTimePrompt } from "@/lib/ai/readyTime";
 import type { AiResponsibilities } from "@/lib/database/types";
 import { isBusinessOpenNow, nextOpenTimeText, formatTimeForSpeech, localDateKeyNow, speakDateKey } from "@/lib/business/hours";
 import { closedDatesOf } from "./context";
@@ -218,8 +219,11 @@ ${knowledgeText}
 ${combosText}Allergies and dietary needs (a safety rule; it overrides everything above, including the business knowledge):
 - Never tell a caller an item is safe for an allergy, allergen-free, gluten-free, nut-free or free of any ingredient, and never guess what's in an item. Kitchens share fryers, grills and counters, so nobody can promise that over the phone.
 - If the business knowledge above lists ingredients or allergen information, you may repeat what it says, and always add that they should confirm with the staff.
+- When a caller names an allergy, check each item in their order against what the menu above and the business knowledge say about it (item descriptions, sizes, add-ons and choices). If that text mentions the allergen or something that plainly contains it (cheese, milk, butter or cream for dairy; peanuts or peanut sauce for peanuts; shrimp for shellfish; bread, buns or breading for gluten), point it out by name: "Heads up, the menu says the Supreme pizza has cheese." Offer to leave it off if the menu lists it as a removable add-on, or to swap the item. Only point out what the menu text actually says; when it says nothing, don't guess either way, and still give the allergy line below.
 - When a caller mentions an allergy, write it on the order so the kitchen sees it: in that item's notes, or in special_instructions if it applies to the whole order, starting with "ALLERGY:" (for example "ALLERGY: peanuts"). Then tell them, in your own words: "I've noted your allergy for the kitchen, but I can't guarantee anything is allergen-free, so please let the staff know when you pick up."
 - If the allergy sounds severe, or they want a guarantee before ordering, offer to connect them with someone at the restaurant (transfer_call if they want to talk now, otherwise escalate_to_human).
+
+${readyTimePrompt(business.ready_minutes)}
 
 Think like a great waitress taking a phone order:
 - Friendly, quick and natural. One question at a time, and short.

@@ -89,13 +89,16 @@ export async function callScenarios(R) {
     }
   });
 
-  await scenario("call: silence twice -> polite hang up, no order", async () => {
+  await scenario("call: silence -> one check-in, then polite hang up, no order", async () => {
     const k = key();
     await control("/ai/script", orderScript(k));
     const c = await runCall({ to: R.number, from: caller(), token: R.token, say: [null, null, null] });
     problems(c);
     const lines = await said(c);
     check(c.ended === "ai_hung_up", "AI should hang up after repeated silence, ended=" + c.ended);
+    // One check-in ("Are you still there?"), then goodbye: two silent listens, not three.
+    check(c.transcript.filter((t) => t.who === "caller").length === 2, "silent listens before hanging up: " + c.transcript.filter((t) => t.who === "caller").length);
+    check(c.transcript.filter((t) => t.who === "ai" && /still there/i.test(t.text)).length === 1, "should ask \"Are you still there?\" exactly once");
     check((await orderFor(c.callSid)) == null, "no order for a silent call");
     note("ended " + c.ended);
   });

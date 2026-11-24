@@ -12,7 +12,7 @@ import { isTtsDegraded } from "@/lib/integrations/telephony/ttsCircuit";
 import { buildGreeting } from "@/lib/ai/greeting";
 import { getSiteUrl } from "@/lib/env";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
-import { isTransferLoop, escalationTargetPhone, toDialableNumber, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
+import { isTransferLoop, escalationTargetPhone, forwardTargets, isForwardedLegReturning, dialNumbersXml, LIVE_TRANSFER_MARKER } from "@/lib/ai/liveTransfer";
 import { getPauseState } from "@/lib/ai/pause";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { warmCallRoutes } from "@/lib/ai/warmup";
@@ -169,16 +169,18 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   // update might be touching.
   if (pause.active) {
     timer.set("path", "paused");
-    const target = toDialableNumber(escalationTargetPhone(context.business));
+    // One of our own forwarded calls coming back (the phone it rang
+    // forwards to HavnLine): refuse it so the other number keeps ringing.
+    if (isForwardedLegReturning(callerNumber, params.To || "")) {
+      return twiml(`<Response><Reject reason="busy"/></Response>`);
+    }
+    const targets = forwardTargets(context.business, params.To || "", callerNumber);
     const name = escapeXml(context.business.name);
-    // No dialable number, the restaurant's phone is this HavnLine number
-    // (it would ring straight back here), or the restaurant itself is
-    // calling: nothing to forward to.
-    if (!target || normalizePhoneDigits(target) === normalizePhoneDigits(params.To || "") || isTransferLoop({ from: callerNumber, to: params.To || "", restaurantPhone: target, recentTransfer: true })) {
+    if (targets.length === 0) {
       return twiml(`<Response><Say>Thanks for calling ${name}. Our phone ordering is down for a short update. Please try again a little later.</Say><Hangup/></Response>`);
     }
     const action = `${SITE_URL}/api/webhooks/twilio/voice-fallback`;
-    return twiml(`<Response><Say>Thanks for calling ${name}. Please hold while I connect you to the restaurant.</Say><Dial callerId="${escapeXml(params.To || "")}" timeout="25" action="${escapeXml(action)}" method="POST">${escapeXml(target)}</Dial></Response>`);
+    return twiml(`<Response><Say>Thanks for calling ${name}. Please hold while I connect you to the restaurant.</Say><Dial callerId="${escapeXml(params.To || "")}" timeout="25" action="${escapeXml(action)}" method="POST">${dialNumbersXml(targets)}</Dial></Response>`);
   }
 
   // A live transfer rings the escalation number (or the main line); if that
@@ -187,7 +189,10 @@ async function handleVoice(request: NextRequest, timer: Timer) {
   const restaurantPhone = escalationTargetPhone(context.business);
   let recentTransfer = false;
   if (restaurantPhone && normalizePhoneDigits(callerNumber) === normalizePhoneDigits(restaurantPhone)) {
-    const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    // A forwarded call that loops back arrives within seconds of the
+    // transfer, so only the last 30 seconds count; longer than that and a
+    // manager calling their own HavnLine number for real was turned away.
+    const since = new Date(Date.now() - 30 * 1000).toISOString();
     const { data: recentCalls } = await admin.from("calls").select("id").eq("business_id", businessId).gte("started_at", since);
     const ids = (recentCalls || []).map((c) => c.id);
     if (ids.length > 0) {

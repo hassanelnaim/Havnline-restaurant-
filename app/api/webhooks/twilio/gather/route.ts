@@ -6,7 +6,7 @@ import { runPhoneTurn } from "@/lib/ai/turnRunner";
 import { loadCallWebhookState } from "@/lib/ai/callWebhook";
 import { validateTwilioSignature } from "@/lib/integrations/telephony/twilioProvider";
 import { twiml, escapeXml, getLastAiTurn, getContextualFiller, sayLine, getRequestUrl, gatherActionUrl, readSeqParam, readMissParam, speechGatherOpen } from "@/lib/ai/twimlHelpers";
-import { isFarewell, POST_ORDER_GOODBYE, CALL_CAP_LINE } from "@/lib/ai/fillers";
+import { isFarewell, POST_ORDER_GOODBYE, CALL_CAP_LINE, STILL_THERE_LINE } from "@/lib/ai/fillers";
 import { warmResponse } from "@/lib/ai/warmup";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { getSiteUrl } from "@/lib/env";
@@ -16,8 +16,10 @@ export const maxDuration = 60;
 
 const SITE_URL = getSiteUrl();
 
-// Re-prompts after silence before giving up on the call.
-const MAX_MISSED_LISTENS = 2;
+// Re-prompts after silence before giving up on the call. One: 15 seconds
+// of silence, "Are you still there?", 15 more, then goodbye (about 30s in
+// all). The listen itself stays 15 seconds so a slow answer isn't cut off.
+const MAX_MISSED_LISTENS = 1;
 
 const MAX_CALL_MINUTES = 25;
 const MAX_CALL_TURNS = 80;
@@ -78,8 +80,8 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
 
   if (!speechResult) {
     // Nothing was heard (Twilio now asks us instead of moving straight on to
-    // "goodbye" — see speechGatherOpen). Ask again, up to twice in a row,
-    // so a short "yes" the recogniser missed doesn't end the call.
+    // "goodbye" — see speechGatherOpen). Ask once more, so a short "yes" the
+    // recogniser missed doesn't end the call, then say goodbye.
     const missed = readMissParam(request.nextUrl);
     timer.set("path", "no_speech");
     if (missed >= MAX_MISSED_LISTENS) {
@@ -90,7 +92,7 @@ async function handleGather(request: NextRequest, callId: string, timer: Timer) 
     }
     return twiml(`<Response>
   ${speechGatherOpen(gatherActionUrl(callId, seq, missed + 1), 15, { retryOnSilence: true })}
-    ${sayLine(voice, "Sorry, could you say that again?", call.business_id)}
+    ${sayLine(voice, STILL_THERE_LINE, call.business_id)}
   </Gather>
   ${sayLine(voice, "I'm not able to hear you — please call back. Goodbye.", call.business_id)}
   <Hangup/>

@@ -6,7 +6,7 @@ import { isElevenLabsConfigured, twilioHostedElevenLabsVoice, chooseSpeechPath }
 import { logTwilioHostedTtsUsage } from "@/lib/usage/tracking";
 import { sendPlatformAlert, settleWithin } from "@/lib/monitoring/platformAlert";
 import { isGreetingLine } from "@/lib/ai/greeting";
-import { FILLER_CATEGORIES, PLACING_ORDER_FILLERS, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller, CALL_CAP_LINE, ALREADY_ON_LINE_LINE, TURN_RETRY_LINE } from "@/lib/ai/fillers";
+import { FILLER_CATEGORIES, PLACING_ORDER_FILLERS, ACK_FILLER, POST_ORDER_GOODBYE, POST_ORDER_LISTEN_SECONDS, getContextualFiller, CALL_CAP_LINE, ALREADY_ON_LINE_LINE, STILL_THERE_LINE, TURN_RETRY_LINE } from "@/lib/ai/fillers";
 import { signTtsParams, sealTtsText } from "@/lib/integrations/telephony/ttsSigning";
 import { LIVE_TRANSFER_MARKER, escalationTargetPhone, toDialableNumber } from "@/lib/ai/liveTransfer";
 import type { HandleTurnResult } from "@/lib/ai/receptionist";
@@ -351,6 +351,7 @@ export const STATIC_TTS_LINES: ReadonlySet<string> = new Set([
   "Thanks for waiting, almost there.",
   CALL_CAP_LINE,
   ALREADY_ON_LINE_LINE,
+  STILL_THERE_LINE,
   TURN_RETRY_LINE,
   "I'm not able to hear you — please call back. Goodbye.",
   "One moment while I connect you.",

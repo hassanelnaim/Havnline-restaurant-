@@ -27,7 +27,14 @@ const READ_CACHE_MS = 2000;
 // same row.
 const WRITE_THROTTLE_MS = 5000;
 
-let cachedReading: { degraded: boolean; at: number } | null = null;
+let cachedReading: { degraded: boolean; hosted?: boolean; at: number } | null = null;
+
+// Second switch, for ElevenLabs voices spoken by Twilio (TTS_MODE twilio).
+// When Twilio can't speak one it skips the line, so the caller hears
+// nothing; Twilio's error webhook (/api/webhooks/twilio/debugger) trips
+// this, and calls use a basic Polly voice until it clears.
+const HOSTED_SERVICE = "twilio_hosted_tts";
+export const HOSTED_TRIP_SECONDS = 10 * 60;
 let lastTripWriteAt = 0;
 
 export async function isTtsDegraded(): Promise<boolean> {
@@ -35,21 +42,26 @@ export async function isTtsDegraded(): Promise<boolean> {
   if (cachedReading && now - cachedReading.at < READ_CACHE_MS) return cachedReading.degraded;
 
   let degraded = false;
+  let hosted = false;
   try {
     const admin = createAdminClient();
     const { data, error } = await admin
       .from("service_circuit_breakers")
-      .select("tripped_until")
-      .eq("service", SERVICE)
-      .maybeSingle();
-    if (!error && data?.tripped_until) {
-      degraded = new Date(data.tripped_until).getTime() > now;
+      .select("service, tripped_until")
+      .in("service", [SERVICE, HOSTED_SERVICE]);
+    if (!error && data) {
+      for (const row of data) {
+        const on = Boolean(row.tripped_until) && new Date(row.tripped_until as string).getTime() > now;
+        if (row.service === SERVICE) degraded = on;
+        if (row.service === HOSTED_SERVICE) hosted = on;
+      }
     }
   } catch {
     degraded = false;
+    hosted = false;
   }
 
-  cachedReading = { degraded, at: now };
+  cachedReading = { degraded, hosted, at: now };
   return degraded;
 }
 
@@ -74,5 +86,41 @@ export async function tripTtsCircuit(reason: string, seconds: number = TRIP_SECO
     if (error) console.error("Could not record TTS circuit trip:", error.message);
   } catch (err) {
     console.error("Could not record TTS circuit trip:", err);
+  }
+}
+
+
+/**
+ * Whether Twilio-hosted ElevenLabs voices are switched off right now, from
+ * the reading isTtsDegraded() just took (every turn calls it before
+ * building its TwiML). No reading in the last minute counts as "fine".
+ */
+export function hostedTtsDegradedCached(): boolean {
+  return Boolean(cachedReading?.hosted) && Date.now() - (cachedReading?.at ?? 0) < 60_000;
+}
+
+/** Switch Twilio-hosted voices off for a while (see HOSTED_SERVICE). */
+export async function tripHostedTtsCircuit(reason: string, seconds: number = HOSTED_TRIP_SECONDS): Promise<boolean> {
+  const now = Date.now();
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.from("service_circuit_breakers").upsert(
+      {
+        service: HOSTED_SERVICE,
+        tripped_until: new Date(now + seconds * 1000).toISOString(),
+        last_reason: reason.slice(0, 300),
+        updated_at: new Date(now).toISOString(),
+      },
+      { onConflict: "service" }
+    );
+    if (error) {
+      console.error("Could not switch off Twilio-hosted voices:", error.message);
+      return false;
+    }
+    cachedReading = { degraded: cachedReading?.degraded ?? false, hosted: true, at: now };
+    return true;
+  } catch (err) {
+    console.error("Could not switch off Twilio-hosted voices:", err);
+    return false;
   }
 }

@@ -2,6 +2,8 @@
 
 import { getPauseState } from "@/lib/ai/pause";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
+import { parseReadyMinutesInput, READY_MAX_MINUTES } from "@/lib/ai/readyTime";
+import { catalogVoice } from "@/lib/ai/voiceCatalog";
 
 import { revalidatePath } from "next/cache";
 import { ALL_RESPONSIBILITIES } from "@/lib/ai/responsibilities";
@@ -345,6 +347,11 @@ export async function updateAiEmployeeAction(input: {
   if (aiError) return dbErrorResult(aiError, "updateAiEmployeeAction:ai", "Could not save your AI employee's settings.");
   runAfterResponse("compliance scan", scanInstructions(businessId));
 
+  // Only voices from the list Twilio can speak (lib/ai/voiceCatalog.ts).
+  if (input.customVoice && !catalogVoice(input.customVoice.providerVoiceRef)) {
+    return { success: false, error: "That voice isn't available any more. Pick one from the list." };
+  }
+
   const { error: voiceError } = await admin.from("ai_voice_configs").upsert(
     input.customVoice
       ? {
@@ -613,6 +620,25 @@ export async function updateNotificationPreferencesAction(prefs: NotificationPre
   const { error } = await admin.from("businesses").update({ notification_preferences: prefs }).eq("id", businessId);
   if (error) return dbErrorResult(error, "updateNotificationPreferencesAction", "Could not save your notification preferences.");
 
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}
+/** Settings > Ready times: how long orders usually take, by size (migration 051). */
+export async function updateReadyTimesAction(input: unknown): Promise<ActionResult> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+  const ready = parseReadyMinutesInput(input);
+  if (!ready) return { success: false, error: `Use whole minutes from 1 to ${READY_MAX_MINUTES}, with the first number no bigger than the second.` };
+  const admin = createAdminClient();
+  const { error } = await admin.from("businesses").update({ ready_minutes: ready }).eq("id", businessId);
+  if (error) {
+    if (/ready_minutes/.test(error.message)) return { success: false, error: "Ready times need a database update first (migration 051). Ask HavnLine support." };
+    return { success: false, error: "Couldn't save the ready times." };
+  }
   revalidatePath("/dashboard/settings");
   return { success: true };
 }

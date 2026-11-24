@@ -44,10 +44,9 @@ export function DashboardShell({
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-dark"><ChefHat className="h-4 w-4" /></div>
               <div className="min-w-0">
                 <div className="truncate text-[13px] font-medium text-white">AI order-taker</div>
-                <div className="text-[10.5px] text-[#8A90A0]">Answers your phone</div>
+                <div className="text-[10.5px] text-[#8A90A0]">On/off switch is at the top of the page</div>
               </div>
             </div>
-            <div className="mt-2.5"><AiStatusToggle initialStatus={initialStatus} pausedUntil={pausedUntil} tone="light" /></div>
           </div>
         </div>
       </aside>

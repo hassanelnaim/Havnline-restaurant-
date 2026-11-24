@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { catalogVoice } from "@/lib/ai/voiceCatalog";
 import Link from "next/link";
 import { ArrowRight, Check, Loader2, Mic, MessageSquare, Play, Plus, Sliders, Square, X } from "lucide-react";
 import type { DbAiReceptionist, DbAiVoiceConfig, DbBusinessHours, Personality } from "@/lib/database/types";
@@ -46,8 +47,11 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
   const [orderingRules, setOrderingRules] = useState(ai.ordering_rules || "");
   const [escalationRules, setEscalationRules] = useState(ai.escalation_rules || "");
   const [voiceId] = useState(voice.voice_id);
-  const [customVoiceRef, setCustomVoiceRef] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_ref : null);
-  const [customVoiceName, setCustomVoiceName] = useState<string | null>(voice.voice_id === "custom" ? voice.provider_voice_name : null);
+  // A saved voice that's no longer in the list (Twilio can't speak it) shows
+  // as the default, which is what calls use for it now.
+  const savedInList = voice.voice_id === "custom" && Boolean(catalogVoice(voice.provider_voice_ref));
+  const [customVoiceRef, setCustomVoiceRef] = useState<string | null>(savedInList ? voice.provider_voice_ref : null);
+  const [customVoiceName, setCustomVoiceName] = useState<string | null>(savedInList ? catalogVoice(voice.provider_voice_ref)!.name : null);
   const [changingVoice, setChangingVoice] = useState(false);
 
   // ElevenLabs' sample clip for each voice, so the current voice can be played
