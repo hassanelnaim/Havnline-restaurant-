@@ -46,7 +46,8 @@ export function AiEmployeeClient({ ai, voice }: { ai: DbAiReceptionist; voice: D
   const [personality, setPersonality] = useState(ai.personality);
   const [orderingRules, setOrderingRules] = useState(ai.ordering_rules || "");
   const [escalationRules, setEscalationRules] = useState(ai.escalation_rules || "");
-  const [voiceId] = useState(voice.voice_id);
+  // A saved custom voice that's no longer in the list is the default voice now.
+  const [voiceId] = useState(voice.voice_id === "custom" && !catalogVoice(voice.provider_voice_ref) ? "alex_professional" : voice.voice_id);
   // A saved voice that's no longer in the list (Twilio can't speak it) shows
   // as the default, which is what calls use for it now.
   const savedInList = voice.voice_id === "custom" && Boolean(catalogVoice(voice.provider_voice_ref));

@@ -67,8 +67,10 @@ export function twilioHostedElevenLabsVoice(
   providerVoiceRef?: string | null
 ): string | null {
   if (getTtsMode() === "own") return null;
-  // A custom voice with no stored ElevenLabs ID has nothing to send.
-  if (voiceId === "custom" && !providerVoiceRef) return null;
+  // A custom voice with no stored ID, or one no longer in the list, is
+  // spoken in the default voice (resolveElevenLabsVoiceId). Returning null
+  // here used to send those lines to our own ElevenLabs account instead,
+  // even with TTS_MODE twilio.
   return `ElevenLabs.${resolveElevenLabsVoiceId(voiceId, providerVoiceRef)}`;
 }
 

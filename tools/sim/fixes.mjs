@@ -68,6 +68,26 @@ await scenario("voices: a removed voice falls back to the default", async () => 
   check(r === 200, "voices route " + r);
 });
 
+await scenario("voices: custom with no voice chosen still goes through Twilio", async () => {
+  await sql("update ai_voice_configs set voice_id='custom', provider_voice_ref=null, provider_voice_name=null where business_id=$1", [R.biz.id]);
+  await settle();
+  const g = await greetingVoice();
+  check(g.voice === "ElevenLabs.TX3LPaxmHKxFdv7VOQHJ", "empty custom voice spoke as " + g.voice);
+  check(!/<Play>/.test(g.text), "line went to our own ElevenLabs (<Play>)");
+});
+
+await scenario("voices: saving the AI page on a removed voice stores the default", async () => {
+  await sql("update ai_voice_configs set voice_id='custom', provider_voice_ref='sim-voice-1', provider_voice_name='Andrew' where business_id=$1", [R.biz.id]);
+  const p = R.page;
+  await p.goto(APP + "/dashboard/ai-employee");
+  await p.waitForLoadState("networkidle");
+  await p.getByRole("button", { name: /Calm/ }).click();
+  await p.getByRole("button", { name: "Save changes" }).click();
+  await p.getByText("Saved. Your AI uses this on the next call.").waitFor({ timeout: 10000 });
+  const v = await one("select voice_id, provider_voice_ref from ai_voice_configs where business_id=$1", [R.biz.id]);
+  check(v.voice_id === "alex_professional" && v.provider_voice_ref === null, "saved " + JSON.stringify(v));
+});
+
 await scenario("voices: built-in voices use current standard voices", async () => {
   await sql("update ai_voice_configs set voice_id='alex_professional', provider_voice_ref=null where business_id=$1", [R.biz.id]);
   await settle();

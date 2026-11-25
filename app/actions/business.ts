@@ -361,7 +361,14 @@ export async function updateAiEmployeeAction(input: {
           provider_voice_ref: input.customVoice.providerVoiceRef,
           provider_voice_name: input.customVoice.providerVoiceName,
         }
-      : { business_id: businessId, voice_id: input.voiceId, provider: null, provider_voice_ref: null, provider_voice_name: null },
+      : {
+          business_id: businessId,
+          // "custom" with no voice chosen isn't a voice; store the default.
+          voice_id: input.voiceId === "custom" ? "alex_professional" : input.voiceId,
+          provider: null,
+          provider_voice_ref: null,
+          provider_voice_name: null,
+        },
     { onConflict: "business_id" }
   );
   if (voiceError) return dbErrorResult(voiceError, "updateAiEmployeeAction:voice", "Could not save the selected voice.");
