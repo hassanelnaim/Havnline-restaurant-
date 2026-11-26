@@ -57,7 +57,7 @@ async function handleGET(request: NextRequest) {
 
   const { data: orders, error } = await admin
     .from("orders")
-    .select("status, payment_status, subtotal_cents, tax_cents, total_cents, amount_refunded_cents, created_at")
+    .select("*")
     .eq("business_id", device.businessId)
     .neq("status", "building") // still in progress on a live call, not a real order yet
     .gte("created_at", startIso)

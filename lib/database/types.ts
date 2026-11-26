@@ -25,6 +25,9 @@ export interface DbBusiness {
   ein: string | null;
   /** Migration 043: how the restaurant registers for texting. Null if signed up before it was asked. */
   texting_entity_type?: "business" | "sole_proprietor" | null;
+  /** Migration 052: whether callers can pay cash at pickup, and the most a cash order can be (null = no limit). */
+  accepts_cash?: boolean;
+  cash_max_cents?: number | null;
   /** Migration 051: usual ready time by order size; null = defaults (lib/ai/readyTime.ts). */
   ready_minutes?: { small: [number, number]; medium: [number, number]; large: [number, number] } | null;
   timezone: string;
@@ -243,6 +246,15 @@ export interface DbOrder {
   /** Migration 047: the secret part of the havnline.com/pay link, and when it stops working. */
   pay_token?: string | null;
   payment_expires_at?: ISODateTime | null;
+  /** Migration 052: how the caller pays (null on orders from before it). */
+  payment_method?: "card" | "cash" | null;
+  /** Cash orders: when staff tapped "Paid in cash" / "No-show" on the tablet. */
+  cash_collected_at?: ISODateTime | null;
+  no_show_at?: ISODateTime | null;
+  /** HavnLine's fee on a cash order, and when it was added to the monthly invoice. */
+  cash_fee_cents?: number | null;
+  cash_fee_billed_at?: ISODateTime | null;
+  cash_fee_invoice_item?: string | null;
   amount_refunded_cents: number;
   refund_reason: string | null;
   refunded_by: UUID | null;
@@ -395,6 +407,8 @@ export interface DbCustomer {
   email: string | null;
   notes: string | null;
   is_blocked: boolean;
+  /** Migration 052: had a cash no-show, so can only pay by card (null = can pay cash). */
+  card_only_since?: ISODateTime | null;
   blocked_at: ISODateTime | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;

@@ -39,6 +39,7 @@ export interface JobStatus {
 const JOBS: { job: CronJob; label: string; schedule: string }[] = [
   { job: "cleanup", label: "Nightly cleanup", schedule: "Every night at 7:30 UTC" },
   { job: "weekly-digest", label: "Weekly digest emails", schedule: "Every day at 13:00 UTC, one email per restaurant per week" },
+  { job: "cash-fees", label: "Fees on cash orders", schedule: "Every night at 8:15 UTC, added to each restaurant's next monthly invoice" },
 ];
 
 // Both jobs run daily; a little slack for Vercel starting a cron late.
@@ -414,6 +415,7 @@ const MIGRATIONS: { key: string; label: string }[] = [
   { key: "m049", label: "049 messages to restaurants" },
   { key: "m050", label: "050 pause AI for updates" },
   { key: "m051", label: "051 ready times and AI page ordering rules" },
+  { key: "m052", label: "052 cash at pickup and no-shows" },
 ];
 
 export async function getSetupChecks(): Promise<SetupCheck[]> {

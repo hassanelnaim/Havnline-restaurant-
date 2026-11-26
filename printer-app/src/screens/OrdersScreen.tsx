@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from "react-native";
-import { fetchTodayOrders, TodayOrder, MoneyActionType, DashboardDay } from "../lib/api";
+import { fetchTodayOrders, closeCashOrder, TodayOrder, MoneyActionType, DashboardDay } from "../lib/api";
 import { MoneyActionModal, MoneyActionToken } from "../components/MoneyActionModal";
 import { AddItemModal } from "../components/AddItemModal";
 import { AddSpecialModal } from "../components/AddSpecialModal";
@@ -21,7 +21,12 @@ function formatTime(iso: string): string {
 
 /** One combined read of status + payment_status + submit_error into what a kitchen tablet actually needs to show, in priority order. */
 function statusLabel(order: TodayOrder): { text: string; color: string } {
+  if (order.no_show_at) return { text: "No-show", color: "#9AA3B2" };
   if (order.status === "cancelled") return { text: "Cancelled", color: "#9AA3B2" };
+  if (order.payment_method === "cash") {
+    if (order.cash_collected_at || order.payment_status === "paid") return { text: "Paid (cash)", color: "#22C55E" };
+    return { text: `Collect cash ${formatCents(order.total_cents)}`, color: "#FBBF24" };
+  }
   if (order.status === "failed" || order.submit_error) return { text: "Didn't reach kitchen", color: "#F87171" };
   if (order.payment_status === "refunded") return { text: "Refunded", color: "#A78BFA" };
   if (order.payment_status === "partially_refunded") return { text: "Partially refunded", color: "#A78BFA" };
@@ -156,7 +161,28 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
   const [addingSpecial, setAddingSpecial] = useState(false);
 
   const remainingCents = order.total_cents - order.amount_refunded_cents;
-  const canMoveMoney = remainingCents > 0 && order.status !== "cancelled" && (order.payment_status === "paid" || order.payment_status === "partially_refunded");
+  // A cash order has no card payment to refund or discount; cash goes back over the counter.
+  const isCash = order.payment_method === "cash";
+  const canMoveMoney = !isCash && remainingCents > 0 && order.status !== "cancelled" && (order.payment_status === "paid" || order.payment_status === "partially_refunded");
+  const cashDue = isCash && order.status !== "cancelled" && !order.cash_collected_at && order.payment_status !== "paid";
+  const [cashBusy, setCashBusy] = useState(false);
+  const [confirmNoShow, setConfirmNoShow] = useState(false);
+  const [cashError, setCashError] = useState<string | null>(null);
+
+  async function cashAction(action: "paid" | "no_show") {
+    setCashBusy(true);
+    setCashError(null);
+    const result = await closeCashOrder(deviceToken, order.id, action);
+    setCashBusy(false);
+    setConfirmNoShow(false);
+    if (!result.success) {
+      setCashError(result.error || "Couldn't save that. Try again.");
+      return;
+    }
+    setActionMessage(action === "paid" ? "Marked paid in cash." : "Marked as a no-show. This number pays by card from now on.");
+    onOrderChanged();
+    setTimeout(() => setActionMessage(null), 3500);
+  }
   const canAddItems = order.status !== "cancelled";
 
   function handleActionSuccess(actionType: MoneyActionType) {
@@ -181,6 +207,34 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
         <Text style={[styles.detailStatus, { color: status.color }]}>{status.text}</Text>
       </View>
 
+      {cashDue && (
+        <View style={styles.cashBox}>
+          <Text style={styles.cashTitle}>Collect {formatCents(order.total_cents)} in cash</Text>
+          {confirmNoShow ? (
+            <>
+              <Text style={styles.cashHint}>Nobody picked this up? It will be cancelled, and this phone number will have to pay by card next time.</Text>
+              <View style={styles.actionRow}>
+                <TouchableOpacity style={[styles.actionButton, styles.actionButtonDanger]} disabled={cashBusy} onPress={() => cashAction("no_show")}>
+                  <Text style={styles.actionButtonText}>{cashBusy ? "Saving…" : "Yes, no-show"}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton} disabled={cashBusy} onPress={() => setConfirmNoShow(false)}>
+                  <Text style={styles.actionButtonText}>Go back</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.paidCashButton} disabled={cashBusy} onPress={() => cashAction("paid")}>
+                <Text style={styles.actionButtonText}>{cashBusy ? "Saving…" : "Paid in cash"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} disabled={cashBusy} onPress={() => setConfirmNoShow(true)}>
+                <Text style={styles.actionButtonText}>No-show</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {cashError && <Text style={styles.error}>{cashError}</Text>}
+        </View>
+      )}
       {canMoveMoney && (
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.actionButton} onPress={() => setPendingAction("discount")}>
@@ -310,6 +364,10 @@ const styles = StyleSheet.create({
   actionButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   addItemButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#14532D", borderWidth: 1, borderColor: "#22C55E" },
   addSpecialButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#60A5FA" },
+  cashBox: { backgroundColor: "#2A2410", borderWidth: 1, borderColor: "#FBBF24", borderRadius: 12, padding: 14, marginBottom: 14 },
+  cashTitle: { color: "#FBBF24", fontSize: 16, fontWeight: "700", marginBottom: 10 },
+  cashHint: { color: "#E5D9B6", fontSize: 13, marginBottom: 10 },
+  paidCashButton: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#14532D", borderWidth: 1, borderColor: "#22C55E" },
   actionSuccess: { color: "#22C55E", fontSize: 12.5, fontWeight: "600", marginBottom: 10 },
   itemRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#131C30", paddingVertical: 12, alignItems: "flex-start" },
   itemName: { color: "#fff", fontSize: 15, fontWeight: "600" },

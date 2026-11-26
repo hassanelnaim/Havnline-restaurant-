@@ -81,6 +81,7 @@ function json(res, status, obj, headers = {}) {
 
 // ---------- Stripe ----------
 const stripe = {
+  invoiceItems: [],
   accounts: new Map(),
   pis: new Map(),
   charges: new Map(),
@@ -258,6 +259,11 @@ async function handleStripe(req, res, url, body) {
     if (s.status !== "open") return stripeErr(res, 400, "invalid_request_error", `Only Checkout Sessions with a status in ["open"] can be expired.`);
     s.status = "expired";
     return json(res, 200, s);
+  }
+  if (p === "/v1/invoiceitems" && method === "POST") {
+    const item = { id: rid("ii_"), object: "invoiceitem", customer: params.customer, amount: Number(params.amount), currency: params.currency, description: params.description, metadata: params.metadata || {} };
+    stripe.invoiceItems.push(item);
+    return json(res, 200, item);
   }
   if (p === "/v1/billing_portal/sessions" && method === "POST") return json(res, 200, { id: rid("bps_"), url: "https://billing.stripe.com/p/session/sim" });
   if ((m = p.match(/^\/v1\/customers\/(cus_\w+)$/))) return json(res, 200, { id: m[1], object: "customer", email: "owner@example.test", deleted: false });
@@ -522,6 +528,7 @@ http
       stripe.subs.set(sub.id, sub);
       return json(res, 200, sub);
     }
+    if (p === "/stripe/invoice-items") return json(res, 200, stripe.invoiceItems);
     if (p === "/stripe/session") return json(res, 200, [...stripe.sessions.values()].slice(-5));
     if (p === "/stripe/succeed" && req.method === "POST") return json(res, 200, succeedPi(data.pi, data) || { error: "no such pi" });
     if (p === "/stripe/pi") return json(res, 200, stripe.pis.get(url.searchParams.get("id")) || null);

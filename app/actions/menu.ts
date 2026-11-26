@@ -1,5 +1,6 @@
 "use server";
 import { itemPriceCents, addonDeltaCents, PRICE_ERROR, ADDON_PRICE_ERROR, MAX_PRICE_CENTS } from "@/lib/menu/price";
+import { COMBO_GROUP_NAME, comboOptionName, isComboGroup } from "@/lib/menu/combo";
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -167,6 +168,53 @@ export async function setItemSizesAction(itemId: string, input: { name: string; 
   const result = await writeSizes(admin, businessId, itemId, check.sizes);
   if (result.success) revalidatePath("/dashboard/menu");
   return result;
+}
+
+/**
+ * Sets (or, with null, removes) an item's combo: its price as a combo and
+ * what that adds. The item's own price stays the on-its-own price
+ * (lib/menu/combo.ts).
+ */
+export async function setItemComboAction(itemId: string, input: { comboPrice: string; comesWith: string } | null): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await requireBusinessId();
+  const admin = createAdminClient();
+  const { data: item } = await admin.from("menu_items").select("id, price_cents").eq("id", itemId).eq("business_id", businessId).maybeSingle();
+  if (!item) return { success: false, error: "Could not find that item." };
+
+  let comboCents = 0;
+  let comesWith = "";
+  if (input) {
+    const n = Number(String(input.comboPrice).replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(n) || n <= 0 || n > 1000) return { success: false, error: "Enter the combo price, like 14.99." };
+    comboCents = Math.round(n * 100);
+    if (comboCents <= item.price_cents) {
+      return { success: false, error: `The combo price has to be more than the item on its own ($${(item.price_cents / 100).toFixed(2)}). If $${(item.price_cents / 100).toFixed(2)} is the combo price, change the item's price to its on-its-own price first.` };
+    }
+    comesWith = String(input.comesWith || "").trim().slice(0, 60);
+  }
+
+  const { data: groups, error: readError } = await admin.from("modifier_groups").select("id, name, is_template").eq("business_id", businessId).eq("menu_item_id", itemId);
+  if (readError) return dbErrorResult(readError, "setItemCombo:read", "Could not update the combo.");
+  const old = (groups || []).filter(isComboGroup).map((g) => g.id);
+  if (old.length > 0) {
+    const { error } = await admin.from("modifier_groups").delete().in("id", old).eq("business_id", businessId);
+    if (error) return dbErrorResult(error, "setItemCombo:delete", "Could not update the combo.");
+  }
+  if (input) {
+    const { data: group, error: groupError } = await admin
+      .from("modifier_groups")
+      .insert({ business_id: businessId, menu_item_id: itemId, name: COMBO_GROUP_NAME, is_required: false, min_select: 0, max_select: 1, sort_order: 0 })
+      .select("id")
+      .single();
+    if (groupError || !group) return dbErrorResult(groupError, "setItemCombo:group", "Could not save the combo.");
+    const { error: optError } = await admin
+      .from("modifiers")
+      .insert({ business_id: businessId, modifier_group_id: group.id, name: comboOptionName(comesWith), price_delta_cents: comboCents - item.price_cents, sort_order: 0 });
+    if (optError) return dbErrorResult(optError, "setItemCombo:option", "Could not save the combo.");
+  }
+  revalidatePath("/dashboard/menu");
+  return { success: true };
 }
 
 /** Gives other items the same sizes and prices as this one. */

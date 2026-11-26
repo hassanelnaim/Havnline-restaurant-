@@ -122,6 +122,10 @@ export interface TodayOrder {
   submit_error: string | null;
   created_at: string;
   items: TodayOrderItem[];
+  /** "cash" = paid at pickup. Missing from a server that hasn't been updated yet. */
+  payment_method?: "card" | "cash" | null;
+  cash_collected_at?: string | null;
+  no_show_at?: string | null;
 }
 
 export interface TodayOrdersResult {
@@ -135,6 +139,18 @@ export interface TodayOrdersResult {
 export async function fetchTodayOrders(deviceToken: string): Promise<TodayOrdersResult> {
   return safeFetchJson<TodayOrdersResult>(`${API_BASE_URL}/api/printer-app/today-orders`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+}
+
+// -- Cash at pickup ----------------------------------------------------------
+// "Paid in cash" when the customer pays at the counter, "No-show" when
+// nobody comes for it. No PIN: it's the everyday end of a cash order.
+
+export async function closeCashOrder(deviceToken: string, orderId: string, action: "paid" | "no_show"): Promise<SimpleResult> {
+  return safeFetchJson<SimpleResult>(`${API_BASE_URL}/api/printer-app/today-orders/${orderId}/cash`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${deviceToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
   });
 }
 
@@ -312,6 +328,11 @@ export interface DashboardDay {
   netCents: number;
   taxCents: number;
   refundedCents: number;
+  /** Cash at pickup; missing from a server that hasn't been updated yet. */
+  cashCents?: number;
+  cashOutstandingCents?: number;
+  cardCents?: number;
+  noShowCount?: number;
 }
 
 export interface DashboardResult {

@@ -45,7 +45,7 @@ async function handleGET(request: NextRequest) {
   const { startIso, endIso } = localDayBoundsUtc(dateKey, timezone);
   const { data: orders, error } = await admin
     .from("orders")
-    .select("status, payment_status, subtotal_cents, tax_cents, total_cents, amount_refunded_cents")
+    .select("*")
     .eq("business_id", device.businessId)
     .neq("status", "building")
     .gte("created_at", startIso)

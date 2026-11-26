@@ -649,3 +649,28 @@ export async function updateReadyTimesAction(input: unknown): Promise<ActionResu
   revalidatePath("/dashboard/settings");
   return { success: true };
 }
+
+/** Settings > Cash at pickup (migration 052): on/off and the most a cash order can be (empty = no limit). */
+export async function updateCashSettingsAction(input: { acceptsCash: boolean; maxDollars: string }): Promise<ActionResult> {
+  let businessId: string;
+  try {
+    businessId = await requireBusinessId();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Not authenticated." };
+  }
+  const raw = String(input.maxDollars ?? "").replace(/[$,\s]/g, "");
+  let maxCents: number | null = null;
+  if (raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 1 || n > 10000) return { success: false, error: "Enter a limit between $1 and $10,000, or leave it empty for no limit." };
+    maxCents = Math.round(n * 100);
+  }
+  const admin = createAdminClient();
+  const { error } = await admin.from("businesses").update({ accepts_cash: Boolean(input.acceptsCash), cash_max_cents: maxCents }).eq("id", businessId);
+  if (error) {
+    if (/accepts_cash|cash_max_cents/.test(error.message)) return { success: false, error: "Cash at pickup needs a database update first (migration 052). Ask HavnLine support." };
+    return { success: false, error: "Couldn't save the cash settings." };
+  }
+  revalidatePath("/dashboard/settings");
+  return { success: true };
+}

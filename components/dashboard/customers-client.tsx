@@ -2,13 +2,13 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Ban, ShieldCheck, Trash2, X, AlertTriangle, MessagesSquare, ChevronRight } from "lucide-react";
+import { Ban, ShieldCheck, Trash2, X, AlertTriangle, MessagesSquare, ChevronRight, Banknote } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { CallOutcomeBadge } from "@/components/dashboard/status-badges";
 import { formatDate, formatDateTime, formatDuration } from "@/lib/format";
 import { normalizePhoneDigits } from "@/lib/phone-utils";
-import { blockCustomerAction, unblockCustomerAction, deleteCustomerAction } from "@/app/actions/customers";
+import { blockCustomerAction, unblockCustomerAction, allowCashAgainAction, deleteCustomerAction } from "@/app/actions/customers";
 import type { DbCustomer, DbCall } from "@/lib/database/types";
 
 export function CustomersClient({ customers, callsByPhone, timezone }: { customers: DbCustomer[]; callsByPhone: Record<string, DbCall[]>; timezone: string }) {
@@ -33,6 +33,7 @@ export function CustomersClient({ customers, callsByPhone, timezone }: { custome
                 <TableCell className="font-medium">
                   {c.name}
                   {c.is_blocked && <span className="ml-2 rounded-full bg-danger-soft px-2 py-0.5 text-[10.5px] font-medium text-danger">Blocked</span>}
+                {c.card_only_since && !c.is_blocked && <span className="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-[10.5px] font-medium text-brand-dark">Card only</span>}
                 </TableCell>
                 <TableCell className="font-mono text-text-muted">{c.phone}</TableCell>
                 <TableCell>{formatDate(c.created_at)}</TableCell>
@@ -51,6 +52,7 @@ export function CustomersClient({ customers, callsByPhone, timezone }: { custome
               <div className="text-[14px] font-semibold text-ink">
                 {c.name}
                 {c.is_blocked && <span className="ml-2 rounded-full bg-danger-soft px-2 py-0.5 text-[10.5px] font-medium text-danger">Blocked</span>}
+                {c.card_only_since && !c.is_blocked && <span className="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-[10.5px] font-medium text-brand-dark">Card only</span>}
               </div>
               <div className="mt-0.5 font-mono text-[12.5px] text-text-muted">{c.phone}</div>
             </div>
@@ -73,6 +75,15 @@ function CustomerActionsSheet({ customer, calls, timezone, onClose }: { customer
     setError(null);
     startTransition(async () => {
       const result = customer.is_blocked ? await unblockCustomerAction(customer.id) : await blockCustomerAction(customer.id);
+      if (!result.success) setError(result.error);
+      else onClose();
+    });
+  }
+
+  function handleAllowCash() {
+    setError(null);
+    startTransition(async () => {
+      const result = await allowCashAgainAction(customer.id);
       if (!result.success) setError(result.error);
       else onClose();
     });
@@ -116,6 +127,19 @@ function CustomerActionsSheet({ customer, calls, timezone, onClose }: { customer
               {customer.is_blocked ? <ShieldCheck className="h-4 w-4 text-success" /> : <Ban className="h-4 w-4 text-warning" />}
               {customer.is_blocked ? "Unblock this customer" : "Block this customer"}
             </button>
+            {customer.card_only_since && (
+              <button
+                onClick={handleAllowCash}
+                disabled={isPending}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-medium text-text hover:bg-border-soft/60 disabled:opacity-50"
+              >
+                <Banknote className="h-4 w-4 text-success" />
+                <span>
+                  Allow cash at pickup again
+                  <span className="block text-[11.5px] font-normal text-text-faint">Card only since a cash order wasn&apos;t picked up</span>
+                </span>
+              </button>
+            )}
             <button
               onClick={() => setConfirmingDelete(true)}
               disabled={isPending}

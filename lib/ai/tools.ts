@@ -593,10 +593,13 @@ async function get_current_order(_input: unknown, ctx: ToolContext): Promise<Too
 }
 
 async function confirm_and_place_order(
-  input: { customer_name: string; phone?: string; number_confirmed?: boolean; text_consent?: boolean; special_instructions?: string },
+  input: { customer_name: string; phone?: string; number_confirmed?: boolean; text_consent?: boolean; special_instructions?: string; payment_method?: "card" | "cash" },
   ctx: ToolContext
 ): Promise<ToolResult> {
   const admin = createAdminClient();
+  // Cash at pickup (migration 052): nothing is texted, so the texting
+  // checks below don't apply; the order prints straight away.
+  const wantsCash = input.payment_method === "cash";
 
   // Same hard cutoff as add_item_to_order. Checked again here (not just
   // when items were added) because a call can sit in progress across
@@ -609,7 +612,7 @@ async function confirm_and_place_order(
   // from: a number heard over the phone can be misheard, and one wrong digit
   // texts a stranger. A different number is used only when the caller asked
   // for it and the assistant read it back (number_confirmed).
-  const destination = resolveTextDestination(input, ctx);
+  const destination = wantsCash ? resolveCashPhone(input, ctx) : resolveTextDestination(input, ctx);
   if (!destination.ok) return { success: false, reason: destination.reason };
   const textTo = destination.phone;
 
@@ -628,7 +631,7 @@ async function confirm_and_place_order(
   const [{ data: orderItems }, preClaimSubtotal, { data: existingCustomer }] = await Promise.all([
     admin.from("order_items").select("id").eq("order_id", order.id),
     recomputeOrderSubtotal(order.id),
-    admin.from("customers").select("id").eq("business_id", ctx.businessId).eq("phone", textTo).order("created_at", { ascending: true }).limit(1).maybeSingle(),
+    admin.from("customers").select("*").eq("business_id", ctx.businessId).eq("phone", textTo).order("created_at", { ascending: true }).limit(1).maybeSingle(),
   ]);
   if (!orderItems || orderItems.length === 0) return { success: false, reason: "The order is empty — add at least one item first." };
 
@@ -646,7 +649,16 @@ async function confirm_and_place_order(
   // anyway), and the "test" channel, the dashboard's own preview chat
   // (app/api/ai/chat/route.ts) — the owner talking to their own AI,
   // never an actual customer or a real order.
-  if (ctx.channel === "phone" && !isFreeOrder && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
+  if (wantsCash && !isFreeOrder) {
+    // accepts_cash only exists once migration 052 has run; before that it
+    // reads as undefined and cash stays off.
+    if (business.accepts_cash !== true) return { success: false, reason: CASH_OFF_REASON };
+    if (existingCustomer?.card_only_since) return { success: false, reason: CARD_ONLY_REASON };
+    if (business.cash_max_cents && preClaimSubtotal > business.cash_max_cents) {
+      return { success: false, reason: cashLimitReason(business.cash_max_cents) };
+    }
+  }
+  if (!wantsCash && ctx.channel === "phone" && !isFreeOrder && (!business.stripe_connect_charges_enabled || !business.stripe_connect_account_id)) {
     return {
       success: false,
       reason:
@@ -656,17 +668,17 @@ async function confirm_and_place_order(
   // The payment link only works if it can be texted, and until the
   // restaurant's texting registration is approved the carriers reject
   // every text (while the AI would have said "I just texted you a link").
-  if (ctx.channel === "phone" && !isFreeOrder && ctx.context.textingApproved === false) {
+  if (!wantsCash && ctx.channel === "phone" && !isFreeOrder && ctx.context.textingApproved === false) {
     return { success: false, reason: TEXTING_NOT_READY_REASON };
   }
   // Nothing is texted to a caller who hasn't said yes to it on this call
   // (the SMS Terms the carriers approved promise exactly that).
-  if (ctx.channel === "phone" && input.text_consent !== true) {
+  if (!wantsCash && ctx.channel === "phone" && input.text_consent !== true) {
     return { success: false, reason: TEXT_CONSENT_REASON };
   }
   // ...and the flag alone isn't trusted: the conversation must show the
   // question and the caller's yes (lib/ai/textConsent.ts).
-  if (ctx.channel === "phone" && ctx.recentWords) {
+  if (!wantsCash && ctx.channel === "phone" && ctx.recentWords) {
     const consent = checkTextConsent(ctx.recentWords.lastAssistant, ctx.recentWords.customer[0]);
     if (!consent.ok) {
       console.warn(`[tools] call ${ctx.callId}: text consent not shown in the conversation (${consent.why}); asking the caller first.`);
@@ -723,7 +735,8 @@ async function confirm_and_place_order(
 
   // Proof the caller agreed to the text, kept 4 years (migration 040), long
   // after the 90-day transcript is gone: their own words when they said yes.
-  if (ctx.channel === "phone") {
+  // (A cash order texts nothing, so there's no consent to record.)
+  if (ctx.channel === "phone" && !wantsCash) {
     await soft(
       "record texting consent",
       admin.from("sms_consents").insert({
@@ -795,6 +808,43 @@ async function confirm_and_place_order(
     fullOrder.total_cents = totalCents;
     // Started now, awaited before each return below. soft() never throws.
     const saveTax = soft("save order tax", admin.from("orders").update({ tax_cents: taxCents, total_cents: totalCents }).eq("id", order.id));
+
+    // Cash at pickup: no payment link and no text. The order prints now
+    // with "COLLECT $X" on the ticket (payment_status stays "not_required",
+    // the pay-at-pickup value) until staff tap "Paid in cash" on the
+    // tablet. HavnLine's fee on it is recorded here and billed nightly
+    // (app/api/cron/cash-fees).
+    if (wantsCash && totalCents > 0) {
+      if (business.cash_max_cents && totalCents > business.cash_max_cents) {
+        await saveTax;
+        await releaseClaim();
+        return { success: false, reason: cashLimitReason(business.cash_max_cents, totalCents) };
+      }
+      await saveTax;
+      const feeBps = effectivePlatformFeeBps(business) || 0;
+      const { error: cashError } = await admin
+        .from("orders")
+        .update({ payment_method: "cash", payment_status: "not_required", cash_fee_cents: Math.round((totalCents * feeBps) / 10000) })
+        .eq("id", order.id);
+      if (cashError) {
+        console.error(`[tools] could not mark order ${order.id} as cash (run migration 052):`, cashError.message);
+        await releaseClaim();
+        return { success: false, reason: CASH_OFF_REASON };
+      }
+      fullOrder.payment_method = "cash";
+      fullOrder.payment_status = "not_required";
+      let printed = false;
+      if (business.printer_app_paired_at) {
+        const queued = await queuePrintJob(fullOrder, business);
+        printed = queued.success;
+        if (queued.success) {
+          await soft("mark order submitted", admin.from("orders").update({ status: "submitted", submitted_at: new Date().toISOString() }).eq("id", order.id));
+        } else {
+          await soft("record print error", admin.from("orders").update({ submit_error: queued.error }).eq("id", order.id));
+        }
+      }
+      return { success: true, order_id: order.id, total: totalCents / 100, cash: true, placed: true, sent_to_kitchen: printed };
+    }
 
     // Test channel: simulate a completed payment instead of touching
     // Stripe or texting a real phone number — this is the owner's own
@@ -900,6 +950,7 @@ async function confirm_and_place_order(
       return { success: false, reason: PAYMENT_NOT_STARTED_REASON };
     }
     await recordCheckoutAccount("orders", order.id, business.stripe_connect_account_id);
+    await soft("record payment method", admin.from("orders").update({ payment_method: "card" }).eq("id", order.id));
 
     return await textPaymentLink(ctx, { orderId: order.id, url, totalCents, phone: textTo });
   } catch (err) {
@@ -917,6 +968,31 @@ const TEXT_CONSENT_NO_YES_REASON =
   "The caller hasn't clearly said yes to being texted, so nothing was sent and the order isn't placed. If they're unsure, ask again: \"Is it okay to text you a payment link at the number you're calling from?\" Only with a clear yes, call confirm_and_place_order again with text_consent: true. If they said no, explain that paying by the texted link is the only way to place a phone order here, and offer a callback from the restaurant (escalate_to_human).";
 const TEXT_CONSENT_REASON =
   "Before placing the order, ask the caller if it's okay to text the payment link to the number they're calling from (or the number they gave), and wait for a clear yes. Then call confirm_and_place_order again with text_consent: true. If they say no, explain that paying by the texted link is the only way to place a phone order here, and offer to have someone from the restaurant call them back (escalate_to_human).";
+
+const CASH_OFF_REASON =
+  "This restaurant doesn't take cash for phone orders, so nothing was placed. Tell the caller that phone orders are paid by card through a texted link, and ask if that's okay.";
+const CARD_ONLY_REASON =
+  "This caller's number can only pay by card (a cash order from it wasn't picked up), so nothing was placed. Without mentioning a no-show, tell them politely that for this order you can take card payment through a texted link, and ask if that's okay. If they say yes, ask permission to text and place it with payment_method \"card\".";
+function cashLimitReason(maxCents: number, totalCents?: number): string {
+  const max = `$${(maxCents / 100).toFixed(2)}`;
+  return `Cash at pickup is only for orders up to ${max}${totalCents ? ` and this one comes to $${(totalCents / 100).toFixed(2)}` : ""}, so nothing was placed. Tell the caller, and ask whether they'd like to pay by card through a texted link instead, or take something off the order.`;
+}
+
+/**
+ * The number on a cash order: no text goes to it, but it's how the
+ * restaurant reaches the caller and how a no-show is remembered. The
+ * number they're calling from, or one they gave and confirmed.
+ */
+function resolveCashPhone(input: { phone?: string; number_confirmed?: boolean }, ctx: ToolContext): { ok: true; phone: string } | { ok: false; reason: string } {
+  const spoken = (input.phone || "").trim();
+  if (ctx.channel === "phone" && usablePhone(ctx.callerPhone)) return { ok: true, phone: ctx.callerPhone as string };
+  if (ctx.channel === "test") return { ok: true, phone: spoken || "test" };
+  if (usablePhone(spoken) && input.number_confirmed) return { ok: true, phone: spoken };
+  return {
+    ok: false,
+    reason: "The caller's number is hidden. For a cash order the restaurant needs a number to reach them: ask for their phone number, read every digit back, and once they confirm call confirm_and_place_order again with it in phone and number_confirmed: true.",
+  };
+}
 
 const TEXTING_NOT_READY_REASON =
   "This restaurant can't text payment links yet (its texting registration is still being approved), and every phone order is paid through a texted link, so orders can't be taken over the phone right now. Tell the caller that plainly, and offer to connect them to the restaurant or take a message for a callback.";
@@ -1007,7 +1083,7 @@ async function placedOrderFollowUp(ctx: ToolContext, textTo: string, options: { 
   const admin = createAdminClient();
   const { data: placed } = await admin
     .from("orders")
-    .select("id, status, payment_status, payment_link_url, payment_link_sms_status, total_cents, phone")
+    .select("*")
     .eq("call_id", ctx.callId)
     .in("status", ["confirmed", "submitted"])
     .order("created_at", { ascending: false })
@@ -1015,6 +1091,7 @@ async function placedOrderFollowUp(ctx: ToolContext, textTo: string, options: { 
     .maybeSingle();
 
   if (placed?.payment_status === "paid") return { success: true, already_placed: true, paid: true, order_id: placed.id, total: placed.total_cents / 100 };
+  if (placed?.payment_method === "cash") return { success: true, already_placed: true, cash: true, placed: true, order_id: placed.id, total: placed.total_cents / 100 };
 
   if (placed?.payment_status === "awaiting_payment" && placed.payment_link_url) {
     const lastTextFailed = placed.payment_link_sms_status === "failed" || placed.payment_link_sms_status === "undelivered";
@@ -1140,7 +1217,7 @@ export const TOOL_DEFINITIONS = [
   { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. The current order is already provided to you at the start of every turn and in every add/change/remove result, so you normally do NOT need this — call it only if you are unsure the order you have is up to date.", input_schema: { type: "object" as const, properties: {} } },
   {
     name: "confirm_and_place_order",
-    description: "Lock in the order. Only call this AFTER reading the full order and total back to the customer out loud and getting their explicit confirmation. For a pay-at-pickup business this actually places the order — never claim it's placed before calling this and getting success back. For a business that collects payment up front, a successful result means a payment link was texted, NOT that the order is placed yet — check the result's payment_link_sent field and respond accordingly.",
+    description: "Lock in the order. Only call this AFTER reading the full order and total back to the customer out loud and getting their explicit confirmation. With payment_method \"cash\" a success (cash: true) means the order IS placed and sent to the kitchen, to be paid in cash at pickup. With card (the default), a success means a payment link was texted, NOT that the order is placed yet: check payment_link_sent and respond accordingly.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1159,6 +1236,11 @@ export const TOOL_DEFINITIONS = [
           description: "true only after you asked if it's okay to text the payment link to that number and the caller clearly said yes.",
         },
         special_instructions: { type: "string", description: "Notes for the kitchen about the whole order. Any allergy the caller mentioned goes here (or in that item's notes) starting with \"ALLERGY:\"." },
+        payment_method: {
+          type: "string",
+          enum: ["card", "cash"],
+          description: "How the caller chose to pay: \"card\" (the texted payment link, the default) or \"cash\" at pickup. Only \"cash\" when the caller chose cash and this restaurant takes cash. A cash order needs no text_consent and is placed straight away.",
+        },
       },
       required: ["customer_name"],
     },

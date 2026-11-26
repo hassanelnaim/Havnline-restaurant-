@@ -56,7 +56,10 @@ async function handleGET(request: NextRequest) {
   const { data: orders, error } = await fetchAllRows<any>((from, to) =>
     admin
       .from("orders")
-      .select("id, status, payment_status, customer_name, phone, subtotal_cents, tax_cents, total_cents, amount_refunded_cents, special_instructions, submit_error, created_at")
+      // "*" so the cash fields (migration 052) come through once that's run
+      // and their absence before it isn't an error; only the fields below
+      // are sent to the tablet.
+      .select("*")
       .eq("business_id", device.businessId)
       .neq("status", "building")
       .gte("created_at", startIso)
@@ -79,7 +82,21 @@ async function handleGET(request: NextRequest) {
   );
 
   const result = orders.map((order) => ({
-    ...order,
+    id: order.id,
+    status: order.status,
+    payment_status: order.payment_status,
+    payment_method: order.payment_method ?? null,
+    cash_collected_at: order.cash_collected_at ?? null,
+    no_show_at: order.no_show_at ?? null,
+    customer_name: order.customer_name,
+    phone: order.phone,
+    subtotal_cents: order.subtotal_cents,
+    tax_cents: order.tax_cents,
+    total_cents: order.total_cents,
+    amount_refunded_cents: order.amount_refunded_cents,
+    special_instructions: order.special_instructions,
+    submit_error: order.submit_error,
+    created_at: order.created_at,
     items: (items || [])
       .filter((i) => i.order_id === order.id)
       .map((i) => ({

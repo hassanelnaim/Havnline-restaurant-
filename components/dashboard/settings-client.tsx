@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ReadyTimesSection } from "@/components/dashboard/ready-times-section";
+import { CashSection } from "@/components/dashboard/cash-section";
 import { signOutAction } from "@/app/actions/auth";
 import {
   updateBusinessProfileAction,
@@ -431,6 +432,8 @@ export function SettingsClient({
         </Section>
 
         <ReadyTimesSection initial={business.ready_minutes} />
+
+        <CashSection acceptsCash={business.accepts_cash !== false} maxCents={business.cash_max_cents ?? null} />
 
         <Section icon={CalendarX2} title="Holiday closures" description="Days you're closed even though you'd normally be open. Your AI tells callers you're closed, and when you'll reopen. Saved as soon as you add one.">
           {suggestions.length > 0 && (

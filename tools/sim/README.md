@@ -20,6 +20,7 @@ everything once; afterwards:
 | `node forward.mjs` | every call-forwarding path (pause, live transfer, emergency fallback) with each Twilio result; takes ~6 min (20s context cache) |
 | `node settings-phone.mjs` | Settings refuses the HavnLine number as the main or escalation phone |
 | `TTS_MODE=twilio ./start-app.sh` then `node fixes.mjs` | voice list and fallback voice, Twilio error webhook, ready times, allergy rule, one AI switch, 30s loop guard |
+| `node cash.mjs` | cash at pickup: card-or-cash on the call, ticket banner, tablet Paid in cash / No-show, card-only after a no-show, Settings limit and switch, nightly fee billing, menu Combo box |
 | `./sync-build.sh && ./start-app.sh` | rebuild after code changes |
 | `./reset-db.sh` | fresh database from `base-schema.sql` + all migrations |
 

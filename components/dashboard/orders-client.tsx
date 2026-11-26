@@ -6,7 +6,7 @@ import type { EndOfDaySummary } from "@/app/actions/reports";
 import { getEndOfDaySummaryAction } from "@/app/actions/reports";
 import { retrySubmitOrderAction } from "@/app/actions/orders";
 import { voidOrderAction, refundOrderAction } from "@/app/actions/payments";
-import { OrderStatusBadge, PaymentStatusBadge } from "@/components/dashboard/status-badges";
+import { OrderStatusBadge, PaymentStatusBadge, CashBadge } from "@/components/dashboard/status-badges";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,7 +170,7 @@ export function OrdersClient({
                       <div className="flex items-center gap-2">
                         <span className="text-[14px] font-semibold text-ink">{order.customer_name || "Phone order"}</span>
                         <OrderStatusBadge status={order.status} />
-                        {order.payment_status !== "not_required" && <PaymentStatusBadge status={order.payment_status} />}
+                        {order.payment_method === "cash" ? <CashBadge order={order} /> : order.payment_status !== "not_required" && <PaymentStatusBadge status={order.payment_status} />}
                       </div>
                       <div className="mt-0.5 text-[12px] text-text-muted">{order.phone} · {formatDateTime(order.created_at, timezone)}</div>
                     </div>

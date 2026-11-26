@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getCurrentBusinessId } from "@/lib/supabase/business";
 import { dbErrorResult } from "@/lib/errors";
@@ -66,6 +67,23 @@ export async function deleteCustomerAction(customerId: string): Promise<ActionRe
     .eq("business_id", businessId);
 
   if (error) return dbErrorResult(error, "deleteCustomerAction", "Could not delete that customer.");
+  revalidatePath("/dashboard/customers");
+  return { success: true };
+}
+
+/**
+ * A cash no-show (migration 052) makes a number card-only; this lets it
+ * pay cash at pickup again. Scoped to business_id like the actions above.
+ */
+export async function allowCashAgainAction(customerId: string): Promise<ActionResult> {
+  if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
+  const businessId = await getCurrentBusinessId();
+  if (!businessId) return { success: false, error: "Not signed in." };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("customers").update({ card_only_since: null }).eq("id", customerId).eq("business_id", businessId).select("id");
+  if (error) return dbErrorResult(error, "allowCashAgainAction", "Could not change that customer.");
+  if (!data?.length) return { success: false, error: "Could not find that customer." };
   revalidatePath("/dashboard/customers");
   return { success: true };
 }

@@ -46,3 +46,12 @@ export function IntegrationStatusBadge({ status }: { status: string }) {
   const entry = map[status] || { label: status, variant: "neutral" as const };
   return <Badge variant={entry.variant}>{entry.label}</Badge>;
 }
+
+/** Cash at pickup (migration 052): still to collect, collected, or never picked up. */
+export function CashBadge({ order }: { order: { payment_method?: string | null; payment_status: string; cash_collected_at?: string | null; no_show_at?: string | null; status: string } }) {
+  if (order.payment_method !== "cash") return null;
+  if (order.no_show_at) return <Badge variant="danger">No-show</Badge>;
+  if (order.cash_collected_at || order.payment_status === "paid") return <Badge variant="success">Paid in cash</Badge>;
+  if (order.status === "cancelled") return null;
+  return <Badge variant="brand">Cash at pickup</Badge>;
+}

@@ -196,6 +196,14 @@ export function buildTicketText(order: OrderWithItems, business: Pick<DbBusiness
   lines.push(business.name.toUpperCase());
   lines.push(`ORDER #${order.id.slice(0, 8).toUpperCase()}`);
   lines.push(order.fulfillment_type.toUpperCase());
+  // Cash at pickup: not paid yet, so it says so at the top, where whoever
+  // hands the order over can't miss it.
+  const cashDue = order.payment_method === "cash" && order.payment_status === "not_required";
+  if (cashDue) {
+    lines.push("================================");
+    lines.push(`CASH - COLLECT $${(order.total_cents / 100).toFixed(2)} AT PICKUP`);
+    lines.push("================================");
+  }
   // Allergies go at the top in capitals, so they're seen before anything
   // is cooked, not found at the bottom of the ticket afterwards.
   const allergyNotes = [order.special_instructions, ...order.items.map((i) => i.notes)].filter((n): n is string => Boolean(n && /allerg/i.test(n)));
@@ -216,6 +224,8 @@ export function buildTicketText(order: OrderWithItems, business: Pick<DbBusiness
   lines.push(`Subtotal: $${(order.subtotal_cents / 100).toFixed(2)}`);
   if (order.tax_cents > 0) lines.push(`Tax: $${(order.tax_cents / 100).toFixed(2)}`);
   lines.push(`Total: $${(order.total_cents / 100).toFixed(2)}`);
+  if (cashDue) lines.push("NOT PAID - CASH AT PICKUP");
+  else if (order.payment_method === "card" && order.payment_status === "paid") lines.push("PAID BY CARD");
   if (order.customer_name) lines.push(`Customer: ${order.customer_name}`);
   if (order.phone) lines.push(`Phone: ${order.phone}`);
   if (order.special_instructions) lines.push(`Notes: ${order.special_instructions}`);

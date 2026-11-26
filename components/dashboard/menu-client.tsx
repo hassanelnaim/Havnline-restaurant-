@@ -12,7 +12,7 @@ import {
   addModifierGroupAction, deleteModifierGroupAction,
   createAddonTemplateAction, renameAddonTemplateAction, addAddonTemplateOptionAction, deleteAddonOptionAction, deleteAddonTemplateAction,
   attachAddonTemplateAction, detachAddonTemplateAction,
-  updateMenuItemTimePricingAction, setItemSizesAction, copyItemSizesAction, removeDuplicateItemsAction,
+  updateMenuItemTimePricingAction, setItemSizesAction, setItemComboAction, copyItemSizesAction, removeDuplicateItemsAction,
   extractMenuFromWebsiteAction, extractMenuFromTextAction, extractMenuFromImageAction, extractMenuFromPdfAction, importMenuItemsAction,
 } from "@/app/actions/menu";
 import type { ExtractedMenuItem } from "@/lib/ai/websiteImport";
@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { PromotionsPanel } from "@/components/dashboard/promotions-panel";
 import { SizesEditor, type SizeRow } from "@/components/dashboard/sizes-editor";
 import { readSizes, priceRangeText, isSizeGroup, validateSizes } from "@/lib/menu/sizes";
+import { readCombo, isComboGroup } from "@/lib/menu/combo";
 import { parseMenuCsv } from "@/lib/menu/csvImport";
 import { dedupeImportItems, menuNameKey } from "@/lib/menu/importDedupe";
 
@@ -528,7 +529,26 @@ function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onR
 
   // Sizes (stored as the item's required "Size" choice; see lib/menu/sizes.ts)
   const sizes = readSizes(item);
-  const otherGroups = item.modifier_groups.filter((g) => !isSizeGroup(g));
+  const otherGroups = item.modifier_groups.filter((g) => !isSizeGroup(g) && !isComboGroup(g));
+
+  // Combo: the item's on-its-own price plus "Make it a combo" (lib/menu/combo.ts).
+  const combo = readCombo(item);
+  const [comboEditing, setComboEditing] = useState(false);
+  const [comboPrice, setComboPrice] = useState(combo ? (combo.comboPriceCents / 100).toFixed(2) : "");
+  const [comboWith, setComboWith] = useState(combo?.comesWith || "fries & a drink");
+  const [comboError, setComboError] = useState<string | null>(null);
+  const [comboBusy, setComboBusy] = useState(false);
+  function saveCombo(remove = false) {
+    setComboBusy(true);
+    setComboError(null);
+    startTransition(async () => {
+      const result = await setItemComboAction(item.id, remove ? null : { comboPrice, comesWith: comboWith });
+      setComboBusy(false);
+      if (!result.success) { setComboError(result.error || "Could not save the combo."); return; }
+      setComboEditing(false);
+      onRefresh();
+    });
+  }
   const toRows = () => (sizes ? sizes.map((s) => ({ name: s.name, price: (s.priceCents / 100).toFixed(2) })) : [{ name: "Small", price: (item.price_cents / 100).toFixed(2) }, { name: "Large", price: "" }]);
   const [sizeMode, setSizeMode] = useState<"view" | "edit" | "copy">("view");
   const [sizeDraft, setSizeDraft] = useState<SizeRow[]>(toRows);
@@ -802,6 +822,40 @@ function MenuItemRow({ item, addonTemplates, allItems, categories, onToggle, onR
                 </div>
               )}
               {sizeError && <p className="mt-2 text-[12px] text-danger">{sizeError}</p>}
+            </div>
+
+            <div>
+              <div className="text-[12.5px] font-semibold text-text">Combo <span className="font-normal text-text-faint">(the item&apos;s price above is the price on its own)</span></div>
+              {!comboEditing && (
+                combo ? (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-paper px-2.5 py-1 text-[12px] text-text">
+                      Combo <span className="font-medium tabular-nums">${(combo.comboPriceCents / 100).toFixed(2)}</span>{combo.comesWith ? ` · ${combo.comesWith}` : ""}
+                    </span>
+                    <button className="text-[12px] font-medium text-brand hover:underline" onClick={() => { setComboPrice((combo.comboPriceCents / 100).toFixed(2)); setComboWith(combo.comesWith); setComboEditing(true); setComboError(null); }}>Edit</button>
+                    <button className="text-[12px] font-medium text-text-muted hover:text-text" onClick={() => saveCombo(true)} disabled={comboBusy}>Remove</button>
+                  </div>
+                ) : (
+                  <button className="mt-1 text-[12px] font-medium text-text-muted hover:text-text" onClick={() => { setComboEditing(true); setComboError(null); }}>
+                    + Sold as a combo too? Set the combo price
+                  </button>
+                )
+              )}
+              {comboEditing && (
+                <div className="mt-2 flex flex-wrap items-end gap-3">
+                  <div>
+                    <Label htmlFor={`combo-price-${item.id}`} className="text-[11.5px]">Combo price</Label>
+                    <Input id={`combo-price-${item.id}`} inputMode="decimal" className="mt-1 w-28" placeholder="14.99" value={comboPrice} onChange={(e) => setComboPrice(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor={`combo-with-${item.id}`} className="text-[11.5px]">Comes with</Label>
+                    <Input id={`combo-with-${item.id}`} className="mt-1 w-48" placeholder="fries & a drink" value={comboWith} onChange={(e) => setComboWith(e.target.value)} />
+                  </div>
+                  <Button size="sm" variant="brand" onClick={() => saveCombo()} disabled={comboBusy}>{comboBusy ? "Saving…" : "Save combo"}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setComboEditing(false)} disabled={comboBusy}>Cancel</Button>
+                </div>
+              )}
+              {comboError && <p className="mt-2 text-[12px] text-danger">{comboError}</p>}
             </div>
 
             <div className="pt-1 text-[12.5px] font-semibold text-text">Options <span className="font-normal text-text-faint">(toppings, bread, cheese…)</span></div>

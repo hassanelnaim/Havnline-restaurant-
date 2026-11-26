@@ -45,6 +45,13 @@ export function DaySummaryCard({
         <Stat label="Refunded" value={formatCents(day.refundedCents)} warn={day.refundedCents > 0} />
         <Stat label="Cancelled" value={String(day.cancelledCount)} />
       </View>
+      {day.cashCents !== undefined && (day.cashCents > 0 || (day.noShowCount || 0) > 0) && (
+        <View style={styles.statRow}>
+          <Stat label="Card" value={formatCents(day.cardCents || 0)} />
+          <Stat label="Cash" value={formatCents(day.cashCents)} />
+          <Stat label="Cash to collect" value={formatCents(day.cashOutstandingCents || 0)} warn={(day.cashOutstandingCents || 0) > 0} />
+        </View>
+      )}
     </View>
   );
 }
@@ -71,6 +78,9 @@ export function buildDaySummaryTicket(businessName: string, label: string, day: 
     line("Sales tax", formatCents(day.taxCents)),
     line("Refunded", formatCents(day.refundedCents)),
     line("Cancelled", String(day.cancelledCount)),
+    ...(day.cashCents !== undefined && day.cashCents > 0
+      ? [line("Card", formatCents(day.cardCents || 0)), line("Cash", formatCents(day.cashCents)), line("Cash to collect", formatCents(day.cashOutstandingCents || 0)), line("No-shows", String(day.noShowCount || 0))]
+      : []),
     "--------------------------------",
     new Date().toLocaleString(),
   ].join("\n");

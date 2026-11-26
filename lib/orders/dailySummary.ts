@@ -13,6 +13,11 @@ export interface DailySummary {
   netCents: number;
   taxCents: number;
   refundedCents: number;
+  /** Cash at pickup (migration 052): sales paid or to be paid in cash, and how much is still to collect. */
+  cashCents: number;
+  cashOutstandingCents: number;
+  cardCents: number;
+  noShowCount: number;
 }
 
 interface SummarizableOrder {
@@ -22,6 +27,9 @@ interface SummarizableOrder {
   tax_cents: number;
   total_cents: number;
   amount_refunded_cents: number | null;
+  payment_method?: string | null;
+  cash_collected_at?: string | null;
+  no_show_at?: string | null;
 }
 
 export function buildDailySummary(dateKey: string, orders: SummarizableOrder[]): DailySummary {
@@ -34,5 +42,9 @@ export function buildDailySummary(dateKey: string, orders: SummarizableOrder[]):
     netCents: salesOrders.reduce((sum, o) => sum + o.subtotal_cents, 0),
     taxCents: salesOrders.reduce((sum, o) => sum + o.tax_cents, 0),
     refundedCents: orders.reduce((sum, o) => sum + (o.amount_refunded_cents || 0), 0),
+    cashCents: salesOrders.filter((o) => o.payment_method === "cash").reduce((sum, o) => sum + o.total_cents, 0),
+    cashOutstandingCents: salesOrders.filter((o) => o.payment_method === "cash" && !o.cash_collected_at).reduce((sum, o) => sum + o.total_cents, 0),
+    cardCents: salesOrders.filter((o) => o.payment_method !== "cash").reduce((sum, o) => sum + o.total_cents, 0),
+    noShowCount: orders.filter((o) => Boolean(o.no_show_at)).length,
   };
 }

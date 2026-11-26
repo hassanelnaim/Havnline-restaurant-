@@ -72,8 +72,14 @@ export const PLACING_ORDER_FILLERS: string[] = ["Got it, one moment.", "Okay, gi
 // make an ordinary "yes" look like the order-placing turn.
 const ASKS_FOR_DETAILS = /\b(your name|name and (a |your |the )?(phone )?number|phone number|best number|callback number|contact number|number to reach|number i can)\b/i;
 
+// The two questions whose answer places the order: permission to text the
+// payment link (card), and card-or-cash (a "cash" answer places it at once).
+// The launch test showed the caller waiting 3+ seconds in silence after
+// saying yes to the text, because only the name question used to count.
+const ASKS_TO_PLACE = /\b(okay|ok|alright|all right) to text you\b|\bpay by card now,? or (with )?cash\b|\bcard now,? or cash\b/i;
+
 export function asksForCustomerDetails(assistantReply: string | null | undefined): boolean {
-  return Boolean(assistantReply && ASKS_FOR_DETAILS.test(assistantReply));
+  return Boolean(assistantReply && (ASKS_FOR_DETAILS.test(assistantReply) || ASKS_TO_PLACE.test(assistantReply)));
 }
 
 // What an acknowledgement gets when the previous turn did real work. It

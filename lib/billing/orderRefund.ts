@@ -51,6 +51,7 @@ export async function processOrderRefund(
 
   const { data: order } = await admin.from("orders").select("*").eq("id", orderId).eq("business_id", businessId).single();
   if (!order) return { success: false, error: "Order not found." };
+  if (order.payment_method === "cash") return { success: false, error: "This order was paid in cash, so give the money back at the counter. There's no card payment to refund." };
   if (order.payment_status !== "paid" && order.payment_status !== "partially_refunded") {
     return { success: false, error: "This order hasn't been paid, so there's nothing to refund." };
   }

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { billCashOrderFees } from "@/lib/billing/cashFees";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/supabase/platform-admin";
@@ -45,8 +46,9 @@ function done(message?: string): HealthActionResult {
 export async function runJobNowAction(job: CronJob): Promise<HealthActionResult> {
   const denied = await guard();
   if (denied) return denied;
-  if (job !== "cleanup" && job !== "weekly-digest") return { success: false, error: "Unknown job." };
-  const outcome = await runCronJob(job, "manual", job === "cleanup" ? runNightlyCleanup : runWeeklyDigestJob);
+  if (job !== "cleanup" && job !== "weekly-digest" && job !== "cash-fees") return { success: false, error: "Unknown job." };
+  const work = job === "cleanup" ? runNightlyCleanup : job === "weekly-digest" ? runWeeklyDigestJob : () => billCashOrderFees();
+  const outcome = await runCronJob(job, "manual", work);
   revalidatePath("/admin/health");
   return outcome.ok ? { success: true, message: "Finished." } : { success: false, error: "Ran with errors. See the result below." };
 }

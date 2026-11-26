@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export type CronJob = "cleanup" | "weekly-digest";
+export type CronJob = "cleanup" | "weekly-digest" | "cash-fees";
 export type CronTrigger = "schedule" | "manual";
 
 export interface CronJobOutcome {
