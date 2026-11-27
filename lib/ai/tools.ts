@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { findAllergyMentions, type MenuTextItem } from "@/lib/ai/allergyCheck";
 import { withCallKey } from "@/lib/ai/callUrlKey";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { smsClient } from "@/lib/integrations/sms";
@@ -592,6 +593,47 @@ async function get_current_order(_input: unknown, ctx: ToolContext): Promise<Too
   return { items: itemsWithModifiers, subtotal: order.subtotal_cents / 100 };
 }
 
+/**
+ * The caller named an allergy: write it on the order for the kitchen
+ * ("ALLERGY: tomatoes", printed at the top of the ticket) and report what
+ * the menu text of the items already ordered says about it, so the AI can
+ * point it out ("the cheeseburger comes with tomato") instead of only
+ * noting it. Never says anything is safe.
+ */
+async function note_allergy(input: { allergy: string }, ctx: ToolContext): Promise<ToolResult> {
+  const allergy = String(input.allergy || "").trim().slice(0, 120);
+  if (!allergy) return { success: false, reason: "Say which allergy (for example \"tomatoes\" or \"peanuts\")." };
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("id, special_instructions").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
+
+  let items: MenuTextItem[] = [];
+  if (order) {
+    const line = `ALLERGY: ${allergy}`;
+    const current = order.special_instructions || "";
+    if (!current.toLowerCase().includes(line.toLowerCase())) {
+      await soft("note the allergy", admin.from("orders").update({ special_instructions: current ? `${current}\n${line}` : line }).eq("id", order.id));
+    }
+    const { data: rows } = await admin.from("order_items").select("id, item_name, menu_item_id").eq("order_id", order.id);
+    const ids = (rows || []).map((r) => r.id);
+    const { data: mods } = ids.length ? await admin.from("order_item_modifiers").select("order_item_id, modifier_name").in("order_item_id", ids) : { data: [] as { order_item_id: string; modifier_name: string }[] };
+    items = (rows || []).map((r) => {
+      const menuItem = ctx.context.menu.find((m) => m.id === r.menu_item_id) || ctx.context.menu.find((m) => m.name.toLowerCase() === r.item_name.toLowerCase());
+      return { name: r.item_name, description: menuItem?.description || null, modifiers: (mods || []).filter((m) => m.order_item_id === r.id).map((m) => m.modifier_name) };
+    });
+  }
+  const menuMentions = findAllergyMentions(allergy, items);
+  return {
+    success: true,
+    noted_for_kitchen: Boolean(order),
+    menu_mentions: menuMentions.map((m) => `${m.item}: the menu says "${m.menuSays}" (${m.allergen})`),
+    instruction: menuMentions.length
+      ? "Tell the caller exactly which of their items the menu says has it (for example \"Heads up, the cheeseburger comes with tomato.\") and offer to leave it off or change the item. Then say you've noted the allergy for the kitchen but can't guarantee anything, so they should tell the staff at pickup."
+      : order
+        ? "The menu text for their items doesn't mention it, which doesn't mean it's safe. Say you've noted the allergy for the kitchen but can't guarantee anything, so they should tell the staff at pickup. If they add more items later, call note_allergy again."
+        : "Nothing is ordered yet. Remember the allergy, and call note_allergy again once they've ordered, so it's written on the order and checked against their items.",
+  };
+}
+
 async function confirm_and_place_order(
   input: { customer_name: string; phone?: string; number_confirmed?: boolean; text_consent?: boolean; special_instructions?: string; payment_method?: "card" | "cash" },
   ctx: ToolContext
@@ -724,7 +766,7 @@ async function confirm_and_place_order(
       customer_id: customerId,
       customer_name: input.customer_name,
       phone: textTo,
-      special_instructions: input.special_instructions || null,
+      special_instructions: mergeInstructions(order.special_instructions, input.special_instructions),
     })
     .eq("id", order.id)
     .eq("status", "building")
@@ -969,6 +1011,14 @@ const TEXT_CONSENT_NO_YES_REASON =
 const TEXT_CONSENT_REASON =
   "Before placing the order, ask the caller if it's okay to text the payment link to the number they're calling from (or the number they gave), and wait for a clear yes. Then call confirm_and_place_order again with text_consent: true. If they say no, explain that paying by the texted link is the only way to place a phone order here, and offer to have someone from the restaurant call them back (escalate_to_human).";
 
+/** Keeps allergy lines note_allergy already wrote when the order is placed with its own notes. */
+function mergeInstructions(existing: string | null | undefined, given: string | null | undefined): string | null {
+  const lines = [...(existing || "").split("\n"), ...(given || "").split("\n")].map((l) => l.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const out = lines.filter((l) => (seen.has(l.toLowerCase()) ? false : (seen.add(l.toLowerCase()), true)));
+  return out.length ? out.join("\n") : null;
+}
+
 const CASH_OFF_REASON =
   "This restaurant doesn't take cash for phone orders, so nothing was placed. Tell the caller that phone orders are paid by card through a texted link, and ask if that's okay.";
 const CARD_ONLY_REASON =
@@ -1164,6 +1214,7 @@ export const TOOL_HANDLERS: Record<string, (input: any, ctx: ToolContext) => Pro
   update_item_quantity,
   update_item_modifiers,
   get_current_order,
+  note_allergy,
   confirm_and_place_order,
   escalate_to_human,
   transfer_call,
@@ -1213,6 +1264,11 @@ export const TOOL_DEFINITIONS = [
       },
       required: ["item_name"],
     },
+  },
+  {
+    name: "note_allergy",
+    description: "Call this as soon as the caller names an allergy or something they can't eat. It writes the allergy on the order for the kitchen and tells you what the menu says about it for the items they ordered (menu_mentions). Say those mentions to the caller.",
+    input_schema: { type: "object" as const, properties: { allergy: { type: "string", description: "What they're allergic to, in their words, e.g. \"tomatoes\" or \"peanuts\"." } }, required: ["allergy"] },
   },
   { name: "get_current_order", description: "Get the full list of items and running subtotal for the order being built on this call. The current order is already provided to you at the start of every turn and in every add/change/remove result, so you normally do NOT need this — call it only if you are unsure the order you have is up to date.", input_schema: { type: "object" as const, properties: {} } },
   {

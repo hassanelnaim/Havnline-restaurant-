@@ -21,6 +21,7 @@ everything once; afterwards:
 | `node settings-phone.mjs` | Settings refuses the HavnLine number as the main or escalation phone |
 | `TTS_MODE=twilio ./start-app.sh` then `node fixes.mjs` | voice list and fallback voice, Twilio error webhook, ready times, allergy rule, one AI switch, 30s loop guard |
 | `node cash.mjs` | cash at pickup: card-or-cash on the call, ticket banner, tablet Paid in cash / No-show, card-only after a no-show, Settings limit and switch, nightly fee billing, menu Combo box |
+| `node menu-ui.mjs` | menu page: equal-size categories, add/edit panel (combo, sizes, add-ons, special price), delete, phone width; note_allergy finds tomato in a cheeseburger |
 | `./sync-build.sh && ./start-app.sh` | rebuild after code changes |
 | `./reset-db.sh` | fresh database from `base-schema.sql` + all migrations |
 

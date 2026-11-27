@@ -31,7 +31,7 @@ async function requireBusinessId(): Promise<string> {
   return businessId;
 }
 
-export async function addMenuCategoryAction(name: string): Promise<ActionResult> {
+export async function addMenuCategoryAction(name: string): Promise<ActionResult & { categoryId?: string }> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
@@ -39,10 +39,10 @@ export async function addMenuCategoryAction(name: string): Promise<ActionResult>
   if (!trimmed) return { success: false, error: "Give the category a name." };
   const { data: cats } = await admin.from("menu_categories").select("name").eq("business_id", businessId);
   if ((cats || []).some((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase())) return { success: false, error: `You already have a "${trimmed}" category.` };
-  const { error } = await admin.from("menu_categories").insert({ business_id: businessId, name: trimmed });
-  if (error) return dbErrorResult(error, "addMenuCategoryAction", "Could not add that category.");
+  const { data: created, error } = await admin.from("menu_categories").insert({ business_id: businessId, name: trimmed }).select("id").single();
+  if (error || !created) return dbErrorResult(error, "addMenuCategoryAction", "Could not add that category.");
   revalidatePath("/dashboard/menu");
-  return { success: true };
+  return { success: true, categoryId: created.id };
 }
 
 export interface MenuItemInput {
@@ -70,7 +70,7 @@ async function findSameNamedItem(admin: AnyAdmin, businessId: string, name: stri
 
 const alreadyOnMenu = (existing: string) => `"${existing}" is already on your menu. Edit that item instead of adding it again.`;
 
-export async function addMenuItemAction(input: MenuItemInput & { newCategoryName?: string; sizes?: { name: string; price: string }[] }): Promise<ActionResult> {
+export async function addMenuItemAction(input: MenuItemInput & { newCategoryName?: string; sizes?: { name: string; price: string }[] }): Promise<ActionResult & { itemId?: string }> {
   if (!isSupabaseConfigured()) return { success: false, error: "Not configured." };
   const businessId = await requireBusinessId();
   const admin = createAdminClient();
@@ -115,7 +115,7 @@ export async function addMenuItemAction(input: MenuItemInput & { newCategoryName
     if (!sized.success) return sized;
   }
   revalidatePath("/dashboard/menu");
-  return { success: true };
+  return { success: true, itemId: created.id };
 }
 
 type AdminClient = ReturnType<typeof createAdminClient>;
