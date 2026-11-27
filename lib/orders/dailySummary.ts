@@ -42,7 +42,11 @@ export function buildDailySummary(dateKey: string, orders: SummarizableOrder[]):
     netCents: salesOrders.reduce((sum, o) => sum + o.subtotal_cents, 0),
     taxCents: salesOrders.reduce((sum, o) => sum + o.tax_cents, 0),
     refundedCents: orders.reduce((sum, o) => sum + (o.amount_refunded_cents || 0), 0),
-    cashCents: salesOrders.filter((o) => o.payment_method === "cash").reduce((sum, o) => sum + o.total_cents, 0),
+    // Cash is what's in the drawer: after any cash given back. A partly
+    // refunded cash order still counts here (it isn't in salesOrders).
+    cashCents: orders
+      .filter((o) => o.payment_method === "cash" && o.status !== "building" && o.status !== "cancelled" && ["not_required", "paid", "partially_refunded"].includes(o.payment_status))
+      .reduce((sum, o) => sum + o.total_cents - (o.amount_refunded_cents || 0), 0),
     cashOutstandingCents: salesOrders.filter((o) => o.payment_method === "cash" && !o.cash_collected_at).reduce((sum, o) => sum + o.total_cents, 0),
     cardCents: salesOrders.filter((o) => o.payment_method !== "cash").reduce((sum, o) => sum + o.total_cents, 0),
     noShowCount: orders.filter((o) => Boolean(o.no_show_at)).length,

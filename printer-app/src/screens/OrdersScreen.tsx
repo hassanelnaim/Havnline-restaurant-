@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from "react-native";
-import { fetchTodayOrders, closeCashOrder, TodayOrder, MoneyActionType, DashboardDay } from "../lib/api";
+import { fetchTodayOrders, closeCashOrder, TodayOrder, MoneyActionType, MoneyActionResult, DashboardDay } from "../lib/api";
 import { MoneyActionModal, MoneyActionToken } from "../components/MoneyActionModal";
 import { AddItemModal } from "../components/AddItemModal";
 import { AddSpecialModal } from "../components/AddSpecialModal";
@@ -24,6 +24,8 @@ function statusLabel(order: TodayOrder): { text: string; color: string } {
   if (order.no_show_at) return { text: "No-show", color: "#9AA3B2" };
   if (order.status === "cancelled") return { text: "Cancelled", color: "#9AA3B2" };
   if (order.payment_method === "cash") {
+    if (order.payment_status === "refunded") return { text: "Refunded (cash)", color: "#A78BFA" };
+    if (order.payment_status === "partially_refunded") return { text: "Part refunded (cash)", color: "#A78BFA" };
     if (order.cash_collected_at || order.payment_status === "paid") return { text: "Paid (cash)", color: "#22C55E" };
     return { text: `Collect cash ${formatCents(order.total_cents)}`, color: "#FBBF24" };
   }
@@ -161,9 +163,13 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
   const [addingSpecial, setAddingSpecial] = useState(false);
 
   const remainingCents = order.total_cents - order.amount_refunded_cents;
-  // A cash order has no card payment to refund or discount; cash goes back over the counter.
+  // A cash order can be refunded or discounted once it's been paid in cash;
+  // the money goes back from the drawer, and the order records it.
   const isCash = order.payment_method === "cash";
-  const canMoveMoney = !isCash && remainingCents > 0 && order.status !== "cancelled" && (order.payment_status === "paid" || order.payment_status === "partially_refunded");
+  const canMoveMoney =
+    remainingCents > 0 &&
+    order.status !== "cancelled" &&
+    (isCash ? Boolean(order.cash_collected_at) && order.payment_status !== "refunded" : order.payment_status === "paid" || order.payment_status === "partially_refunded");
   const cashDue = isCash && order.status !== "cancelled" && !order.cash_collected_at && order.payment_status !== "paid";
   const [cashBusy, setCashBusy] = useState(false);
   const [confirmNoShow, setConfirmNoShow] = useState(false);
@@ -185,9 +191,14 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
   }
   const canAddItems = order.status !== "cancelled";
 
-  function handleActionSuccess(actionType: MoneyActionType) {
+  function handleActionSuccess(actionType: MoneyActionType, result: MoneyActionResult) {
     setPendingAction(null);
-    setActionMessage(actionType === "refund" ? "Refund issued." : "Discount applied.");
+    const amount = formatCents(result.refundedCents || 0);
+    setActionMessage(
+      isCash
+        ? `Recorded. Give ${amount} back to the customer in cash.`
+        : actionType === "refund" ? "Refund issued." : "Discount applied."
+    );
     onOrderChanged();
     setTimeout(() => setActionMessage(null), 3500);
   }
@@ -317,7 +328,8 @@ function OrderDetail({ order, deviceToken, moneyActionToken, onTokenAcquired, on
           moneyActionToken={moneyActionToken}
           onTokenAcquired={onTokenAcquired}
           onClose={() => setPendingAction(null)}
-          onSuccess={() => handleActionSuccess(pendingAction)}
+          isCash={isCash}
+          onSuccess={(result) => handleActionSuccess(pendingAction, result)}
         />
       )}
 

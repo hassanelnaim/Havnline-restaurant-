@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadBusinessContext } from "./context";
 import { runTurn, type ConversationMessage, type RunTurnResult } from "./claude";
-import type { ToolContext } from "./tools";
+import { TOOL_HANDLERS, type ToolContext } from "./tools";
+import { allergiesOnCall, allergyFromSpeech, askedAboutAllergy, findAllergyMentions, headsUpLine, unsaidMentions, type AllergyMention } from "./allergyCheck";
 import { createTimer, shortId, type Timer } from "@/lib/monitoring/timing";
 import { loadCurrentOrder } from "./orderState";
 import { encodeToolCalls, decodeToolCalls, waitForTurnReply } from "./turnRecord";
@@ -223,7 +224,14 @@ export async function handleTurn(
 
     // Every phone order is paid by card through the texted link before it
     // reaches the kitchen; no caller can skip that.
-    const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone, recentWords };
+    // Allergies the caller has named so far, heard in code rather than left
+    // to the AI (the launch test: "allergic to tomatoes" on a cheeseburger
+    // got only "I'll note it"). The current message is checked against the
+    // AI's last line, so "yes, tomatoes" after "any allergies?" counts.
+    const menuNames = context.menu.map((m) => m.name);
+    const callerAllergies = allergiesOnCall([...priorRows, { role: "customer", content: userMessage }], menuNames);
+    const allergyThisTurn = allergyFromSpeech(userMessage, askedAboutAllergy(recentWords.lastAssistant), menuNames);
+    const toolCtx: ToolContext = { businessId, callId, channel, context, callerPhone, recentWords, callerAllergies };
     let result: RunTurnResult;
     try {
       result = await runTurn(history, userMessage, toolCtx, { currentOrder });
@@ -241,6 +249,11 @@ export async function handleTurn(
       timer.set("cache_write", result.stats.cacheWriteTokens);
       timer.set("input_tokens", result.stats.inputTokens);
     }
+
+    // An allergy named this turn always gets checked against the order, and
+    // whatever the menu says about it is always said, even if the AI skipped
+    // note_allergy or left the warning out of its reply.
+    result = await ensureAllergyHandled(result, allergyThisTurn, toolCtx);
 
     // The caller must hear that the order only goes to the kitchen once
     // they pay the texted link. The model is told to say it, but if a reply
@@ -314,4 +327,53 @@ export async function endCall(callId: string, durationSeconds: number): Promise<
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new Error(`Could not mark call ${callId} completed: ${lastError?.message}`);
+}
+
+const ALLERGY_LINE = "I've noted your allergy for the kitchen, but I can't guarantee anything is allergen-free, so please let the staff know when you pick up.";
+
+/**
+ * The code-side half of the allergy check (lib/ai/allergyCheck.ts). If the
+ * caller named an allergy this turn and the AI didn't call note_allergy, it
+ * is run here, now that any items from this turn are on the order. Every
+ * menu mention from note_allergy or add_item_to_order that the reply doesn't
+ * already say is put in front of the reply.
+ */
+async function ensureAllergyHandled(result: RunTurnResult, allergyThisTurn: string | null, toolCtx: ToolContext): Promise<RunTurnResult> {
+  const placed = result.toolCalls.some((t) => t.name === "confirm_and_place_order" && (t.result as { success?: boolean } | null)?.success);
+  const calledNote = result.toolCalls.some((t) => t.name === "note_allergy");
+  let toolCalls = result.toolCalls;
+  let ranHere = false;
+  if (allergyThisTurn && !calledNote && !placed) {
+    try {
+      const noteResult = await TOOL_HANDLERS.note_allergy({ allergy: allergyThisTurn }, toolCtx);
+      toolCalls = [...toolCalls, { name: "note_allergy", input: { allergy: allergyThisTurn, by: "havnline" }, result: noteResult }];
+      ranHere = true;
+    } catch (err) {
+      console.error("[allergy] could not run note_allergy for the caller:", err);
+    }
+  }
+  const mentions: AllergyMention[] = [];
+  for (const t of toolCalls) {
+    const r = (t.result || {}) as { menu_mentions?: string[]; allergy_warning?: string[] };
+    const lines = t.name === "note_allergy" ? r.menu_mentions : t.name === "add_item_to_order" ? r.allergy_warning : undefined;
+    for (const line of lines || []) {
+      const m = parseMentionLine(line);
+      if (m && !mentions.some((x) => x.item === m.item && x.allergen === m.allergen)) mentions.push(m);
+    }
+  }
+  const unsaid = unsaidMentions(result.reply, mentions);
+  let reply = result.reply.trim();
+  if (ranHere && !/allerg/i.test(reply)) reply = `${ALLERGY_LINE} ${reply}`.trim();
+  if (unsaid.length) reply = `${headsUpLine(unsaid, { ask: !reply })} ${reply}`.trim();
+  if (reply === result.reply.trim() && toolCalls === result.toolCalls) return result;
+  if (unsaid.length || ranHere) console.log(`[allergy] call ${toolCtx.callId}: ${ranHere ? "ran the check in code" : "AI ran it"}; added ${unsaid.length} warning(s) the reply left out`);
+  return { ...result, reply, toolCalls };
+}
+
+/** Reads back `Cheeseburger: the menu says "lettuce, tomato" (tomatoes)` into a mention. */
+function parseMentionLine(line: string): AllergyMention | null {
+  const m = /^(.*?): the menu says "(.*)" \((.*)\)$/.exec(line);
+  if (!m) return null;
+  const found = findAllergyMentions(m[3], [{ name: m[1], description: m[2] }]);
+  return found[0] || null;
 }

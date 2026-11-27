@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { findAllergyMentions, type MenuTextItem } from "@/lib/ai/allergyCheck";
+import { findAllergyMentions, headsUpLine, type MenuTextItem } from "@/lib/ai/allergyCheck";
 import { withCallKey } from "@/lib/ai/callUrlKey";
 import { runAfterResponse } from "@/lib/runtime/afterResponse";
 import { smsClient } from "@/lib/integrations/sms";
@@ -36,6 +36,11 @@ export interface ToolContext {
   // really asked for the specific item the model chose (see
   // lib/menu/similarItems.ts). Optional: without it the check is skipped.
   recentWords?: { customer: string[]; lastAssistant: string | null };
+  // Allergies the caller has named on this call so far, heard in code
+  // (lib/ai/allergyCheck.ts allergiesOnCall). add_item_to_order writes them
+  // on the order and checks each new item against them, so an allergy said
+  // before the food is ordered still gets checked.
+  callerAllergies?: string[];
 }
 
 export interface ToolResult {
@@ -627,7 +632,7 @@ async function note_allergy(input: { allergy: string }, ctx: ToolContext): Promi
     noted_for_kitchen: Boolean(order),
     menu_mentions: menuMentions.map((m) => `${m.item}: the menu says "${m.menuSays}" (${m.allergen})`),
     instruction: menuMentions.length
-      ? "Tell the caller exactly which of their items the menu says has it (for example \"Heads up, the cheeseburger comes with tomato.\") and offer to leave it off or change the item. Then say you've noted the allergy for the kitchen but can't guarantee anything, so they should tell the staff at pickup."
+      ? `Tell the caller now: "${headsUpLine(menuMentions)}" Then say you've noted the allergy for the kitchen but can't guarantee anything, so they should tell the staff at pickup.`
       : order
         ? "The menu text for their items doesn't mention it, which doesn't mean it's safe. Say you've noted the allergy for the kitchen but can't guarantee anything, so they should tell the staff at pickup. If they add more items later, call note_allergy again."
         : "Nothing is ordered yet. Remember the allergy, and call note_allergy again once they've ordered, so it's written on the order and checked against their items.",
@@ -1204,12 +1209,42 @@ async function transfer_call(_input: unknown, _ctx: ToolContext): Promise<ToolRe
 // caller gets are the ones they agreed to on the call: the payment link,
 // then the payment receipt (and a refund notice if they're refunded).
 
+/**
+ * add_item_to_order, plus the allergy check: when the caller has named an
+ * allergy on this call, it goes on the order (ALLERGY: x, once) and the new
+ * item's menu text is checked against it. A match comes back as
+ * allergy_warning, which the AI must say (and the reply is checked for it
+ * in lib/ai/receptionist.ts).
+ */
+async function add_item_with_allergy_check(input: Parameters<typeof add_item_to_order>[0], ctx: ToolContext): Promise<ToolResult> {
+  const result = await add_item_to_order(input, ctx);
+  const allergies = ctx.callerAllergies || [];
+  const added = result.added as { item?: string; modifiers?: string[] } | undefined;
+  if (!allergies.length || result.success !== true || !added?.item) return result;
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("id, special_instructions").eq("call_id", ctx.callId).eq("status", "building").maybeSingle();
+  if (order) {
+    const current = order.special_instructions || "";
+    const missing = allergies.map((a) => `ALLERGY: ${a}`).filter((line) => !current.toLowerCase().includes(line.toLowerCase()));
+    if (missing.length) await soft("note the allergy", admin.from("orders").update({ special_instructions: [current, ...missing].filter(Boolean).join("\n") }).eq("id", order.id));
+  }
+  const menuItem = ctx.context.menu.find((m) => m.name.toLowerCase() === added.item!.toLowerCase());
+  const mentions = allergies.flatMap((a) => findAllergyMentions(a, [{ name: added.item!, description: menuItem?.description || null, modifiers: added.modifiers || [] }]));
+  if (!mentions.length) return { ...result, allergy_noted_for_kitchen: allergies };
+  return {
+    ...result,
+    allergy_noted_for_kitchen: allergies,
+    allergy_warning: mentions.map((m) => `${m.item}: the menu says "${m.menuSays}" (${m.allergen})`),
+    allergy_instruction: `Tell the caller now: "${headsUpLine(mentions)}"`,
+  };
+}
+
 export const TOOL_HANDLERS: Record<string, (input: any, ctx: ToolContext) => Promise<ToolResult>> = {
   get_business_information,
   get_menu,
   lookup_customer,
   create_customer,
-  add_item_to_order,
+  add_item_to_order: add_item_with_allergy_check,
   remove_item_from_order,
   update_item_quantity,
   update_item_modifiers,

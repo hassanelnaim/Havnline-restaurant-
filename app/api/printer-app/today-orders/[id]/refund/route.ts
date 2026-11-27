@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateDevice } from "@/lib/integrations/printer-app";
 import { verifyMoneyActionToken } from "@/lib/security/moneyActionToken";
 import { processOrderRefund } from "@/lib/billing/orderRefund";
+import { refundCashOrder } from "@/lib/orders/cashOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -64,13 +65,19 @@ async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: str
 
   const reason = reasonInput || (actionType === "discount" ? "Discount applied from tablet" : "Refund issued from tablet");
 
-  const result = await processOrderRefund(device.businessId, params.id, amountCents, reason, { refundedByUserId: null });
+  // A cash order's money goes back over the counter (lib/orders/cashOrders.ts);
+  // everything else is a real Stripe refund.
+  const admin = createAdminClient();
+  const { data: kind } = await admin.from("orders").select("payment_method").eq("id", params.id).eq("business_id", device.businessId).maybeSingle();
+  const isCash = kind?.payment_method === "cash";
+  const result = isCash
+    ? await refundCashOrder(device.businessId, params.id, amountCents, reason)
+    : await processOrderRefund(device.businessId, params.id, amountCents, reason, { refundedByUserId: null });
   if (!result.success) return NextResponse.json(result, { status: 400 });
 
   // Audit trail (migration 021) — best-effort. The refund itself
   // already succeeded and is recorded on the order row; failing to
   // write this extra log entry shouldn't fail the whole request.
-  const admin = createAdminClient();
   await admin.from("tablet_money_actions").insert({
     business_id: device.businessId,
     device_id: device.deviceId,
@@ -80,7 +87,7 @@ async function handlePOST(request: NextRequest, ctx: { params: Promise<{ id: str
     reason,
   });
 
-  return NextResponse.json(result);
+  return NextResponse.json({ ...result, ...(isCash ? { cash: true } : {}) });
 }
 
 export const POST = guardRoute("printer-app/today-orders/[id]/refund POST", handlePOST);

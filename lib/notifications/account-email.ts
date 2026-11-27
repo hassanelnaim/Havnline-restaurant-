@@ -169,6 +169,8 @@ export async function sendOrderRefundedEmail(input: {
   refundedCents: number;
   fullyRefunded: boolean;
   reason: string;
+  /** "cash": handed back at the counter from the tablet, not sent to a card. */
+  method?: "card" | "cash";
 }): Promise<void> {
   const admin = createAdminClient();
   const { data: business } = await admin.from("businesses").select("name").eq("id", input.businessId).single();
@@ -178,7 +180,9 @@ export async function sendOrderRefundedEmail(input: {
   const html = renderEmailLayout({
     preheader: `${formatCents(input.refundedCents)} was refunded on an order at ${business.name}.`,
     heading: input.fullyRefunded ? "An order was refunded" : "An order was partially refunded",
-    intro: `<strong>${formatCents(input.refundedCents)}</strong> was just refunded back to the customer's card on an order at <strong>${escapeHtml(business.name)}</strong>.`,
+    intro: input.method === "cash"
+      ? `<strong>${formatCents(input.refundedCents)}</strong> was just refunded in cash, from the tablet, on a cash order at <strong>${escapeHtml(business.name)}</strong>.`
+      : `<strong>${formatCents(input.refundedCents)}</strong> was just refunded back to the customer's card on an order at <strong>${escapeHtml(business.name)}</strong>.`,
     rows: [
       { label: "Customer", value: escapeHtml(input.customerName || "Phone order") },
       ...(input.customerPhone ? [{ label: "Phone", value: `<span style="font-family: 'IBM Plex Mono', Menlo, Consolas, monospace; font-size: 13px;">${escapeHtml(input.customerPhone)}</span>` }] : []),

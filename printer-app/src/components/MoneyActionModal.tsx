@@ -18,6 +18,8 @@ interface Props {
   onTokenAcquired: (token: MoneyActionToken) => void;
   onClose: () => void;
   onSuccess: (result: MoneyActionResult) => void;
+  /** A cash order: nothing goes to a card, the money comes out of the drawer. */
+  isCash?: boolean;
 }
 
 type Step = "pin" | "amount";
@@ -40,7 +42,7 @@ function centsToDollarsString(cents: number): string {
  * a refund defaults to the full remaining balance but can be edited
  * down to a partial refund.
  */
-export function MoneyActionModal({ deviceToken, orderId, actionType, maxRefundableCents, moneyActionToken, onTokenAcquired, onClose, onSuccess }: Props) {
+export function MoneyActionModal({ deviceToken, orderId, actionType, maxRefundableCents, moneyActionToken, onTokenAcquired, onClose, onSuccess, isCash = false }: Props) {
   // This sheet is pinned to the bottom of the screen (backdrop below
   // is justifyContent: "flex-end") — on a device whose system
   // back/home/recents area overlaps app content (common on Android,
@@ -149,8 +151,11 @@ export function MoneyActionModal({ deviceToken, orderId, actionType, maxRefundab
             </>
           ) : (
             <>
-              <Text style={styles.title}>{actionType === "refund" ? "Issue refund" : "Apply discount"}</Text>
-              <Text style={styles.subtitle}>Up to ${centsToDollarsString(maxRefundableCents)} remaining on this order.</Text>
+              <Text style={styles.title}>{actionType === "refund" ? (isCash ? "Refund in cash" : "Issue refund") : "Apply discount"}</Text>
+              <Text style={styles.subtitle}>
+                Up to ${centsToDollarsString(maxRefundableCents)} remaining on this order.
+                {isCash ? " This was paid in cash, so give the money back from the drawer. Nothing goes to a card." : ""}
+              </Text>
 
               <Text style={styles.label}>Amount ($)</Text>
               <TextInput style={styles.amountInput} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#5B6472" />
@@ -171,7 +176,7 @@ export function MoneyActionModal({ deviceToken, orderId, actionType, maxRefundab
                   <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.confirmButton} onPress={handleSubmit} disabled={submitting}>
-                  {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmText}>{actionType === "refund" ? "Refund" : "Apply discount"}</Text>}
+                  {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmText}>{actionType === "refund" ? (isCash ? "Refund cash" : "Refund") : "Apply discount"}</Text>}
                 </TouchableOpacity>
               </View>
             </>

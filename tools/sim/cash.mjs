@@ -177,14 +177,19 @@ await scenario("combo: menu editor combo price; AI sees the combo add-on", async
   const item = await one("select id, name, price_cents from menu_items where business_id=$1 and name='Cheeseburger'", [R.biz.id]);
   await p.goto(APP + "/dashboard/menu");
   await p.waitForLoadState("networkidle");
-  await p.getByText("Cheeseburger", { exact: true }).first().click();
-  await p.getByRole("button", { name: /Sold as a combo too/ }).first().click();
-  await p.fill(`#combo-price-${item.id}`, ((item.price_cents - 100) / 100).toFixed(2));
-  await p.getByRole("button", { name: "Save combo" }).click();
-  await p.getByText(/combo price has to be more/).waitFor({ timeout: 8000 });
-  await p.fill(`#combo-price-${item.id}`, ((item.price_cents + 700) / 100).toFixed(2));
-  await p.fill(`#combo-with-${item.id}`, "fries & a drink");
-  await p.getByRole("button", { name: "Save combo" }).click();
+  // The rebuilt menu page: the item's side panel, "Sold as a combo" switch.
+  await p.getByRole("button", { name: /Edit Cheeseburger/ }).first().click();
+  const dlg = p.getByRole("dialog");
+  await dlg.waitFor();
+  await dlg.locator("#opt-combo").click();
+  await p.fill("#combo-price", ((item.price_cents - 100) / 100).toFixed(2));
+  await dlg.getByRole("button", { name: "Save changes" }).click();
+  await dlg.getByRole("alert").waitFor({ timeout: 8000 });
+  check(/has to be more/.test(await dlg.getByRole("alert").innerText()), "combo below price not refused");
+  await p.fill("#combo-price", ((item.price_cents + 700) / 100).toFixed(2));
+  await p.fill("#combo-with", "fries & a drink");
+  await dlg.getByRole("button", { name: "Save changes" }).click();
+  await dlg.waitFor({ state: "detached", timeout: 15000 });
   await sleep(2000);
   const mod = await one("select m.name, m.price_delta_cents, g.is_required from modifiers m join modifier_groups g on g.id=m.modifier_group_id where g.menu_item_id=$1 and g.name='Combo'", [item.id]);
   check(mod?.name === "Make it a combo (fries & a drink)" && mod.price_delta_cents === 700 && mod.is_required === false, "combo option " + JSON.stringify(mod));

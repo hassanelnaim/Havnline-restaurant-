@@ -23,6 +23,7 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 function changedExactlyAsAsked(call: Call): boolean {
   const r = (call.result || {}) as Record<string, unknown>;
   if (r.success !== true || r.needs_choice) return false;
+  if (r.allergy_warning) return false; // the caller has to hear it; let the model see it
   const input = (call.input || {}) as Record<string, unknown>;
 
   if (call.name === "add_item_to_order") {
